@@ -134,7 +134,7 @@ def cutter_box(cx, cy, cz, sx, sy, sz, rot_z=0.0):
 
 def cutter_cyl(cx, cy, cz, r, depth, axis_rot):
     bm = bmesh.new()
-    bmesh.ops.create_cone(bm, cap_ends=True, segments=16, radius1=r, radius2=r, depth=depth)
+    bmesh.ops.create_cone(bm, cap_ends=True, segments=32, radius1=r, radius2=r, depth=depth)
     o = obj_from_bm(bm, 'cut', 'dark', 'cutters')
     o.location = (cx, cy, cz); o.rotation_euler = axis_rot
     return o
@@ -180,8 +180,15 @@ def sweep(name, pts, radii, role, segs=8, square=False, cap=True, closed=False):
     n = (ref - tangents[0] * ref.dot(tangents[0])).normalized()
     bm = bmesh.new(); rings = []
     k = 4 if square else segs
+    if closed:
+        # flat loops (wreaths): orient every section by the loop's plane normal (Newell) -> no twist, no seam
+        pn = Vector((0, 0, 0))
+        for i in range(len(pts)):
+            a_, b_ = pts[i], pts[(i + 1) % len(pts)]
+            pn += Vector(((a_.y - b_.y) * (a_.z + b_.z), (a_.z - b_.z) * (a_.x + b_.x), (a_.x - b_.x) * (a_.y + b_.y)))
+        pn.normalize()
     for i, (p, t) in enumerate(zip(pts, tangents)):
-        n = (n - t * n.dot(t)).normalized()
+        n = (pn - t * pn.dot(t)).normalized() if closed else (n - t * n.dot(t)).normalized()
         bnorm = t.cross(n)
         ring = []
         for j in range(k):
@@ -190,10 +197,7 @@ def sweep(name, pts, radii, role, segs=8, square=False, cap=True, closed=False):
         rings.append(ring)
     pairs = list(zip(rings, rings[1:]))
     if closed:
-        # parallel transport leaves a twist after one loop: re-index the last ring to the nearest start
-        first, last = rings[0], rings[-1]
-        off = min(range(k), key=lambda o: (first[0].co - last[o].co).length)
-        pairs.append(([last[(j + off) % k] for j in range(k)], first))
+        pairs.append((rings[-1], rings[0]))
     for a, b in pairs:
         for j in range(k):
             bm.faces.new((a[j], a[(j + 1) % k], b[(j + 1) % k], b[j]))
@@ -381,10 +385,10 @@ def build_sides():
             # gilded wreath around the port (the drawing's rosettes), following the side's curve, and a sill
             # that fits inside the opening and stands 2 cm proud of the cut (no coplanar faces)
             ring = []
-            for k in range(25):
-                yk = y + WREATH_RY * math.cos(2 * math.pi * k / 24)
-                ring.append((side * (side_hw(yk) + 0.06), yk, (GP_SILL + GP_TOP) / 2 + WREATH_RZ * math.sin(2 * math.pi * k / 24)))
-            sweep('gunport_wreath', ring, 0.05, 'gilt', segs=6, closed=True)
+            for k in range(49):
+                yk = y + WREATH_RY * math.cos(2 * math.pi * k / 48)
+                ring.append((side * (side_hw(yk) + 0.06), yk, (GP_SILL + GP_TOP) / 2 + WREATH_RZ * math.sin(2 * math.pi * k / 48)))
+            sweep('gunport_wreath', ring, 0.05, 'gilt', segs=8, closed=True)
             box('gunport_sill', *sorted((side * (w - SIDE_T - 0.02), side * (w + 0.05))), y - GP_W / 2 + 0.005,
                 y + GP_W / 2 - 0.005, GP_SILL - 0.05, GP_SILL + 0.02, 'trim')
         subtract(wall, cuts)
@@ -539,10 +543,10 @@ def build_forecastle():
         cuts.append(cutter_cyl(x, y, 2.95, 0.22, 1.2, (math.pi / 2, 0, a - math.pi / 2)))
         R = fc_radius(2.95) + 0.07
         ring = []
-        for t in [2 * math.pi * k / 24 for k in range(25)]:
+        for t in [2 * math.pi * k / 48 for k in range(49)]:
             b = a + 0.32 * math.cos(t) / R               # walk along the curved wall
             ring.append((R * math.cos(b), FC_CY + R * math.sin(b), 2.95 + 0.32 * math.sin(t)))
-        sweep('fc_port_wreath', ring, 0.05, 'gilt', segs=6, closed=True)
+        sweep('fc_port_wreath', ring, 0.05, 'gilt', segs=8, closed=True)
     subtract(lower, cuts)
     horseshoe_slab('fc_floor_low', fc_radius(FC_Z_BASE) - 0.3, Z_GUN_DECK - 0.15, Z_GUN_DECK, 'deck')
     horseshoe_slab('fc_platform', fc_radius(FC_Z_PLATFORM) - 0.05, FC_Z_PLATFORM - 0.15, FC_Z_PLATFORM, 'deck')
