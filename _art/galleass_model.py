@@ -1126,7 +1126,7 @@ def build_ends():
     # curling forward over the top and tapering to its eye
     p0 = Vector((path[0].y, path[0].z))
     t0 = (p0 - Vector((path[1].y, path[1].z))).normalized()      # leaving the post upward/aft
-    R0, turns = 0.4, 1.6
+    R0, turns, R1 = 0.45, 1.3, 0.12                    # open enough that the coils never touch
     best = None
     for nrm in (Vector((-t0.y, t0.x)), Vector((t0.y, -t0.x))):   # curl centre on either side; pick the forward one
         if best is None or nrm.x > best.x:
@@ -1139,9 +1139,11 @@ def build_ends():
     for k in range(41):
         f = k / 40
         a = a0_ + sgn * 2 * math.pi * turns * f
-        r = R0 - (R0 - 0.1) * f
+        r = R0 - (R0 - R1) * f
         vol.append((0.0, c.x + r * math.cos(a), c.y + r * math.sin(a)))
-    sweep('stern_volute', vol, [radii[0] - (radii[0] - 0.07) * k / 40 for k in range(41)], 'gilt', square=True)
+    # taper fast enough that after a full turn the coil clears the start (half side + half side < spacing)
+    vr = [radii[0] - (radii[0] - 0.06) * min(1.0, (k / 40) * 1.25) for k in range(41)]
+    sweep('stern_volute', vol, vr, 'gilt', square=True)
 
 # turned acorn finial (r, z): collar, neck with a bead, egg-shaped body, fine tip (foot stays inside the post)
 FINIAL = None   # set after smooth_profile is defined
