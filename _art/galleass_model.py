@@ -928,15 +928,30 @@ def build_stern_balcony():
 
 # ================================================================= stem, spur, stern post, rudder
 def build_ends():
-    # stem post from the keel up to the forecastle base
-    stem = [(0, y, pchip(BOW_PROFILE, y) + 0.05) for y in (21.5, 23.0, 24.2, 24.9, 25.15, 25.28)] + [(0, 25.35, 2.3)]
-    sweep('stem', stem, 0.2, 'trim', square=True)
-    # keel batten along the bottom
-    sweep('keel', [(0, y, z_bottom(y) - 0.08) for y in [-23.5 + 47 * i / 40 for i in range(41)]], 0.12, 'trim', square=True)
-    # stern post rising and curling aft into a volute (the drawing's carved stern piece)
-    sp = [(0, y, pchip(STERN_PROFILE, -y) + 0.05) for y in (-21.5, -23.0, -24.2, -24.9, -25.2)]
-    sp += [(0, -25.35, 1.6), (0, -25.45, 3.3), (0, -25.6, 5.0), (0, -26.0, 6.2), (0, -26.6, 6.9)]
-    sweep('stern_post', sp, 0.2, 'trim', square=True)
+    """Backbone: ONE continuous timber from the top of the curled stern post down the stern, along the keel and
+    up the stem, following the hull outline (half embedded), smooth and densely sampled."""
+    # hull bottom outline, offset outward by OFF along its 2D normal (cosine spacing: dense at the ends)
+    OFF, N = 0.05, 160
+    prof = []
+    for i in range(N + 1):
+        t = i / N
+        y = -25.2 + 50.4 * (0.5 - 0.5 * math.cos(t * math.pi))
+        prof.append(Vector((y, z_bottom(y))))
+    pts = []
+    for i, p in enumerate(prof):
+        a, b = prof[max(i - 1, 0)], prof[min(i + 1, N)]
+        tn = (b - a).normalized()
+        nrm = Vector((-tn.y, tn.x))
+        if nrm.dot(p - Vector((0, 1.0))) < 0:
+            nrm = -nrm
+        q = p + nrm * OFF
+        pts.append((0.0, q.x, q.y))
+    # stern post above the hull end (fixed: the balcony notch and rails fit these), stem up the hull's end cap
+    stern_top = [(0, -26.6, 6.9), (0, -26.0, 6.2), (0, -25.6, 5.0), (0, -25.45, 3.3), (0, -25.35, 1.6)]
+    stem_top = [(0, 25.3, 1.7), (0, 25.32, 2.3)]
+    path = catmull(stern_top + pts[2:-2] + stem_top, 420)
+    radii = [0.17 + 0.03 * smoothstep(23.0, 25.0, abs(p.y)) for p in path]
+    sweep('backbone', path, radii, 'trim', square=True)
     vol = spiral((0, -26.6, 6.45), 0.45, 0.12, math.pi / 2, math.pi / 2 - 1.7 * math.pi, n=24)
     sweep('stern_volute', vol, [0.17 - 0.1 * i / 24 for i in range(25)], 'gilt', segs=8)
 
@@ -958,9 +973,10 @@ def build_beak():
     Knee and rail are smooth timbers; the painted cheek is recessed between them; a gilded trail board with a
     volute runs along the middle of the cheek, clear of both timbers."""
     fy, fz = FIG_POS[1], FIG_POS[2]
-    knee = catmull([(0, Y_STEM_WL - 0.15, -0.9), (0, Y_STEM_WL + 0.2, 0.1), (0, Y_STEM_WL + 0.75, 0.85),
+    # the knee grows out of the stem: it starts inside the hull at the backbone's thickness
+    knee = catmull([(0, Y_STEM_WL - 0.6, -0.15), (0, Y_STEM_WL + 0.15, 0.15), (0, Y_STEM_WL + 0.75, 0.85),
                     (0, fy - 0.6, fz - 0.3), (0, fy + 0.1, fz - 0.02)], 40)
-    knee_r = [0.32 - 0.06 * k / 40 for k in range(41)]
+    knee_r = [0.2 + 0.12 * smoothstep(0, 8, k) - 0.06 * k / 40 for k in range(41)]
     sweep('beak_knee', knee, knee_r, 'trim', square=True)
     rail = catmull([(0, Y_STEM_WL + 0.35, FC_Z_BASE - 0.05), (0, Y_STEM_WL + 1.0, FC_Z_BASE - 0.1),
                     (0, fy - 0.15, fz + 0.28)], 30)
