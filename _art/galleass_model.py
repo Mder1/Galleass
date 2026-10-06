@@ -582,7 +582,8 @@ def build_sides():
             for yend, d in ((Y1, 1), (Y0, -1)):                    # across the end walls (outer face at yend)
                 xi = min(box_inner_x(yend) + 0.1, end_surface_x(yend, (z0 + z1) / 2) + 0.05)
                 box(name + '_end', *sorted((side * xi, side * (W + out - thick))),
-                    *sorted((yend + d * out, yend + d * (out - min(thick, SIDE_T)))), z0, z1, role)
+                    *sorted((yend + d * out, yend + d * (out - (thick if name == 'cap_rail' else min(thick, SIDE_T))))),
+                    z0, z1, role)   # the cap covers the end wall's whole top, like along the side
     # full-width gun deck; side decks beside the forecastle and the cabin
     WD = W - SIDE_T + 0.01
     box('gun_deck', -WD, WD, Y_GUNDECK_AFT, FC_Y_BACK, Z_GUN_DECK - 0.15, Z_GUN_DECK, 'deck')
@@ -607,7 +608,7 @@ def build_sides():
             if any(abs(y - gunport_y(i)) < 0.6 for i in range(GUNPORTS_PER_SIDE)) or y > Y1 - 0.4:
                 continue
             w = W - SIDE_T
-            box('stanchion', *sorted((side * w, side * (w - 0.12))), y - 0.07, y + 0.07, Z_GUN_DECK, Z_BULWARK_TOP, 'trim')
+            box('stanchion', *sorted((side * (w + 0.01), side * (w - 0.07))), y - 0.07, y + 0.07, Z_GUN_DECK, Z_BULWARK_TOP, 'trim')
 
 def build_deck_fittings():
     # hatches (gratings) and mast partners
