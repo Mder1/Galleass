@@ -70,6 +70,7 @@ SC_DOOR_X, SC_DOOR_W = 1.35, 1.0
 SC_FWIN_X = 2.35                         # front windows, outboard of the door
 SC_WALL = 0.2                             # cabin wall thickness (cabin interior is walk-in)
 SC_AWIN_X = 1.25                          # small windows either side of the stern door
+SC_EWIN_Z = 4.6                           # front/stern windows: at side-window height, above the window band
 BALC_RY = 1.3                             # stern balcony depth (apex reaches the stern post's face); width = cabin's
 BALC_Z_BOT = FC_Z_BASE - 0.3              # plate reaches below the hull top: it closes the hull end behind the cabin
 SC_STAIR_X = 3.25                        # centre line of the two stairs up to the poop
@@ -616,11 +617,11 @@ def build_sterncastle():
     # cabin door and two windows in the front bulkhead
     cuts.append(cutter_box(SC_DOOR_X, SC_Y_FORE, Z_GUN_DECK + 1.0, SC_DOOR_W, 0.6, 2.0))
     for x in (-SC_FWIN_X, SC_FWIN_X):
-        cuts.append(cutter_box(x, SC_Y_FORE, 4.3, 0.6, 0.6, 0.6))
+        cuts.append(cutter_box(x, SC_Y_FORE, SC_EWIN_Z, 0.5, 0.6, 0.5))
     # stern door onto the balcony, with a window on each side
     cuts.append(cutter_box(0, SC_Y_AFT, Z_GUN_DECK + 1.0, SC_DOOR_W, 0.6, 2.0))
     for x in (-SC_AWIN_X, SC_AWIN_X):
-        cuts.append(cutter_box(x, SC_Y_AFT, 3.8, 0.5, 0.6, 0.6))
+        cuts.append(cutter_box(x, SC_Y_AFT, SC_EWIN_Z, 0.5, 0.6, 0.5))
     # side windows (the drawing's band of small arched windows)
     nwin = 6
     for side in (-1, 1):
@@ -670,7 +671,11 @@ def build_stern_balcony():
         bm.faces.new((bot[i], bot[i + 1], top[i + 1], top[i]))
     bm.faces.new((bot[-1], bot[0], top[0], top[-1]))
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    obj_from_bm(bm, 'balcony_floor', 'deck')
+    plate = obj_from_bm(bm, 'balcony_floor', 'deck')
+    # notch for the stern post (it rakes aft: 0.1 m over 1.7 m), so its corners don't poke through the plate
+    post = cutter_box(0, -25.40, 2.1, 0.3, 0.3, 1.2)
+    post.rotation_euler = (math.atan2(0.1, 1.7), 0, 0)
+    subtract(plate, [post])
     # balustrade along the curved edge; the stern post stands at the aft centre, the rail ends on it
     zb, zr = Z_GUN_DECK, Z_GUN_DECK + 1.0
     prof = [(0.045, 0), (0.065, 0.08), (0.04, 0.25), (0.075, 0.5), (0.045, 0.75), (0.06, 0.85), (0.045, 0.9)]
@@ -690,17 +695,36 @@ def build_stern_balcony():
         sweep('balcony_rail_end', [(x, SC_Y_AFT - 0.02, zr - 0.04), (x, y, zr - 0.04)], 0.06, 'trim', square=True)
     # mouldings: above the bulwark line, under the windows, under the poop deck
     sc_out = sc_hw(0) - side_hw(0)                       # cabin sides stand this far outside the ship's side line
+    def wrap(name, z0, z1, out, thick, role, fore=None, aft=None):
+        """Band along both cabin sides; with fore/aft gap lists it turns the corner and runs across that
+        face between the given x intervals (doors, stairs), so no band ends in mid-air at a corner.
+        Never deeper than the cabin wall (walk-in cabin)."""
+        o = out - sc_out
+        t = min(thick, o + SC_WALL - 0.03)
+        ya = SC_Y_AFT - (o if aft else 0.0)
+        yb = SC_Y_FORE + (o if fore else 0.0)
+        side_strip(f'sc_{name}', ya, yb, z0, z1, o, t, role)
+        for face_y, sgn, segs in ((SC_Y_FORE, 1, fore), (SC_Y_AFT, -1, aft)):
+            if not segs:
+                continue
+            w = sc_hw(face_y) + o
+            for xa, xb in segs:
+                xa, xb = max(xa, -w), min(xb, w)
+                box(f'sc_{name}_face', xa, xb, *sorted((face_y + sgn * o, face_y + sgn * (o - t))), z0, z1, role)
+    door_f = [(-9, SC_DOOR_X - SC_DOOR_W / 2 - 0.12), (SC_DOOR_X + SC_DOOR_W / 2 + 0.12, 9)]
+    door_a = [(-9, -SC_DOOR_W / 2 - 0.12), (SC_DOOR_W / 2 + 0.12, 9)]
+    stairs_f = [(-9, -SC_STAIR_X - 0.55), (-SC_STAIR_X + 0.55, SC_STAIR_X - 0.55), (SC_STAIR_X + 0.55, 9)]
     for name, (z0, z1, out, thick, role) in BANDS.items():
-        # never deeper than the cabin wall (the cabin is walk-in, bands must not show inside)
-        side_strip(f'sc_{name}', SC_Y_AFT, SC_Y_FORE, z0, z1, out - sc_out, min(thick, out - sc_out + SC_WALL - 0.03), role)
+        # rub rail: the balcony plate covers the stern face at its height
+        wrap(name, z0, z1, out, thick, role, aft=None if name == 'rub_rail' else door_a)
     # the strakes run on from the cabin front to the stern post on whatever surface is there at their
     # height: the cabin wall where it reaches down that far, the (flaring) hull below it
     for name, (z0, z1, out, thick, role) in STRAKES.items():
         zc = (z0 + z1) / 2
         surf = lambda y, zc=zc: side_hw(y) if zc >= z_top(y) - 0.1 else hull_x_at(y, zc)
         side_loft(f'stern_{name}', -25.1, BAND_Y0, z0, z1, out, thick, role, n=60, hw_fn=surf)
-    for z0, z1, role in ((SCW_Z0 - 0.2, SCW_Z0 - 0.1, 'gilt'), (SC_Z_FLOOR - 0.12, SC_Z_FLOOR, 'trim')):
-        side_strip('sc_moulding', SC_Y_AFT, SC_Y_FORE, z0, z1, 0.06, 0.12, role)
+    wrap('window_band', SCW_Z0 - 0.2, SCW_Z0 - 0.1, 0.06 + sc_out, 0.12, 'gilt', fore=door_f, aft=door_a)
+    wrap('deck_line', SC_Z_FLOOR - 0.12, SC_Z_FLOOR, 0.06 + sc_out, 0.12, 'trim', fore=stairs_f, aft=[(-9, 9)])
     # poop deck and turned balustrade
     tapered_block('poop_deck', SC_Y_AFT - 0.3, SC_Y_FORE + 0.25, SC_Z_FLOOR, SC_Z_FLOOR + 0.12, sc_hw, 'deck', grow=0.12)
     baluster = [(0.05, 0), (0.07, 0.08), (0.045, 0.25), (0.085, 0.5), (0.05, 0.75), (0.07, 0.85), (0.05, 0.9)]
