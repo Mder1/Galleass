@@ -70,7 +70,7 @@ SC_DOOR_X, SC_DOOR_W = 1.35, 1.0
 SC_FWIN_X = 2.35                         # front windows, outboard of the door
 SC_WALL = 0.2                             # cabin wall thickness (cabin interior is walk-in)
 SC_AWIN_X = 1.25                          # small windows either side of the stern door
-BALC_RX, BALC_RY = 1.7, 1.15              # stern balcony half width / depth (stern post just behind its centre)
+BALC_RX, BALC_RY = 1.7, 1.3               # stern balcony half width / depth (apex reaches the stern post's face)
 SC_STAIR_X = 3.25                        # centre line of the two stairs up to the poop
 LANTERN_Y = -24.15                       # on the poop deck, just inside the aft rail
 
@@ -584,7 +584,7 @@ def tapered_block(name, ya, yb, z0, z1, hw_fn, role, n=16, grow=0.0):
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     return obj_from_bm(bm, name, role)
 
-def side_strip(name, ya, yb, z0, z1, out, thick, role, n=16):
+def side_strip(name, ya, yb, z0, z1, out, thick, role, n=48):
     """Strip on both sides of the sterncastle following its taper (mouldings, window bands)."""
     for side in (-1, 1):
         bm = bmesh.new(); rings = []
@@ -602,7 +602,7 @@ def side_strip(name, ya, yb, z0, z1, out, thick, role, n=16):
 def build_sterncastle():
     """Captain's cabin (walk-in: floor = gun deck level, poop deck as ceiling) with doors fore and aft,
     windows, and a small stern balcony behind it."""
-    body = tapered_block('sc_body', SC_Y_AFT, SC_Y_FORE, lambda y: z_top(y) - 0.1, SC_Z_FLOOR, sc_hw, 'paint')
+    body = tapered_block('sc_body', SC_Y_AFT, SC_Y_FORE, lambda y: z_top(y) - 0.1, SC_Z_FLOOR, sc_hw, 'paint', n=48)
     # cap over the hull end behind the cabin (the hull shell is open on top)
     tapered_block('stern_cap', -25.25, SC_Y_AFT + 0.05, FC_Z_BASE - 0.25, FC_Z_BASE, lambda y: half_beam(y, True) + 0.02, 'hull')
     cuts = []
@@ -675,14 +675,19 @@ def build_stern_balcony():
     zb, zr = Z_GUN_DECK, Z_GUN_DECK + 1.0
     prof = [(0.045, 0), (0.065, 0.08), (0.04, 0.25), (0.075, 0.5), (0.045, 0.75), (0.06, 0.85), (0.045, 0.9)]
     prof = [(r, z * (zr - zb - 0.08) / 0.9) for r, z in prof]
-    post_gap = 0.26
-    for half in ((0.02, math.pi / 2), (math.pi / 2, math.pi - 0.02)):
-        ts = [half[0] + (half[1] - half[0]) * k / 12 for k in range(13)]
+    post_half = 0.15                                      # half width of the (square) stern post
+    t_post = math.acos(post_half / rx)                    # where the edge meets the post's side face
+    t_wall = 0.12                                         # just off the stern wall, room for the end post
+    for ta, tb in ((t_wall, t_post), (math.pi - t_post, math.pi - t_wall)):
+        ts = [ta + (tb - ta) * k / 12 for k in range(13)]
         pts = [edge(t) for t in ts]
-        pts = [(x, y) for x, y in pts if abs(x) > post_gap]
         sweep('balcony_rail', [(x, y, zr - 0.04) for x, y in pts], 0.06, 'trim', square=True)
-        for x, y in pts[:-1]:
+        for x, y in pts[1:-1]:
             lathe('balcony_baluster', prof, 'trim', at=(x, y, zb), segs=6)
+    for side in (-1, 1):                                  # square end posts set against the stern wall
+        x, y = edge(t_wall if side < 0 else math.pi - t_wall)
+        box('balcony_end_post', x - 0.08, x + 0.08, SC_Y_AFT - 0.16, SC_Y_AFT, zb, zr + 0.06, 'trim')
+        sweep('balcony_rail_end', [(x, SC_Y_AFT - 0.02, zr - 0.04), (x, y, zr - 0.04)], 0.06, 'trim', square=True)
     # knees under the floor, from the hull/stern cap out to the balcony edge
     for x in (-1.0, 1.0):
         y_edge = edge(math.acos(-x / rx))[1]
@@ -844,7 +849,8 @@ for role, meshes in by_role.items():
     for me in meshes:
         bm.from_mesh(me); bpy.data.meshes.remove(me)
     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
-    obj_from_bm(bm, f'galleass_{role}', role, 'final')
+    o = obj_from_bm(bm, f'galleass_{role}', role, 'final', smooth=True)
+    o.data.set_sharp_from_angle(angle=math.radians(65))   # smooth along planks and turned parts (6-sided = 60 deg), hard at box corners
 coll('parts').hide_render = True; coll('parts').hide_viewport = True
 tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in coll('final').objects)
 print('triangles (final):', tris)
