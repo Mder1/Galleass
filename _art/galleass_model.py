@@ -292,7 +292,12 @@ def pchip(pts, x):
 
 # ================================================================= hull shape
 BOW_PROFILE = [(14.0, Z_KEEL), (17.4, -2.3), (21.3, -1.67), (23.8, -0.84), (25.0, 0.0), (25.2, 1.2), (25.3, 2.4)]
-STERN_PROFILE = [(14.0, Z_KEEL), (21.1, -2.25), (23.1, -1.93), (24.3, -1.16), (25.0, 0.0), (25.25, 1.6), (25.4, 3.3)]
+# lower stern: a straight raked sternpost from the keel heel to the post (the rudder hangs on it)
+STERN_HEEL, STERN_POST_TOP = (23.6, -2.4), (25.35, 1.6)
+def _sp(t):
+    return (STERN_HEEL[0] + (STERN_POST_TOP[0] - STERN_HEEL[0]) * t, STERN_HEEL[1] + (STERN_POST_TOP[1] - STERN_HEEL[1]) * t)
+STERN_PROFILE = [(14.0, Z_KEEL), (21.1, -2.45), STERN_HEEL, _sp(0.26), _sp(0.51), _sp(0.76), STERN_POST_TOP, (25.4, 3.3)]
+STERN_RAKE = math.atan2(STERN_POST_TOP[0] - STERN_HEEL[0], STERN_POST_TOP[1] - STERN_HEEL[1])
 
 def z_bottom(y):
     """Keel / stem / stern profile (side view), from drawing points (stern mirrored to +y)."""
@@ -817,8 +822,8 @@ def build_stern_balcony():
     subtract(plate, [post])
     # balustrade along the curved edge; the stern post stands at the aft centre, the rail ends on it
     zb, zr = Z_GUN_DECK, Z_GUN_DECK + 1.0
-    prof = [(0.045, 0), (0.065, 0.08), (0.04, 0.25), (0.075, 0.5), (0.045, 0.75), (0.06, 0.85), (0.045, 0.9)]
-    prof = [(r, z * (zr - zb - 0.08) / 0.9) for r, z in prof]
+    prof = [(r * 0.88, z) for r, z in BALUSTER]
+    prof = smooth_profile([(r, z * (zr - zb - 0.08) / 0.9) for r, z in prof])
     # the balustrade stands BALC_INSET inside the floor edge, so nothing overhangs the plate (seen from below)
     def edge_in(t):
         return (-(rx - BALC_INSET) * math.cos(t), SC_Y_AFT - (ry - BALC_INSET) * math.sin(t))
@@ -873,10 +878,10 @@ def build_stern_balcony():
     # poop deck and turned balustrade
     # even overhang: 2 cm past the deck-line band at the sides and front; longer aft, where the lantern stands
     tapered_block('poop_deck', SC_Y_AFT - 0.3, SC_Y_FORE + 0.08, SC_Z_FLOOR, SC_Z_FLOOR + 0.12, sc_hw, 'deck', grow=0.08, n=48)
-    baluster = [(0.05, 0), (0.07, 0.08), (0.045, 0.25), (0.085, 0.5), (0.05, 0.75), (0.07, 0.85), (0.05, 0.9)]
+    baluster = BALUSTER
     zb = SC_Z_FLOOR + 0.12
     hb = SC_Z_RAIL - zb - 0.1
-    prof = [(r, z * hb / 0.9) for r, z in baluster]
+    prof = smooth_profile([(r, z * hb / 0.9) for r, z in baluster])
     for side in (-1, 1):
         n = int((SC_Y_FORE - SC_Y_AFT) / 0.32)
         for i in range(n + 1):
@@ -973,6 +978,15 @@ def build_ends():
         vol.append((0.0, c.x + r * math.cos(a), c.y + r * math.sin(a)))
     sweep('stern_volute', vol, [radii[0] - (radii[0] - 0.07) * k / 40 for k in range(41)], 'gilt', square=True)
 
+# classical turned baluster (r, z) over a 0.9 height: base block, swelling belly, neck, collar, top block
+BALUSTER = [(0.058, 0.0), (0.07, 0.03), (0.07, 0.07), (0.05, 0.11), (0.055, 0.17), (0.072, 0.27), (0.083, 0.38),
+            (0.082, 0.47), (0.068, 0.57), (0.05, 0.66), (0.042, 0.73), (0.05, 0.78), (0.066, 0.82), (0.066, 0.86),
+            (0.052, 0.9)]
+
+def smooth_profile(prof, n=22):
+    """Turned profile (r, z) through a smooth curve: rounder silhouettes for lathe parts."""
+    return [(v.x, v.y) for v in catmull([(r, z, 0) for r, z in prof], n)]
+
 def catmull(pts, n=40):
     """Smooth curve through points (Catmull-Rom, ends clamped), returned as n+1 evenly parametrised points."""
     P = [Vector(p) for p in pts]
@@ -1052,22 +1066,80 @@ def build_beak():
         sweep('beak_trail', [(x, p.y, p.z) for p in path], radii, 'gilt', segs=8)
 
 def build_rudder():
-    """Sternpost rudder, separate object with its origin on the hinge (rotates in game)."""
+    """Sternpost rudder hung on the straight raked sternpost. Modelled upright in its own frame (hinge = local Z,
+    blade toward local -Y = aft); the object is tilted by the rake, so in the game it turns about its own Z.
+    Blade widest low down, narrowing into a squared stock with an iron cap; tapering thickness; iron straps
+    with pintles. Gudgeon straps go on the sternpost (part of the hull)."""
+    # hinge line: the sternpost centre line pushed aft past the backbone (5 cm offset + 0.14 half width + 1 cm)
+    hy, hz = STERN_HEEL; ty, tz = STERN_POST_TOP
+    u = Vector((-(ty - hy), tz - hz)).normalized()                 # (y, z) up the post, ship frame (aft = -y)
+    n_aft = Vector((-u.y, u.x)) if (-u.y) < 0 else Vector((u.y, -u.x))
+    off = 0.05 + 0.14 + 0.01
+    base = Vector((-hy, hz)) + n_aft * off + u * 0.12               # hinge bottom, just above the heel
+    # along the hinge up to the post's knee (STERN_POST_TOP, just under the balcony): above it the post is steeper
+    L = (STERN_POST_TOP[1] - base.y) / math.cos(STERN_RAKE) - 0.05
+    # blade outline: (local z along hinge, aft extent)
+    outline = [(0.0, 0.3), (0.15, 1.15), (0.6, 1.3), (1.5, 1.28), (2.3, 1.05), (2.9, 0.7), (3.3, 0.32),
+               (3.6, 0.2), (L, 0.2)]
+    zs = [z for z, _ in outline]
+    def aft_at(z):
+        for (z0, d0), (z1, d1) in zip(outline, outline[1:]):
+            if z0 <= z <= z1:
+                return d0 + (d1 - d0) * (z - z0) / max(z1 - z0, 1e-6)
+        return outline[-1][1]
     bm = bmesh.new()
-    top, bot = Vector((0, -25.45, 2.6)), Vector((0, -25.25, -2.2))
-    prof = [(0.0, 0.0), (0.9, 0.2), (1.25, 1.2), (1.25, 3.4), (0.4, 4.6), (0.0, 4.8)]   # (aft offset, height)
-    axis = (top - bot).normalized()
-    aft = Vector((0, -1, 0))
-    vs = []
-    for d, h in prof:
-        p = bot + axis * h + aft * d
-        vs.append((bm.verts.new(p + Vector((0.09, 0, 0))), bm.verts.new(p - Vector((0.09, 0, 0)))))
-    for (a0, a1), (b0, b1) in zip(vs, vs[1:]):
-        bm.faces.new((a0, b0, b1, a1))
-    bm.faces.new([v[0] for v in vs]); bm.faces.new([v[1] for v in reversed(vs)])
+    rings = []
+    stations = sorted(set([round(i * L / 40, 4) for i in range(41)] + zs))
+    for z in stations:
+        d = aft_at(z)
+        th = 0.11                                                   # half thickness at the hinge
+        tt = 0.04 if d > 0.3 else 0.1                               # ... and at the trailing edge (stock: square-ish)
+        rings.append([bm.verts.new(c) for c in ((th, 0.04, z), (tt, -d, z), (-tt, -d, z), (-th, 0.04, z))])
+    for a, b in zip(rings, rings[1:]):
+        for k in range(4):
+            bm.faces.new((a[k], a[(k + 1) % 4], b[(k + 1) % 4], b[k]))
+    bm.faces.new(list(reversed(rings[0]))); bm.faces.new(rings[-1])
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    o = obj_from_bm(bm, 'galleass_rudder', 'trim', 'final')
-    o.data.transform(Matrix.Translation(-bot)); o.location = bot
+    parts = [(bm, 'trim')]
+    def ibox(x0, x1, y0, y1, z0, z1):
+        b = bmesh.new(); bmesh.ops.create_cube(b, size=1)
+        for v in b.verts:
+            v.co = Vector((x0 if v.co.x < 0 else x1, y0 if v.co.y < 0 else y1, z0 if v.co.z < 0 else z1))
+        parts.append((b, 'iron'))
+    STRAPS = (0.45, 1.25, 2.05, 2.85)
+    for z in STRAPS:
+        d = min(aft_at(z) * 0.55, 0.7)
+        ibox(-0.125, 0.125, -d, 0.03, z - 0.05, z + 0.05)           # strap round the blade
+        b = bmesh.new()                                             # pintle at the hinge
+        bmesh.ops.create_cone(b, cap_ends=True, segments=12, radius1=0.05, radius2=0.05, depth=0.16)
+        for v in b.verts: v.co += Vector((0, 0.06, z))
+        parts.append((b, 'iron'))
+    ibox(-0.13, 0.13, -0.24, 0.07, L - 0.08, L + 0.02)              # cap on the stock
+    # join into one object with two materials, origin on the hinge bottom, tilted by the rake
+    me = bpy.data.meshes.new('galleass_rudder')
+    bm_all = bmesh.new()
+    mats = ['trim', 'iron']
+    for b, role in parts:
+        tmp = bpy.data.meshes.new('tmp'); b.to_mesh(tmp); b.free()
+        idx = mats.index(role)
+        for poly in tmp.polygons: poly.material_index = idx
+        bm_all.from_mesh(tmp); bpy.data.meshes.remove(tmp)
+    for f in bm_all.faces: f.smooth = True
+    bm_all.to_mesh(me); bm_all.free()
+    for r in mats: me.materials.append(MATS[r])
+    me.set_sharp_from_angle(angle=math.radians(40))
+    o = bpy.data.objects.new('galleass_rudder', me); coll('final').objects.link(o)
+    o.location = (0, base.x, base.y)
+    o.rotation_euler = (STERN_RAKE, 0, 0)                          # local Z -> up the raked post
+    # gudgeon straps on the sternpost (hull side) at the pintle heights
+    bpy.context.view_layer.update()
+    for z in STRAPS:                                               # squared to the raked post (rudder frame)
+        b = bmesh.new(); bmesh.ops.create_cube(b, size=1)
+        for v in b.verts:
+            v.co = o.matrix_world @ Vector((0.17 if v.co.x > 0 else -0.17, 0.32 if v.co.y > 0 else 0.03,
+                                            (z - 0.06) if v.co.z > 0 else (z - 0.13)))
+        bmesh.ops.recalc_face_normals(b, faces=b.faces)
+        obj_from_bm(b, 'gudgeon', 'iron')
     return o
 
 # ================================================================= markers (not exported)
