@@ -72,6 +72,7 @@ SC_WALL = 0.2                             # cabin wall thickness (cabin interior
 SC_AWIN_X = 1.25                          # small windows either side of the stern door
 SC_EWIN_Z = 4.6                           # front/stern windows: at side-window height, above the window band
 BALC_RY = 1.3                             # stern balcony depth (apex reaches the stern post's face); width = cabin's
+BALC_INSET = 0.08                         # balustrade set in from the floor edge
 BALC_Z_BOT = FC_Z_BASE - 0.3              # plate reaches below the hull top: it closes the hull end behind the cabin
 SC_STAIR_X = 3.25                        # centre line of the two stairs up to the poop
 LANTERN_Y = -24.15                       # on the poop deck, just inside the aft rail
@@ -680,17 +681,23 @@ def build_stern_balcony():
     zb, zr = Z_GUN_DECK, Z_GUN_DECK + 1.0
     prof = [(0.045, 0), (0.065, 0.08), (0.04, 0.25), (0.075, 0.5), (0.045, 0.75), (0.06, 0.85), (0.045, 0.9)]
     prof = [(r, z * (zr - zb - 0.08) / 0.9) for r, z in prof]
-    post_half = 0.15                                      # half width of the (square) stern post
-    t_post = math.acos(post_half / rx)                    # where the edge meets the post's side face
+    # the balustrade stands BALC_INSET inside the floor edge, so nothing overhangs the plate (seen from below)
+    def edge_in(t):
+        return (-(rx - BALC_INSET) * math.cos(t), SC_Y_AFT - (ry - BALC_INSET) * math.sin(t))
+    x_stop = 0.28                                         # last baluster/curve point before the stern post
+    t_post = math.acos(x_stop / (rx - BALC_INSET))
     t_wall = 0.12                                         # just off the stern wall, room for the end post
-    for ta, tb in ((t_wall, t_post), (math.pi - t_post, math.pi - t_wall)):
+    for ta, tb, sgn in ((t_wall, t_post, -1), (math.pi - t_post, math.pi - t_wall, 1)):
         ts = [ta + (tb - ta) * k / 12 for k in range(13)]
-        pts = [edge(t) for t in ts]
-        sweep('balcony_rail', [(x, y, zr - 0.04) for x, y in pts], 0.06, 'trim', square=True)
-        for x, y in pts[1:-1]:
+        pts = [edge_in(t) for t in ts]
+        # the rail then turns in onto the post's front face (post front at rail height y -25.307)
+        tip = (sgn * 0.1, -25.26)
+        rail = pts + [tip] if sgn < 0 else [tip] + pts
+        sweep('balcony_rail', [(x, y, zr - 0.04) for x, y in rail], 0.06, 'trim', square=True)
+        for x, y in pts[1:]:
             lathe('balcony_baluster', prof, 'trim', at=(x, y, zb), segs=6)
     for side in (-1, 1):                                  # square end posts set against the stern wall
-        x, y = edge(t_wall if side < 0 else math.pi - t_wall)
+        x, y = edge_in(t_wall if side < 0 else math.pi - t_wall)
         box('balcony_end_post', x - 0.08, x + 0.08, SC_Y_AFT - 0.16, SC_Y_AFT, zb, zr + 0.06, 'trim')
         sweep('balcony_rail_end', [(x, SC_Y_AFT - 0.02, zr - 0.04), (x, y, zr - 0.04)], 0.06, 'trim', square=True)
     # mouldings: above the bulwark line, under the windows, under the poop deck
@@ -847,10 +854,10 @@ def build_rudder():
 def build_markers():
     for name, y in MASTS.items():
         bm = bmesh.new()
-        bmesh.ops.create_cone(bm, cap_ends=True, segments=10, radius1=0.35, radius2=0.18, depth=20)
+        bmesh.ops.create_cone(bm, cap_ends=True, segments=32, radius1=0.35, radius2=0.18, depth=20)
         z0 = Z_GUN_DECK if name != 'fore' else FC_Z_PLATFORM
         for v in bm.verts: v.co.z += 10 + z0; v.co.y += y
-        obj_from_bm(bm, f'mast_{name}', 'dark', 'markers')
+        obj_from_bm(bm, f'mast_{name}', 'dark', 'markers', smooth=True)
 
 # ================================================================= build
 build_hull()
