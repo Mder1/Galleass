@@ -617,7 +617,7 @@ def build_forecastle():
             ring.append((R * math.cos(b), FC_CY + R * math.sin(b), 2.95 + 0.32 * math.sin(t)))
         sweep('fc_port_wreath', ring, 0.05, 'gilt', segs=8, closed=True)
     subtract(lower, cuts)
-    horseshoe_slab('fc_floor_low', fc_radius(FC_Z_BASE) - 0.3, Z_GUN_DECK - 0.15, Z_GUN_DECK, 'deck')
+    horseshoe_slab('fc_floor_low', fc_radius(FC_Z_BASE) - 0.35, FC_Z_BASE + 0.01, Z_GUN_DECK, 'deck')   # inside the wall, 1 cm up: no shared plane
     horseshoe_slab('fc_platform', fc_radius(FC_Z_PLATFORM) - 0.05, FC_Z_PLATFORM - 0.15, FC_Z_PLATFORM, 'deck')
     par = horseshoe_wall('fc_parapet', FC_Z_PLATFORM, FC_Z_PARAPET, 0.35, 'paint')
     cuts = []
@@ -637,7 +637,7 @@ def build_forecastle():
     for name, (z0, z1, out, thick, role) in BANDS.items():   # same lines as along the side
         horseshoe_wall(f'fc_{name}', z0, z1, thick, role, grow=out)
     # skirt under the forecastle's overhang down to the rising hull top (no open slot into the hull)
-    tapered_block('fc_skirt', FC_Y_BACK - 0.05, 24.0, lambda y: z_top(y) - 0.1, FC_Z_BASE,
+    tapered_block('fc_skirt', FC_Y_BACK - 0.05, 24.0, lambda y: z_top(y) - 0.1, FC_Z_BASE + 0.005,
                   lambda y: half_beam(y, True), 'hull', n=24)
     horseshoe_wall('fc_cap', FC_Z_PARAPET, FC_Z_PARAPET + 0.1, 0.45, 'trim')
     # rail along the open back edge of the platform, gaps where the stairs arrive
