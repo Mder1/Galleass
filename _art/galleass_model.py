@@ -500,8 +500,9 @@ def build_sides():
         for i in range(91):                                        # ends tucked inside the end walls
             y = (Y0 + 0.05) + (Y1 - Y0 - 0.1) * i / 90
             hx = cove_start_x(y)
-            pts = [(hx - 0.25, WING_Z0 - 0.05)] + [cove_xz(y, k / 20) for k in range(21)]
-            pts += [(W - SIDE_T, WING_Z_FACE), (hx - 0.25, WING_Z_FACE)]
+            hin = hull_x_at(y, WING_Z0) - 0.06                    # lip tucked inside the hull, under the wale
+            pts = [(hin, WING_Z0 + 0.02)] + [cove_xz(y, k / 20) for k in range(21)]
+            pts += [(W - SIDE_T, WING_Z_FACE), (hin, WING_Z_FACE)]
             rings.append([bm.verts.new((side * x, y, z)) for x, z in pts])
         k = len(rings[0])
         for a, b in zip(rings, rings[1:]):
@@ -1270,9 +1271,9 @@ _ys = [y / 10 for y in range(-260, 261)]
 _hull_ys = [y for y in _ys if z_bottom(y) < WALE_Z - 0.12]
 def _wale_x(y):
     hx = hull_x_at(y, WALE_Z)
-    f = smoothstep(WING_Y0 - 0.5, WING_Y0 + 1.5, y) * (1 - smoothstep(WING_Y1 - 1.5, WING_Y1 + 0.5, y))
+    f = smoothstep(WING_Y0 - 1.5, WING_Y0, y) * (1 - smoothstep(WING_Y1, WING_Y1 + 1.5, y))   # full under the flare
     return hx + (max(cove_start_x(y), hx) - hx) * f
-wale('wale_low', lambda y: WALE_Z, min(_hull_ys), max(_hull_ys), height=0.18, n=200, x_fn=_wale_x)
+wale('wale_low', lambda y: WALE_Z, min(_hull_ys), max(_hull_ys), height=0.22, n=240, x_fn=_wale_x)
 wale('wale_top', lambda y: z_top(y) - 0.05, -19.5, 19.5, height=0.2)
 build_sides(); build_deck_fittings()
 build_forecastle(); build_sterncastle(); build_ends(); build_markers()
