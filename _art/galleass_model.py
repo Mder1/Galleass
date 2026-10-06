@@ -67,11 +67,11 @@ LANTERN_Y = -24.15                       # on the poop deck, just inside the aft
 
 # masts (vanilla lateen rigs go here later): mizzen, main, fore
 MASTS = {'mizzen': -13.7, 'main': 5.5, 'fore': 22.5}
-# bow slot: vanilla rams (ram_01..08) as on the meditheavy (scale 1.9, at the waterline), shifted from the
-# meditheavy's waterline stem (y 18.46) to ours (y 25.0). The adaptor sheath is shown only with a ram fitted.
-RAM_FWD, RAM_DOWN = 0.0, 0.0             # same relation to the waterline stem as on the meditheavy
-RAM_POS, RAM_SCALE = (0.0, -10.74 + (Y_STEM_WL - 18.46) + RAM_FWD, 1.18 - RAM_DOWN), 1.9
-ADAPTOR_Y0, ADAPTOR_Z = 21.5, (-1.7, 1.9)
+# bow: no ram slot (user 2026-10-06). A carved beak under the forecastle front carries the vanilla figureheads
+# (figurehead slot). Figurehead pivot/tilt/scale as on the meditheavy (rotation x -0.85 rad, scale 0.85/0.92/0.92).
+FIG_POS = (0.0, 26.7, 1.75)
+FIG_ROT_X = -0.85
+FIG_SCALE = (0.95, 1.05, 1.05)                    # vanilla 0.85/0.92/0.92 x ~1.12 (bigger ship)
 
 ROLES = {                                 # role -> blockout colour (real materials are set up in the Kit)
     'hull':  (0.42, 0.28, 0.17),          # hull planking (below the rowing level)
@@ -673,40 +673,30 @@ def build_ends():
         q = spiral((x, SC_Y_AFT - 0.35, SC_Z_RAIL + 0.15), 0.3, 0.08, -math.pi / 2, -math.pi / 2 + 1.6 * math.pi, n=18)
         sweep('quarter_volute', [(x, SC_Y_AFT - 0.1, SC_Z_FLOOR)] + q, 0.06, 'gilt', segs=6)
 
-def build_ram_adaptor():
-    """Sheath over the lower bow that carries the vanilla rams (slot 'platform', like adaptor_meditheavy).
-    A shell 6 cm proud of the hull from ADAPTOR_Y0 to the stem, plus a chock in front of the stem where
-    the ram's rear end sits. Separate object: it is only visible while a ram is fitted."""
+def build_beak():
+    """Carved beak (knee of the head) from the stem forward under the forecastle; the figurehead sits on its end."""
+    fy, fz = FIG_POS[1], FIG_POS[2]
+    # main knee: rises from the stem at the waterline, sweeping forward to the figurehead seat
+    knee = [(0, Y_STEM_WL - 0.15, -0.9), (0, Y_STEM_WL + 0.2, 0.1), (0, Y_STEM_WL + 0.75, 0.85),
+            (0, fy - 0.6, fz - 0.3), (0, fy + 0.1, fz - 0.02)]
+    sweep('beak_knee', knee, [0.32, 0.32, 0.3, 0.28, 0.26], 'trim', square=True)
+    # upper rail from the forecastle base down to the seat, and the cheek between them
+    rail = [(0, Y_STEM_WL + 0.35, FC_Z_BASE - 0.05), (0, Y_STEM_WL + 1.0, FC_Z_BASE - 0.1), (0, fy - 0.15, fz + 0.28)]
+    sweep('beak_rail', rail, 0.17, 'trim', square=True)
     bm = bmesh.new()
-    z0, z1 = ADAPTOR_Z
-    ny, nz = 24, 14
-    rings = []
-    for i in range(ny + 1):
-        y = ADAPTOR_Y0 + (Y_STEM_WL + 0.2 - ADAPTOR_Y0) * i / ny
-        zlo = max(z0, z_bottom(y) + 0.02)
-        ring = []
-        for j in range(nz + 1):
-            z = zlo + (z1 - zlo) * j / nz
-            w = hull_x_at(y, z) + 0.06
-            ring.append((w, y, z))
-        rings.append(ring)
-    def strip(side):
-        vs = [[bm.verts.new((side * x, y, z)) for x, y, z in ring] for ring in rings]
-        for a, b in zip(vs, vs[1:]):
-            for j in range(nz):
-                f = (a[j], b[j], b[j + 1], a[j + 1]) if side > 0 else (a[j], a[j + 1], b[j + 1], b[j])
-                bm.faces.new(f)
-    strip(1); strip(-1)
-    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.02)
-    o = obj_from_bm(bm, 'galleass_ram_adaptor', 'trim', 'final', smooth=True)
-    # chock: tapered block on the stem's fore face, waterline level, where the ram butts on
-    chock = sweep('ram_chock', [(0, Y_STEM_WL - 0.4, 0.4), (0, Y_STEM_WL + 0.7, 0.4)], [0.75, 0.6], 'trim', square=True)
-    band = sweep('ram_chock_band', [(0, Y_STEM_WL + 0.25, 0.4), (0, Y_STEM_WL + 0.45, 0.4)], 0.67, 'iron', square=True)
-    for part in (chock, band):                       # move them out of the merged hull into the adaptor group
-        PARTS[:] = [(p, r) for p, r in PARTS if p is not part]
-        for c in part.users_collection: c.objects.unlink(part)
-        coll('final').objects.link(part); part.name = 'galleass_ram_adaptor_' + part.name
-    return o
+    prof = [(Y_STEM_WL + 0.2, 0.2), (Y_STEM_WL + 0.75, 0.85), (fy - 0.6, fz - 0.3), (fy - 0.15, fz + 0.25),
+            (Y_STEM_WL + 1.0, FC_Z_BASE - 0.12), (Y_STEM_WL + 0.35, FC_Z_BASE - 0.08)]
+    for side in (-1, 1):
+        vs = [bm.verts.new((side * 0.14, y, z)) for y, z in prof]
+        bm.faces.new(vs if side > 0 else list(reversed(vs)))
+    obj_from_bm(bm, 'beak_cheek', 'paint')
+    # gilded trail boards along both sides of the cheek, and a seat block under the figurehead
+    for side in (-1, 1):
+        x = side * 0.17
+        trail = [(x, Y_STEM_WL + 0.45, FC_Z_BASE - 0.35), (x, Y_STEM_WL + 1.0, 1.5), (x, fy - 0.55, fz + 0.02)]
+        sweep('beak_trail', trail, 0.05, 'gilt', segs=6)
+        sc_ = spiral((x, Y_STEM_WL + 0.7, 1.15), 0.24, 0.06, math.pi, math.pi + 1.5 * math.pi, n=14)
+        sweep('beak_trail_volute', sc_, 0.035, 'gilt', segs=6)
 
 def build_rudder():
     """Sternpost rudder, separate object with its origin on the hinge (rotates in game)."""
@@ -743,7 +733,7 @@ wale('wale_top', lambda y: z_top(y) - 0.05, -19.5, 19.5, height=0.2)
 build_sides(); build_deck_fittings(); build_outriggers()
 build_forecastle(); build_sterncastle(); build_ends(); build_markers()
 rudder = build_rudder()
-adaptor = build_ram_adaptor()
+build_beak()
 coll('cutters').hide_render = True; coll('cutters').hide_viewport = True
 
 # apply booleans and merge parts into one object per material role
@@ -813,24 +803,24 @@ def shot(fname, loc, rot, ortho=None, xray=False, refs=(), res=(2000, 1000), len
     sc.render.filepath = os.path.join(RENDER_DIR, fname)
     bpy.ops.render.render(write_still=True)
 
-# preview only: vanilla rams in the bow slot with the planned transform (not exported)
-PREVIEW_RAMS = {}
-for rid in ('ram_01', 'ram_05', 'ram_06'):
-    bpy.ops.wm.obj_import(filepath=os.path.join(HERE, f'ref/meditheavy/{rid}.obj'), forward_axis='Y', up_axis='Z')
+# preview only: vanilla figureheads on the beak with the planned transform (not exported)
+PREVIEW = {}
+for fid in ('figurehead_lion', 'dragon_l', 'wingsofvictoryfigurehead', 'sirenfigurehead', 'seaserpentfigurehead'):
+    bpy.ops.wm.obj_import(filepath=os.path.join(HERE, f'ref/figureheads/{fid}.obj'), forward_axis='Y', up_axis='Z')
     objs = []
     for o in list(bpy.context.selected_objects):
         for c in o.users_collection: c.objects.unlink(o)
-        if o.name.split('.')[-1] not in ('0', '1', '2'):
+        if o.name.split('.')[-1] != '0':
             bpy.data.objects.remove(o); continue
         coll('preview').objects.link(o); objs.append(o)
-        o.location = RAM_POS; o.scale = (RAM_SCALE,) * 3
-        o.data.materials.clear(); o.data.materials.append(MATS['iron'])
-    PREVIEW_RAMS[rid] = objs
+        o.location = FIG_POS; o.rotation_euler = (FIG_ROT_X, 0, 0); o.scale = FIG_SCALE
+        o.data.materials.clear(); o.data.materials.append(MATS['gilt'])
+    PREVIEW[fid] = objs
 
-def show_ram(rid):
-    for k, objs in PREVIEW_RAMS.items():
-        for o in objs: o.hide_render = (k != rid)
-show_ram('ram_05')
+def show_preview(fid):
+    for k, objs in PREVIEW.items():
+        for o in objs: o.hide_render = (k != fid)
+show_preview('figurehead_lion')
 
 def look(fname, loc, target, lens=35, res=(1400, 1000)):
     d = Vector(target) - Vector(loc)
@@ -854,12 +844,11 @@ shot('mdl_bow_close.png', (13, 38, 8.5), (78, 0, 150), lens=30)
 shot('mdl_stern_close.png', (-12, -34, 9.5), (78, 0, -25), lens=30)
 shot('mdl_deck.png', (0, -11, 8.5), (72, 0, 0), lens=24)
 # close-ups for checking joins
-for rid in ('ram_01', 'ram_05', 'ram_06', None):
-    show_ram(rid)
-    tag = rid or 'none'
-    look(f'chk_bow_{tag}.png', (14, 27, 1.2), (0, 26.5, 0.8), lens=30)
-look('chk_bow_ram_front.png', (9, 35, 3), (0, 26, 0.5), lens=28)
-show_ram('ram_05')
+for fid in list(PREVIEW) + [None]:
+    show_preview(fid)
+    look(f'chk_fig_{fid or "none"}.png', (9.0, 31.0, 3.2), (0, 26.0, 1.8), lens=30)
+look('chk_fig_side.png', (12, 26.5, 2.0), (0, 26.0, 1.6), lens=30)
+show_preview('figurehead_lion')
 look('chk_poop_corner.png', (-6.5, -27.5, 8.5), (-3.0, -23.5, 6.0), lens=30)
 look('chk_awning.png', (2.5, -16.5, 10.5), (0, -21.0, 8.4), lens=30)
 look('chk_sc_stairs.png', (5.5, -9.5, 7.5), (3.2, -14.3, 5.8), lens=30)

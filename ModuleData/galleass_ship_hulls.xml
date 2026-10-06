@@ -31,9 +31,6 @@
 				id="aft"
 				tag_id="aft" />
 			<ShipSlot
-				id="bow"
-				tag_id="bow" />
-			<ShipSlot
 				id="hull"
 				tag_id="hull" />
 			<ShipSlot
