@@ -148,7 +148,7 @@ def _basis(c, n):
         m[i][0], m[i][1], m[i][2], m[i][3] = u[i], n[i], z[i], c[i]
     return m
 
-def lining(name, c, n, w, h, d, lip=0.02, t=0.04, sill_out=0.0, role='trim'):
+def lining(name, c, n, w, h, d, lip=0.02, t=0.04, sill_out=0.0, role='trim', curve_r=None):
     """Timber lining of a rectangular opening: jambs, head and sill boards through the wall (depth d), with a
     small lip proud of the outer face; sill_out makes the sill project as a ledge. c = opening centre on the
     outer face, n = outward normal, w/h = cut width/height. Boards sit inside the cut (no overlap with wall)."""
@@ -160,12 +160,21 @@ def lining(name, c, n, w, h, d, lip=0.02, t=0.04, sill_out=0.0, role='trim'):
             v.co = M @ Vector((x0 if v.co.x < 0 else x1, y0 if v.co.y < 0 else y1, z0 if v.co.z < 0 else z1))
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
         obj_from_bm(bm, name, role)
-    y0, y1 = -d - 0.01, lip
+    # the same 2 cm lip shows outside AND inside; on a curved (round) wall the boards are lengthened by the
+    # wall's sag over half the opening width, so the lip is the same at the edges as in the middle
+    sag_o = sag_i = 0.0
+    if curve_r:
+        u = w / 2
+        sag_o = curve_r - math.sqrt(curve_r ** 2 - u * u)
+        ri = curve_r - d
+        sag_i = (curve_r - math.sqrt(ri * ri - u * u)) - d
+    y0, y1 = -d - sag_i - lip, lip
     lbox(-w / 2, -w / 2 + t, y0, y1, -h / 2 + t, h / 2 - t)             # jambs
     lbox(w / 2 - t, w / 2, y0, y1, -h / 2 + t, h / 2 - t)
     lbox(-w / 2, w / 2, y0, y1, h / 2 - t, h / 2)                       # head
-    e = 0.05 if sill_out else 0.0
-    lbox(-w / 2 - e, w / 2 + e, y0, y1 + sill_out, -h / 2, -h / 2 + t)  # sill
+    lbox(-w / 2, w / 2, y0, y1, -h / 2, -h / 2 + t)                     # sill board, frame width
+    if sill_out:                                                         # projecting ledge: outside only
+        lbox(-w / 2 - 0.05, w / 2 + 0.05, -sag_o, lip + sill_out, -h / 2 - 0.02, -h / 2 + t)
 
 def round_lining(name, c, n, r, d, lip=0.02, t=0.03, role='trim'):
     """Round timber sleeve lining a round port through a wall of depth d."""
@@ -612,7 +621,8 @@ def build_forecastle():
         a = math.radians(90 - deg) if abs(deg) < 90 else (0.0 if deg > 0 else math.pi)
         cuts.append(cutter_box(x, y, (FC_EMB_SILL + FC_EMB_TOP) / 2, 1.6, FC_EMB_W, FC_EMB_TOP - FC_EMB_SILL, a))
         lining('fc_embrasure_lining', (x, y, (FC_EMB_SILL + FC_EMB_TOP) / 2), (math.cos(a), math.sin(a), 0),
-               FC_EMB_W, FC_EMB_TOP - FC_EMB_SILL, 0.35, sill_out=0.05)
+               FC_EMB_W, FC_EMB_TOP - FC_EMB_SILL, 0.35, sill_out=0.05,
+               curve_r=None if abs(deg) >= 90 else fc_radius(FC_EMB_SILL))
         # gun position marker (cannon goes here later)
         r_in = fc_radius(FC_Z_PLATFORM) - 1.8
         gx, gy = fc_point(deg, r_in, back=0.6)
