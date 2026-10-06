@@ -98,7 +98,7 @@ FIG_SCALE = (0.95, 1.05, 1.05)                    # vanilla 0.85/0.92/0.92 x ~1.
 
 ROLES = {                                 # role -> blockout colour (real materials are set up in the Kit)
     'hull':  (0.42, 0.28, 0.17),          # hull planking (below the rowing level)
-    'paint': (0.55, 0.13, 0.10),          # painted upper works
+    'paint': (0.36, 0.25, 0.16),          # wood under the faction-colour paint overlay
     'deck':  (0.72, 0.60, 0.42),
     'trim':  (0.22, 0.15, 0.10),          # rails, wales, mouldings, frames
     'gilt':  (0.85, 0.66, 0.25),          # carved/gilded decoration
@@ -1509,8 +1509,21 @@ coll('parts').hide_render = True; coll('parts').hide_viewport = True
 src = bpy.data.objects['galleass_paint'].data
 fm = src.copy(); fm.name = 'galleass_faction_paint'
 fm.materials.clear(); fm.materials.append(MATS['faction'])
-for v in fm.vertices:
-    v.co = v.co + v.normal * 0.003
+# shell offset: every face plane moves out by D (vertex moved along the mean face normal, lengthened at corners)
+D = 0.006
+bmf = bmesh.new(); bmf.from_mesh(fm)
+moves = {}
+for v in bmf.verts:
+    fns = [f.normal for f in v.link_faces]
+    if not fns: continue
+    n = Vector((0, 0, 0))
+    for fn_ in fns: n += fn_
+    if n.length < 1e-6: continue
+    n.normalize()
+    c = min(n.dot(fn_) for fn_ in fns)
+    moves[v] = n * (D / max(c, 0.35))
+for v, m in moves.items(): v.co += m
+bmf.to_mesh(fm); bmf.free()
 uvl = fm.uv_layers[0]
 for li, loop in enumerate(fm.loops):
     z = fm.vertices[loop.vertex_index].co.z
