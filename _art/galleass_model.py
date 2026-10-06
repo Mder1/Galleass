@@ -724,8 +724,8 @@ def build_sterncastle():
             # wooden arched hood on top of the frame: a flat half-elliptical board in the wall plane whose inner
             # edge continues the jambs' inner faces, resting on the frame's top
             M = _basis(Vector((side * sc_hw(y), y, SCW_Z1)), nrm)
-            ai, ao = 0.25 - 0.04, 0.25 + 0.05               # inner = jamb inner face, outer = beyond the frame
-            bi, bo = SCW_ARCH, SCW_ARCH + 0.09
+            ai, ao = 0.25 - 0.04, 0.25                      # same width as the jamb boards: the frame curving over
+            bi, bo = SCW_ARCH, SCW_ARCH + 0.04
             bm = bmesh.new()
             K = 24
             rings = []
@@ -733,7 +733,7 @@ def build_sterncastle():
                 t = math.pi * k / K
                 ring = []
                 for (a, b) in ((ai, bi), (ao, bo)):
-                    for yy in (-0.01, 0.04):
+                    for yy in (-0.01, 0.02):                # same 2 cm lip as the frame
                         ring.append(bm.verts.new(M @ Vector((a * math.cos(t), yy, b * math.sin(t)))))
                 rings.append(ring)                           # [inner-back, inner-front, outer-back, outer-front]
             for r0, r1 in zip(rings, rings[1:]):
