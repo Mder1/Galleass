@@ -1484,7 +1484,9 @@ for fid in ('figurehead_lion', 'dragon_l', 'wingsofvictoryfigurehead', 'sirenfig
 
 def show_preview(fid):
     for k, objs in PREVIEW.items():
-        for o in objs: o.hide_render = (k != fid)
+        for o in objs:
+            o.hide_render = (k != fid)
+            o.hide_viewport = (k != fid)          # the saved .blend shows only the chosen figurehead
 show_preview('figurehead_lion')
 
 def look(fname, loc, target, lens=35, res=(1400, 1000)):
