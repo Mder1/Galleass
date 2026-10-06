@@ -20,6 +20,10 @@ for o in bpy.data.objects:
 for o in list(bpy.data.objects):
     if '.lod' in o.name:
         o.name = o.name.replace('.lod', '_lod')
+# FBX geometry names = mesh datablock names: no dots anywhere (the Kit's importer silently fails on them)
+for o in bpy.data.objects:
+    if o.type == 'MESH':
+        o.data.name = o.name
 
 def objs(base, lods=True):
     names = [base] + ([f'{base}_lod{i}' for i in (1, 2, 3)] if lods else [])
