@@ -65,6 +65,9 @@ SC_AWNING_Y = (-23.4, -18.6)            # aft hoop clears the stern lantern
 SC_Z_AWNING = 8.7
 # cabin windows: opening z, arch rise; arch top (+ tube) stays below the deck-line moulding at SC_Z_FLOOR - 0.12
 SCW_Z0, SCW_Z1, SCW_ARCH = 4.4, 4.88, 0.18
+# cabin door beside the mizzen mast (the mast at y -13.7 stands on the centreline 0.8 m in front of the bulkhead)
+SC_DOOR_X, SC_DOOR_W = 1.35, 1.0
+SC_FWIN_X = 2.35                         # front windows, outboard of the door
 SC_STAIR_X = 3.25                        # centre line of the two stairs up to the poop
 LANTERN_Y = -24.15                       # on the poop deck, just inside the aft rail
 
@@ -599,8 +602,8 @@ def build_sterncastle():
     tapered_block('stern_cap', -25.25, SC_Y_AFT + 0.05, FC_Z_BASE - 0.25, FC_Z_BASE, lambda y: half_beam(y, True) + 0.02, 'hull')
     cuts = []
     # cabin door and two windows in the front bulkhead
-    cuts.append(cutter_box(0, SC_Y_FORE, Z_GUN_DECK + 1.0, 1.1, 0.6, 2.0))
-    for x in (-2.2, 2.2):
+    cuts.append(cutter_box(SC_DOOR_X, SC_Y_FORE, Z_GUN_DECK + 1.0, SC_DOOR_W, 0.6, 2.0))
+    for x in (-SC_FWIN_X, SC_FWIN_X):
         cuts.append(cutter_box(x, SC_Y_FORE, 4.3, 0.6, 0.6, 0.6))
     # side windows (the drawing's band of small arched windows)
     nwin = 6
@@ -613,9 +616,9 @@ def build_sterncastle():
             arch = [(side * (sc_hw(y + 0.3 * math.cos(t)) + 0.05), y + 0.3 * math.cos(t), SCW_Z1 + SCW_ARCH * math.sin(t))
                     for t in [math.pi * k / 10 for k in range(11)]]
             sweep('sc_window_arch', arch, 0.04, 'gilt', segs=6, cap=False)
-    for x in (-2.2, 2.2):
+    for x in (-SC_FWIN_X, SC_FWIN_X):
         box('sc_front_window_back', x - 0.35, x + 0.35, SC_Y_FORE - 0.35, SC_Y_FORE - 0.3, 3.95, 4.65, 'dark')
-    box('sc_door_back', -0.6, 0.6, SC_Y_FORE - 0.6, SC_Y_FORE - 0.55, Z_GUN_DECK, Z_GUN_DECK + 2.05, 'dark')
+    box('sc_door_back', SC_DOOR_X - SC_DOOR_W / 2 - 0.05, SC_DOOR_X + SC_DOOR_W / 2 + 0.05, SC_Y_FORE - 0.6, SC_Y_FORE - 0.55, Z_GUN_DECK, Z_GUN_DECK + 2.05, 'dark')
     subtract(body, cuts)
     # mouldings: above the bulwark line, under the windows, under the poop deck
     sc_out = sc_hw(0) - side_hw(0)                       # cabin sides stand this far outside the ship's side line
@@ -876,6 +879,7 @@ show_preview('figurehead_lion')
 look('chk_poop_corner.png', (-6.5, -27.5, 8.5), (-3.0, -23.5, 6.0), lens=30)
 look('chk_awning.png', (2.5, -16.5, 10.5), (0, -21.0, 8.4), lens=30)
 look('chk_sc_stairs.png', (5.5, -9.5, 7.5), (3.2, -14.3, 5.8), lens=30)
+look('chk_sc_door.png', (0.5, -7.5, 4.2), (0.6, -14.5, 3.2), lens=30)
 look('chk_fc_stairs.png', (5.0, 13.0, 5.5), (2.4, 18.4, 4.0), lens=30)
 look('chk_scroll_fore.png', (10.5, 23.5, 3.2), (5.5, 20.6, 2.0), lens=30)
 look('chk_scroll_aft.png', (10.5, -20.5, 3.2), (5.5, -17.6, 2.0), lens=30)
