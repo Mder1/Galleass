@@ -8,3 +8,5 @@ AssetPackages/
 *.bak*
 *.blend1
 __pycache__/
+_art/ref/
+_art/renders/
