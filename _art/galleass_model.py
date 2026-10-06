@@ -584,6 +584,21 @@ def build_sides():
                 box(name + '_end', *sorted((side * xi, side * (W + out - thick))),
                     *sorted((yend + d * out, yend + d * (out - (thick if name == 'cap_rail' else min(thick, SIDE_T))))),
                     z0, z1, role)   # the cap covers the end wall's whole top, like along the side
+    # strakes run on past the box ends along the hull/skirt, sweeping up in parallel S curves until they run in
+    # under the rub rail (bow) / the balcony plate (stern) - same shape fore and aft
+    for name, (z0, z1, out, thick, role) in STRAKES.items():
+        zc, hh = (z0 + z1) / 2, (z1 - z0) / 2
+        reach = 4.4 if name == 'strake_low' else 3.2       # how far beyond the box end the strake runs
+        for yend, d, z_top_end in ((Y1, 1, BANDS['rub_rail'][0] + 0.02), (Y0, -1, BALC_Z_BOT - 0.03)):
+            pts = []
+            for k in range(41):
+                t = k / 40
+                y = yend + d * (out - 0.02 + reach * t)
+                z = zc + (z_top_end - hh - zc) * smoothstep(0.15, 1.0, t)
+                pts.append((y, z))
+            for side in (-1, 1):
+                path = [(side * (outer_x(y, z) + out - thick / 2), y, z) for y, z in pts]
+                sweep(f'{name}_run', path, max(thick, z1 - z0) / 2 * 1.414, role, square=True)
     # full-width gun deck; side decks beside the forecastle and the cabin
     WD = W - SIDE_T + 0.01
     box('gun_deck', -WD, WD, Y_GUNDECK_AFT, FC_Y_BACK, Z_GUN_DECK - 0.15, Z_GUN_DECK, 'deck')
@@ -1178,7 +1193,7 @@ def build_beak():
     radii = [0.015 + 0.02 * min(k / 20, 1) for k in range(len(path))]
     for side in (-1, 1):
         x = side * (CHEEK_X + 0.02)
-        sweep('beak_trail', [(x, p.y, p.z) for p in path], radii, 'gilt', segs=8)
+        pass                                              # gilt trail board removed (user 2026-10-06)
 
 def build_rudder():
     """Sternpost rudder hung on the straight raked sternpost. Modelled upright in its own frame (hinge = local Z,
