@@ -1,6 +1,9 @@
 """Export the galleass meshes for the Modding Kit (settings as for GreekFire: metres, forward Y, up Z).
 
-blender -b ref/galleass_model.blend --python export_fbx.py -- <out dir>
+blender -b ref/galleass_model.blend --python export_fbx.py -- ../AssetSources/export
+
+Import from a SUBFOLDER of AssetSources (export/): the Kit copies each imported source into the AssetSources root,
+and a file that already sits there silently fails to import (copy onto itself). The root copies are the Kit's.
 
 One FBX per Kit mesh, each with its LODs ('<name>.lodN' objects). Material names are the Kit material names
 (create those materials in the Kit BEFORE importing - binding happens at import). The rudder is exported in its

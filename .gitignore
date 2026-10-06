@@ -12,3 +12,6 @@ _art/ref/
 _art/renders/
 AssetSources/test/
 AssetSources/textures/
+# the Kit copies imported sources into the AssetSources root; exports live in AssetSources/export/
+AssetSources/*.fbx
+AssetSources/*.png
