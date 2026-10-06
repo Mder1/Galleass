@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MissionShips>
+	<MissionShip
+		id="ship_galleass"
+		prefab="galleass_ship_nested"
+		mass="200000"
+		maximum_submerged_volume_ratio="0.7"
+		lateral_drag_shift_max="0.1"
+		lateral_drag_shift_critical_angle="40"
+		oars_tip_speed="6.2"
+		oarsmen_force_multiplier="16"
+		oar_friction_multiplier="38"
+		oar_count="40"
+		rudder_blade_length="1.7"
+		rudder_blade_height="2.5"
+		rudder_deflection_coef="16"
+		rudder_rotation_max="17"
+		rudder_rotation_rate="4"
+		rudder_force_max="500000"
+		max_linear_speed="8.77"
+		max_linear_acceleration="3.62"
+		max_angular_speed="8.43"
+		max_angular_acceleration="17.97"
+		bow_angle_limit_from_centerline="5"
+		landing_depth="0.3"
+		partial_hit_points_ratio="0.333"
+		ship_physics_reference_id="big_ship_physics">
+		<rudder_stock_position
+			x="4.4"
+			y="-20.3"
+			z="-1.4" />
+		<deployment_area
+			width="12.10"
+			length="59.93" />
+		<sails>
+			<sail
+				type="lateen"
+				force_multiplier="7"
+				left_rotation_limit="170"
+				right_rotation_limit="5"
+				rotation_rate="10" />
+			<sail
+				type="lateen"
+				force_multiplier="6"
+				left_rotation_limit="170"
+				right_rotation_limit="5"
+				rotation_rate="12" />
+		</sails>
+		<linear_friction_multiplier
+			side="1.0"
+			forward="1.0"
+			backward="1.0"
+			up="1.0"
+			down="1.0" />
+		<angular_friction_multiplier
+			pitch="1.0"
+			roll="1.0"
+			yaw="0.3" />
+		<moment_of_inertia_multiplier
+			x="1.0"
+			y="1.0"
+			z="0.9" />
+	</MissionShip>
+</MissionShips>

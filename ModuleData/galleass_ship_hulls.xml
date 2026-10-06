@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ShipHulls>
+	<ShipHull
+		id="empire_galleass"
+		name="{=galleass_name}Galleass"
+		description="{=galleass_desc}A great war galley of the Empire, carrying fighting castles fore and aft and engines along her sides. Slower than a dromon under oars, but a floating fortress in the line of battle."
+		mission_ship="ship_galleass"
+		skeletal_crew_capacity="36"
+		main_deck_crew_capacity="76"
+		total_crew_capacity="112"
+		max_hitpoints="56000"
+		max_fire_hitpoints="56000"
+		max_sail_hitpoints="28000"
+		ship_type="heavy"
+		has_hold="true"
+		base_speed="3.2"
+		default_group="Infantry"
+		can_navigate_shallow_water="false"
+		can_equip_figurehead="true"
+		production_build_weight="3.0"
+		value="75000"
+		sea_worthiness="36"
+		inventory_capacity="4800"
+		map_visual_scale="0.05"
+		floating_force_multiplier="0.45">
+		<AvailableSlots>
+			<ShipSlot
+				id="fore"
+				tag_id="fore" />
+			<ShipSlot
+				id="aft"
+				tag_id="aft" />
+			<ShipSlot
+				id="bow"
+				tag_id="bow" />
+			<ShipSlot
+				id="hull"
+				tag_id="hull" />
+			<ShipSlot
+				id="side"
+				tag_id="side" />
+			<ShipSlot
+				id="deck"
+				tag_id="deck" />
+			<ShipSlot
+				id="sail"
+				tag_id="sail" />
+			<ShipSlot
+				id="roof"
+				tag_id="roof" />
+		</AvailableSlots>
+	</ShipHull>
+</ShipHulls>

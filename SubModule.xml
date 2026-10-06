@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Module>
+	<Name value="Galleass"/>
+	<Id value="Galleass"/>
+	<Version value="v0.1.0"/>
+	<DefaultModule value="false"/>
+	<ModuleCategory value="Singleplayer"/>
+	<SingleplayerModule value="true"/>
+	<MultiplayerModule value="false"/>
+	<ModuleType value="Community"/>
+	<DependedModules>
+		<DependedModule Id="Native" DependentVersion="v1.5.4" Optional="false"/>
+		<DependedModule Id="SandBoxCore" DependentVersion="v1.5.4" Optional="false"/>
+		<DependedModule Id="NavalDLC" DependentVersion="v1.3.4" Optional="false"/>
+	</DependedModules>
+	<DependedModuleMetadatas>
+		<DependedModuleMetadata id="Native" order="LoadBeforeThis"/>
+		<DependedModuleMetadata id="SandBoxCore" order="LoadBeforeThis"/>
+		<DependedModuleMetadata id="NavalDLC" order="LoadBeforeThis"/>
+	</DependedModuleMetadatas>
+	<SubModules/>
+	<Xmls>
+		<XmlNode>
+			<XmlName id="MissionShips" path="galleass_mission_ships"/>
+			<IncludedGameTypes>
+				<GameType value="Campaign"/>
+				<GameType value="CampaignStoryMode"/>
+				<GameType value="EditorGame"/>
+				<GameType value="CustomGame"/>
+			</IncludedGameTypes>
+		</XmlNode>
+		<XmlNode>
+			<XmlName id="ShipHulls" path="galleass_ship_hulls"/>
+			<IncludedGameTypes>
+				<GameType value="Campaign"/>
+				<GameType value="CampaignStoryMode"/>
+				<GameType value="EditorGame"/>
+				<GameType value="CustomGame"/>
+			</IncludedGameTypes>
+		</XmlNode>
+		<XmlNode>
+			<XmlName id="SPCultures" path="XSLT/Galleass_SPCultures"/>
+			<IncludedGameTypes>
+				<GameType value="Campaign"/>
+				<GameType value="CampaignStoryMode"/>
+				<GameType value="CustomGame"/>
+			</IncludedGameTypes>
+		</XmlNode>
+	</Xmls>
+</Module>

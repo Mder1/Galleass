@@ -1,0 +1,10 @@
+# Modding Kit cache, regenerated on demand
+RuntimeDataCache/
+# Modding Kit publish output
+AssetPackages/
+# Local backups
+*.pre-*
+*.orig
+*.bak*
+*.blend1
+__pycache__/
