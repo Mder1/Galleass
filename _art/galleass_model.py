@@ -45,6 +45,7 @@ OARPORT_W, OARPORT_Z0, OARPORT_Z1 = 0.32, 1.25, 1.6
 # broadside gunports in the gun-deck bulwark (cannons)
 GUNPORTS_PER_SIDE = 5
 GP_SILL, GP_TOP, GP_W = 2.85, 3.45, 0.6
+WREATH_RY, WREATH_RZ = 0.56, 0.5           # gilded ring round each gunport (clears the sill ends)
 
 # forecastle: tapered horseshoe, five gun embrasures on the upper tier (0, +-45, +-90 deg)
 FC_CY = 21.6                             # centre of the round front
@@ -147,14 +148,22 @@ def lathe(name, profile, role, at=(0, 0, 0), segs=8, cap=True):
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     return obj_from_bm(bm, name, role, smooth=True)
 
-def sweep(name, pts, radii, role, segs=8, square=False, cap=True):
-    """Tube along a polyline (parallel-transported frames); square=True gives a beam."""
+def sweep(name, pts, radii, role, segs=8, square=False, cap=True, closed=False):
+    """Tube along a polyline (parallel-transported frames); square=True gives a beam.
+    closed=True: pts is a loop (last point may repeat the first); the tube is joined seamlessly."""
     pts = [Vector(p) for p in pts]
+    if closed:
+        if (pts[0] - pts[-1]).length < 1e-6:
+            pts = pts[:-1]
+        cap = False
     if not isinstance(radii, (list, tuple)):
         radii = [radii] * len(pts)
     tangents = []
     for i in range(len(pts)):
-        a = pts[max(i - 1, 0)]; b = pts[min(i + 1, len(pts) - 1)]
+        if closed:
+            a = pts[i - 1]; b = pts[(i + 1) % len(pts)]
+        else:
+            a = pts[max(i - 1, 0)]; b = pts[min(i + 1, len(pts) - 1)]
         tangents.append((b - a).normalized())
     ref = Vector((1, 0, 0)) if abs(tangents[0].x) < 0.9 else Vector((0, 0, 1))
     n = (ref - tangents[0] * ref.dot(tangents[0])).normalized()
@@ -168,7 +177,13 @@ def sweep(name, pts, radii, role, segs=8, square=False, cap=True):
             a = 2 * math.pi * j / k + (math.pi / 4 if square else 0)
             ring.append(bm.verts.new(p + (n * math.cos(a) + bnorm * math.sin(a)) * radii[i]))
         rings.append(ring)
-    for a, b in zip(rings, rings[1:]):
+    pairs = list(zip(rings, rings[1:]))
+    if closed:
+        # parallel transport leaves a twist after one loop: re-index the last ring to the nearest start
+        first, last = rings[0], rings[-1]
+        off = min(range(k), key=lambda o: (first[0].co - last[o].co).length)
+        pairs.append(([last[(j + off) % k] for j in range(k)], first))
+    for a, b in pairs:
         for j in range(k):
             bm.faces.new((a[j], a[(j + 1) % k], b[(j + 1) % k], b[j]))
     if cap:
@@ -352,16 +367,26 @@ def build_sides():
             y = gunport_y(i)
             w = side_hw(y)
             cuts.append(cutter_box(side * w, y, (GP_SILL + GP_TOP) / 2, 0.8, GP_W, GP_TOP - GP_SILL))
-            # gilded wreath around the port (the drawing's rosettes) and a sill
-            ring = [(side * (w + 0.03), y + 0.48 * math.cos(2 * math.pi * k / 16),
-                     (GP_SILL + GP_TOP) / 2 + 0.42 * math.sin(2 * math.pi * k / 16)) for k in range(17)]
-            sweep('gunport_wreath', ring, 0.05, 'gilt', segs=6, cap=False)
-            box('gunport_sill', *sorted((side * (w - SIDE_T), side * (w + 0.08))), y - GP_W / 2 - 0.05,
-                y + GP_W / 2 + 0.05, GP_SILL - 0.06, GP_SILL, 'trim')
+            # gilded wreath around the port (the drawing's rosettes), following the side's curve, and a sill
+            # that fits inside the opening and stands 2 cm proud of the cut (no coplanar faces)
+            ring = []
+            for k in range(25):
+                yk = y + WREATH_RY * math.cos(2 * math.pi * k / 24)
+                ring.append((side * (side_hw(yk) + 0.06), yk, (GP_SILL + GP_TOP) / 2 + WREATH_RZ * math.sin(2 * math.pi * k / 24)))
+            sweep('gunport_wreath', ring, 0.05, 'gilt', segs=6, closed=True)
+            box('gunport_sill', *sorted((side * (w - SIDE_T - 0.02), side * (w + 0.05))), y - GP_W / 2 + 0.005,
+                y + GP_W / 2 - 0.005, GP_SILL - 0.05, GP_SILL + 0.02, 'trim')
         subtract(wall, cuts)
     # strakes along the oar-port row, rub rail at the deck line, gilded moulding, cap rail
     for name, (z0, z1, out, thick, role) in {**BANDS, **STRAKES}.items():
-        side_loft(name, BAND_Y0, BAND_Y1, z0, z1, out, thick, role)
+        if name != 'moulding':
+            side_loft(name, BAND_Y0, BAND_Y1, z0, z1, out, thick, role)
+            continue
+        # the gilded moulding runs at wreath height: break it around each gunport wreath
+        gap = WREATH_RY + 0.12
+        edges = [BAND_Y0] + [e for i in range(GUNPORTS_PER_SIDE) for e in (gunport_y(i) - gap, gunport_y(i) + gap)] + [BAND_Y1]
+        for a, b in zip(edges[::2], edges[1::2]):
+            side_loft(name, a, b, z0, z1, out, thick, role, n=max(int((b - a) * 4), 2))
     # gun deck follows the inside of the walls; stanchions on the inside of the bulwark
     tapered_block('gun_deck', Y_GUNDECK_AFT, Y_GUNDECK_FORE + 0.4, Z_GUN_DECK - 0.15, Z_GUN_DECK,
                   lambda y: side_hw(y) - SIDE_T + 0.01, 'deck', n=40)
@@ -492,10 +517,12 @@ def build_forecastle():
         x, y = fc_point(deg, fc_radius(2.95))
         a = math.radians(90 - deg)
         cuts.append(cutter_cyl(x, y, 2.95, 0.22, 1.2, (math.pi / 2, 0, a - math.pi / 2)))
-        ring = [(x + 0.04 * math.cos(a) + (0.32 * math.cos(t)) * -math.sin(a),
-                 y + 0.04 * math.sin(a) + (0.32 * math.cos(t)) * math.cos(a), 2.95 + 0.32 * math.sin(t))
-                for t in [2 * math.pi * k / 16 for k in range(17)]]
-        sweep('fc_port_wreath', ring, 0.05, 'gilt', segs=6, cap=False)
+        R = fc_radius(2.95) + 0.07
+        ring = []
+        for t in [2 * math.pi * k / 24 for k in range(25)]:
+            b = a + 0.32 * math.cos(t) / R               # walk along the curved wall
+            ring.append((R * math.cos(b), FC_CY + R * math.sin(b), 2.95 + 0.32 * math.sin(t)))
+        sweep('fc_port_wreath', ring, 0.05, 'gilt', segs=6, closed=True)
     subtract(lower, cuts)
     horseshoe_slab('fc_floor_low', fc_radius(FC_Z_BASE) - 0.3, Z_GUN_DECK - 0.15, Z_GUN_DECK, 'deck')
     horseshoe_slab('fc_platform', fc_radius(FC_Z_PLATFORM) - 0.05, FC_Z_PLATFORM - 0.15, FC_Z_PLATFORM, 'deck')
@@ -581,7 +608,7 @@ def build_sterncastle():
             cuts.append(cutter_box(side * sc_hw(y), y, 4.75, 0.6, 0.5, 0.55))
             box('sc_window_back', *sorted((side * (sc_hw(y) - 0.25), side * (sc_hw(y) - 0.3))), y - 0.3, y + 0.3, 4.4, 5.1, 'dark')
             # arch over each window
-            arch = [(side * (sc_hw(y) + 0.03), y + 0.3 * math.cos(t), 5.02 + 0.22 * math.sin(t))
+            arch = [(side * (sc_hw(y + 0.3 * math.cos(t)) + 0.05), y + 0.3 * math.cos(t), 5.02 + 0.22 * math.sin(t))
                     for t in [math.pi * k / 10 for k in range(11)]]
             sweep('sc_window_arch', arch, 0.04, 'gilt', segs=6, cap=False)
     for x in (-2.2, 2.2):
@@ -859,6 +886,10 @@ look('chk_stern_under.png', (-6, -28, 0.5), (-2.5, -22, 2.5), lens=28)
 look('chk_side_row.png', (7.0, 22.0, 1.6), (4.3, 12.0, 1.7), lens=28)
 look('chk_side_row_aft.png', (7.0, -20.0, 1.8), (4.3, -10.0, 1.8), lens=28)
 look('chk_side_wall.png', (9.5, 3.0, 2.9), (4.4, 6.0, 1.6), lens=28)
+look('chk_gunport.png', (6.2, gunport_y(1) - 1.2, 3.3), (4.4, gunport_y(1), 3.15), lens=35)
+look('chk_gunport_fore.png', (6.2, gunport_y(4) + 1.6, 3.3), (4.2, gunport_y(4), 3.15), lens=35)
+look('chk_fc_port.png', (2.5, 28.5, 3.0), (1.6, 25.2, 2.95), lens=35)
+look('chk_sc_window.png', (6.5, -19.0, 5.0), (4.3, -20.5, 4.8), lens=35)
 look('chk_side_wall_fore.png', (9.5, 13.0, 2.9), (4.2, 17.5, 1.8), lens=28)
 bpy.ops.wm.save_as_mainfile(filepath=OUT_BLEND)
 print('model done')
