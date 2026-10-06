@@ -25,6 +25,11 @@ for o in bpy.data.objects:
     if o.type == 'MESH':
         o.data.name = o.name
 
+# no texture references in the FBX (the preview images live in _art/ref/tex, so the paths dangle next to the
+# FBX); the Kit materials carry the real textures. GreekFire's FBX had none either.
+for m in bpy.data.materials:
+    m.use_nodes = False
+
 def objs(base, lods=True):
     names = [base] + ([f'{base}_lod{i}' for i in (1, 2, 3)] if lods else [])
     return [bpy.data.objects[n] for n in names if n in bpy.data.objects]
