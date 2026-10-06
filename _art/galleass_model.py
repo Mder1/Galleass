@@ -954,14 +954,14 @@ def build_stern_balcony():
         sweep('balcony_rail_end', [(x, SC_Y_AFT - 0.02, zr - 0.04), (x, y, zr - 0.04)], 0.06, 'trim', square=True)
     # mouldings: above the bulwark line, under the windows, under the poop deck
     sc_out = sc_hw(0) - side_hw(0)                       # cabin sides stand this far outside the ship's side line
-    def wrap(name, z0, z1, out, thick, role, fore=None, aft=None):
+    def wrap(name, z0, z1, out, thick, role, fore=None, aft=None, y_end=None):
         """Band along both cabin sides; with fore/aft gap lists it turns the corner and runs across that
         face between the given x intervals (doors, stairs), so no band ends in mid-air at a corner.
         Never deeper than the cabin wall (walk-in cabin)."""
         o = out - sc_out
         t = min(thick, o + SC_WALL - 0.03)
         ya = SC_Y_AFT - (o if aft else 0.0)
-        yb = SC_Y_FORE + (o if fore else 0.0)
+        yb = y_end if y_end is not None else SC_Y_FORE + (o if fore else 0.0)
         side_strip(f'sc_{name}', ya, yb, z0, z1, o, t, role)
         for face_y, sgn, segs in ((SC_Y_FORE, 1, fore), (SC_Y_AFT, -1, aft)):
             if not segs:
@@ -975,7 +975,10 @@ def build_stern_balcony():
     stairs_f = [(-9, -SC_STAIR_X - 0.55), (-SC_STAIR_X + 0.55, SC_STAIR_X - 0.55), (SC_STAIR_X + 0.55, 9)]
     for name, (z0, z1, out, thick, role) in BANDS.items():
         # rub rail: the balcony plate covers the stern face at its height
-        wrap(name, z0, z1, out, thick, role, aft=None if name == 'rub_rail' else door_a)
+        # the ship's bands only run on the cabin aft of the wide box; inside the box (beside the side deck) they'd
+        # be stubs ending at the cabin front. They butt the box end wall's bands instead.
+        wrap(name, z0, z1, out, thick, role, aft=None if name == 'rub_rail' else door_a,
+             y_end=WING_Y0 - out + 0.001)
     wrap('window_band', SCW_Z0 - 0.2, SCW_Z0 - 0.1, 0.06 + sc_out, 0.12, 'gilt', fore=door_f, aft=door_a)
     wrap('deck_line', SC_Z_FLOOR - 0.12, SC_Z_FLOOR, 0.06 + sc_out, 0.12, 'trim', fore=stairs_f, aft=[(-9, 9)])
     # poop deck and turned balustrade
