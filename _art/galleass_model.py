@@ -1382,6 +1382,7 @@ def build_rudder():
     bm_all.to_mesh(me); bm_all.free()
     for r in mats: me.materials.append(MATS[r])
     me.set_sharp_from_angle(angle=math.radians(40))
+    add_uvs(me, 'trim')
     o = bpy.data.objects.new('galleass_rudder', me); coll('final').objects.link(o)
     o.location = (0, base.x, base.y)
     o.rotation_euler = (STERN_RAKE, 0, 0)                          # local Z -> up the raked post
@@ -1406,6 +1407,42 @@ def build_markers():
         obj_from_bm(bm, f'mast_{name}', 'dark', 'markers', smooth=True)
 
 # ================================================================= build
+# ================================================================= UVs
+# Vanilla ship textures tile: ship_meditheavy_plank_a ~0.135 UV/m with the planks along U (fore and aft on the
+# hull), ship_meditheavy_deck_a ~0.127 UV/m with the planks along V. Every part gets world-space planar UVs per
+# face, with the grain (U) along the part's long axis projected into the face: continuous across a part's faces.
+UV_SCALE = {'hull': 0.135, 'paint': 0.135, 'trim': 0.135, 'deck': 0.127, 'gilt': 0.5, 'iron': 0.5, 'dark': 0.135,
+            'glass': 1.0}
+def long_axis(me):
+    import numpy as np
+    co = np.array([v.co[:] for v in me.vertices])
+    if len(co) < 3: return Vector((0, 1, 0))
+    ext = co.max(0) - co.min(0)
+    if ext[1] > 8.0: return Vector((0, 1, 0))                      # ship-long parts: grain fore and aft
+    c = co - co.mean(0)
+    w, vec = np.linalg.eigh(c.T @ c)
+    return Vector(vec[:, -1]).normalized()
+
+def add_uvs(me, role):
+    s = UV_SCALE[role]
+    a = long_axis(me)
+    uv = me.uv_layers.new(name='UVMap') if not me.uv_layers else me.uv_layers[0]
+    for poly in me.polygons:
+        n = poly.normal
+        u = a - n * a.dot(n)
+        if u.length < 0.3:
+            for alt in (Vector((0, 1, 0)), Vector((1, 0, 0))):
+                u = alt - n * alt.dot(n)
+                if u.length >= 0.3: break
+        u.normalize(); v = n.cross(u).normalized()
+        if role == 'deck':
+            u, v = v, u                                              # deck_a: planks along V
+        for li in poly.loop_indices:
+            p = me.vertices[me.loops[li].vertex_index].co
+            uv.data[li].uv = (p.dot(u) * s, p.dot(v) * s)
+    col = me.color_attributes.new('Col', 'BYTE_COLOR', 'CORNER') if 'Col' not in me.color_attributes else me.color_attributes['Col']
+    for d in col.data: d.color = (1, 1, 1, 1)                        # vanilla ship materials use vertex colours
+
 FINIAL = _finial()
 build_hull()
 # lower wale: covers the seam where the flare leaves the hull, and runs on along the hull to the stem and stern post
@@ -1431,13 +1468,20 @@ rudder = build_rudder()
 build_beak()
 coll('cutters').hide_render = True; coll('cutters').hide_viewport = True
 
-# apply booleans and merge parts into one object per material role
+# apply booleans and merge parts into one object per material role; the cabin interior (furniture, cabin floor)
+# goes into its own multi-material object so distant LODs can drop it
+INTERIOR = ('cabin_', 'sc_floor')
 dg = bpy.context.evaluated_depsgraph_get()
-by_role = {}
+by_role, interior = {}, []
 for o, role in PARTS:
     me = bpy.data.meshes.new_from_object(o.evaluated_get(dg))
     me.transform(o.matrix_world)
-    by_role.setdefault(role, []).append(me)
+    me.update()
+    add_uvs(me, role)
+    if o.name.startswith(INTERIOR):
+        interior.append((me, role))
+    else:
+        by_role.setdefault(role, []).append(me)
 for role, meshes in by_role.items():
     bm = bmesh.new()
     for me in meshes:
@@ -1446,6 +1490,17 @@ for role, meshes in by_role.items():
     o = obj_from_bm(bm, f'galleass_{role}', role, 'final', smooth=True)
     # smooth along planks and turned parts (6-sided = 60 deg), hard at box corners; glass panes stay flat
     o.data.set_sharp_from_angle(angle=math.radians(30 if role == 'glass' else 65))
+if interior:
+    roles = sorted(set(r for _, r in interior))
+    bm = bmesh.new()
+    for me, role in interior:
+        for poly in me.polygons: poly.material_index = roles.index(role)
+        bm.from_mesh(me); bpy.data.meshes.remove(me)
+    mi = bpy.data.meshes.new('galleass_interior'); bm.to_mesh(mi); bm.free()
+    for r in roles: mi.materials.append(MATS[r])
+    for poly in mi.polygons: poly.use_smooth = True
+    mi.set_sharp_from_angle(angle=math.radians(65))
+    coll('final').objects.link(bpy.data.objects.new('galleass_interior', mi))
 coll('parts').hide_render = True; coll('parts').hide_viewport = True
 tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in coll('final').objects)
 print('triangles (final):', tris)
@@ -1525,7 +1580,7 @@ def look(fname, loc, target, lens=35, res=(1400, 1000)):
     d = Vector(target) - Vector(loc)
     cam.location = loc; cam.rotation_euler = d.to_track_quat('-Z', 'Y').to_euler()
     cam.data.type = 'PERSP'; cam.data.lens = lens
-    shd.show_xray = False; shd.color_type = 'MATERIAL'
+    shd.show_xray = False; shd.color_type = globals().get('_look_color', 'MATERIAL')
     for r in (side_ref, front_ref): r.hide_render = True
     sc.render.resolution_x, sc.render.resolution_y = res
     sc.render.filepath = os.path.join(RENDER_DIR, fname)
@@ -1569,5 +1624,25 @@ look('chk_gunport_fore.png', (6.2, gunport_y(4) + 1.6, 3.3), (4.2, gunport_y(4),
 look('chk_fc_port.png', (2.5, 28.5, 3.0), (1.6, 25.2, 2.95), lens=35)
 look('chk_sc_window.png', (6.5, -19.0, 5.0), (4.3, -20.5, 4.8), lens=35)
 look('chk_side_wall_fore.png', (9.5, 13.0, 2.9), (4.2, 17.5, 1.8), lens=28)
+# textured preview: vanilla textures (paint/gilt/trim are tinted previews, real tints are set in the Kit)
+TEX = {'hull': 'ship_meditheavy_plank_a_d.png', 'paint': 'preview_paint.png', 'trim': 'preview_trim.png',
+       'deck': 'ship_meditheavy_deck_a_d.png', 'gilt': 'preview_gilt.png', 'iron': 'ram_adapter_iron_d.png'}
+for role, fn in TEX.items():
+    m = MATS[role]; m.use_nodes = True
+    t = m.node_tree.nodes.new('ShaderNodeTexImage')
+    t.image = bpy.data.images.load(os.path.join(HERE, 'ref/tex', fn), check_existing=True)
+    m.node_tree.links.new(t.outputs['Color'], m.node_tree.nodes['Principled BSDF'].inputs['Base Color'])
+    m.node_tree.nodes.active = t
+for r in (side_ref, front_ref): r.hide_render = True
+shd.show_xray = False
+def tex_shot(fname, loc, target, lens=30):
+    look(fname, loc, target, lens=lens)
+shd.color_type = 'TEXTURE'
+_look_color = 'TEXTURE'
+tex_shot('tex_persp.png', (30, 48, 18), (0, 3, 2), lens=35)
+tex_shot('tex_persp_aft.png', (-26, -44, 14), (0, -6, 3), lens=35)
+tex_shot('tex_side_close.png', (11, -4, 3.0), (5.5, 1.0, 2.2), lens=28)
+tex_shot('tex_deck.png', (0, -11, 8.5), (0, 4, 2.3), lens=24)
+tex_shot('tex_stern.png', (-6.5, -31.5, 6.5), (0, -24.5, 4.5), lens=30)
 bpy.ops.wm.save_as_mainfile(filepath=OUT_BLEND)
 print('model done')
