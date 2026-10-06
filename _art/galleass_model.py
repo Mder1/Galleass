@@ -516,7 +516,7 @@ def build_sides():
         # cove (solid): leaves the hull upward and turns outward to the wall's foot
         bm = bmesh.new(); rings = []
         for i in range(91):                                        # ends tucked inside the end walls
-            y = (Y0 + 0.05) + (Y1 - Y0 - 0.1) * i / 90
+            y = (Y0 + 0.002) + (Y1 - Y0 - 0.004) * i / 90       # ends right behind the end walls' faces (no ledge)
             hx = cove_start_x(y)
             hin = hull_x_at(y, WING_Z0) - 0.06                    # lip tucked inside the hull, under the wale
             pts = [(hin, WING_Z0 + 0.02)] + [cove_xz(y, k / 20) for k in range(21)]
@@ -548,32 +548,31 @@ def build_sides():
         # end walls against the castles, lower edge on the cove
         for yend, d in ((Y1, -1), (Y0, 1)):
             xi = box_inner_x(yend)
-            hx = cove_start_x(yend)
-            t_in = cove_t_at_x(yend, xi) if xi > hx else 0.0
-            prof = [cove_xz(yend, t_in + (1 - t_in) * k / 16) for k in range(17)]
-            if xi < prof[0][0]:
-                prof = [(xi, prof[0][1])] + prof
-            # lower part (on the flare, up to the wall foot) is hull planking, the rest painted like the wall
-            # inner edge of the lower part follows the hull surface (the bow/stern taper), never in front of it
+            # ONE slab: flare curve (from the wale up) -> outer wall corner -> top -> inner edge following the
+            # hull/castle surface back down. Below the wale's top nothing of it shows.
             xin = lambda z: min(xi, end_surface_x(yend, z))
+            t_lo = 0.0
+            for k in range(200):                               # start where the flare passes the wale's top
+                if cove_xz(yend, k / 200)[1] >= WALE_Z + 0.09:
+                    t_lo = k / 200; break
+            hx = cove_start_x(yend)
+            t_in = max(t_lo, cove_t_at_x(yend, xi) if xi > hx else 0.0)
+            prof = [cove_xz(yend, t_in + (1 - t_in) * k / 20) for k in range(21)]
             z_lo = prof[0][1]
-            prof[0] = (xin(z_lo), z_lo)
-            inner = [(xin(WING_Z_FACE - (WING_Z_FACE - z_lo) * k / 8), WING_Z_FACE - (WING_Z_FACE - z_lo) * k / 8)
-                     for k in range(8)]
-            for poly, role in ((prof + inner, 'paint'),
-                               ([(W, WING_Z_FACE), (W, Z_BULWARK_TOP)] +
-                                [(xin(Z_BULWARK_TOP - (Z_BULWARK_TOP - WING_Z_FACE) * k / 12),
-                                  Z_BULWARK_TOP - (Z_BULWARK_TOP - WING_Z_FACE) * k / 12) for k in range(13)], 'paint')):
-                bm = bmesh.new()
-                front = [bm.verts.new((side * x, yend, z)) for x, z in poly]
-                back = [bm.verts.new((side * x, yend + d * SIDE_T, z)) for x, z in poly]
-                bm.faces.new(front); bm.faces.new(list(reversed(back)))
-                for j in range(len(poly)):
-                    jj = (j + 1) % len(poly)
-                    bm.faces.new((front[j], back[j], back[jj], front[jj]))
-                bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
-                bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-                obj_from_bm(bm, 'end_wall', role)
+            prof[0] = (min(prof[0][0], xin(z_lo)), z_lo)
+            poly = prof + [(W, Z_BULWARK_TOP)]
+            poly += [(xin(Z_BULWARK_TOP - (Z_BULWARK_TOP - z_lo) * k / 24), Z_BULWARK_TOP - (Z_BULWARK_TOP - z_lo) * k / 24)
+                     for k in range(24)]
+            bm = bmesh.new()
+            front = [bm.verts.new((side * x, yend, z)) for x, z in poly]
+            back = [bm.verts.new((side * x, yend + d * SIDE_T, z)) for x, z in poly]
+            bm.faces.new(front); bm.faces.new(list(reversed(back)))
+            for j in range(len(poly)):
+                jj = (j + 1) % len(poly)
+                bm.faces.new((front[j], back[j], back[jj], front[jj]))
+            bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+            obj_from_bm(bm, 'end_wall', 'paint')
             # flat gilded bead: from the gilt moulding down the outer corner, then curling inward into a volute
             # just above the rub rail (user's sketch)
             u0, R = 0.08, 0.22
@@ -606,7 +605,7 @@ def build_sides():
                     hole = flat_disc('ring_hole', fn, WREATH_RY - hw, WREATH_RZ - hw, out - thick - 0.05, out + 0.05)
                     md = m.modifiers.new(f'hole{i}', 'BOOLEAN'); md.object = hole; md.operation = 'DIFFERENCE'; md.solver = 'EXACT'
             for yend, d in ((Y1, 1), (Y0, -1)):                    # across the end walls (outer face at yend)
-                xi = min(box_inner_x(yend) + 0.1, end_surface_x(yend, (z0 + z1) / 2) + 0.05)
+                xi = min(box_inner_x(yend) + 0.1, end_surface_x(yend, (z0 + z1) / 2) - 0.1)
                 box(name + '_end', *sorted((side * xi, side * (W + out - thick))),
                     *sorted((yend + d * out, yend + d * (out - (thick if name == 'cap_rail' else min(thick, SIDE_T))))),
                     z0, z1, role)   # the cap covers the end wall's whole top, like along the side
@@ -621,7 +620,7 @@ def build_sides():
             pts = []
             for k in range(41):
                 t = k / 40
-                y = yend + d * (out - 0.02 + reach * t)
+                y = yend + d * (out - 0.06 + reach * t)               # starts inside the end wall's band piece
                 z = zc + (z_top_end - hh - zc) * smoothstep(0.15, 1.0, t)
                 pts.append((y, z))
             for side in (-1, 1):
