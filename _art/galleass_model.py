@@ -726,12 +726,9 @@ def build_sterncastle():
     # cabin floor (planked, level with the gun deck) and door frames
     tapered_block('sc_floor', SC_Y_AFT + SC_WALL - 0.01, SC_Y_FORE - SC_WALL + 0.01, FC_Z_BASE, Z_GUN_DECK,
                   lambda y: sc_hw(y) - SC_WALL + 0.01, 'deck', n=16)
+    # door linings (posts, lintel, low threshold) inside the openings, like the windows: no coplanar faces
     for dx, dy, out in ((SC_DOOR_X, SC_Y_FORE, 1), (0.0, SC_Y_AFT, -1)):
-        x0, x1 = dx - SC_DOOR_W / 2, dx + SC_DOOR_W / 2
-        y0, y1 = sorted((dy + out * 0.04, dy - out * (SC_WALL + 0.02)))
-        for xa, xb in ((x0 - 0.1, x0), (x1, x1 + 0.1)):
-            box('sc_door_jamb', xa, xb, y0, y1, Z_GUN_DECK, Z_GUN_DECK + 2.1, 'trim')
-        box('sc_door_lintel', x0 - 0.1, x1 + 0.1, y0, y1, Z_GUN_DECK + 2.0, Z_GUN_DECK + 2.14, 'trim')
+        lining('sc_door_lining', (dx, dy, Z_GUN_DECK + 1.0), (0, out, 0), SC_DOOR_W, 2.0, SC_WALL, t=0.07)
     # a little furniture: table with benches, a chest against the forward bulkhead
     ty = (SC_Y_AFT + SC_Y_FORE) / 2 - 1.0
     box('cabin_table_top', -0.55, 0.55, ty - 1.0, ty + 1.0, Z_GUN_DECK + 0.72, Z_GUN_DECK + 0.78, 'trim')
