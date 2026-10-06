@@ -423,6 +423,13 @@ def build_deck_fittings():
         z = Z_GUN_DECK if name != 'fore' else FC_Z_PLATFORM
         lathe(f'mast_partner_{name}', [(0.62, 0), (0.62, 0.12), (0.5, 0.3), (0.5, 0.32)], 'trim', at=(0, y, z), segs=10)
 
+def outer_x(y, z):
+    """Half width of the ship's outer surface at (y, z): side wall / castle / forecastle skirt where they reach
+    down to z (they stand on the hull top), otherwise the hull shell."""
+    if z >= z_top(y) - 0.1:
+        return half_beam(y, True) + (0.02 if y < SC_Y_FORE else 0.0)
+    return hull_x_at(y, z)
+
 def build_outriggers():
     for side in (-1, 1):
         s = 'stbd' if side > 0 else 'port'
@@ -432,9 +439,11 @@ def build_outriggers():
         n = 12
         for i in range(n):
             y = Y_OUTR_AFT + 0.5 + (Y_OUTR_FORE - Y_OUTR_AFT - 1) * i / (n - 1)
-            xh = side * (half_beam(y, True) - 0.05)
-            box('outrigger_bracket', *sorted((xh, X)), y - 0.12, y + 0.12, Z_OUTR_RAIL - 0.42, Z_OUTR_RAIL - 0.22, 'trim')
-            sweep('outrigger_strut', [(X, y, Z_OUTR_LOW + 0.05), (xh, y, Z_OUTR_LOW - 0.35)], 0.07, 'trim', square=True)
+            # inner ends 5 cm into whatever surface is there at their height (hull near the ends)
+            xb = side * (outer_x(y, Z_OUTR_RAIL - 0.32) - 0.05)
+            xs = side * (outer_x(y, Z_OUTR_LOW - 0.35) - 0.05)
+            box('outrigger_bracket', *sorted((xb, X)), y - 0.12, y + 0.12, Z_OUTR_RAIL - 0.42, Z_OUTR_RAIL - 0.22, 'trim')
+            sweep('outrigger_strut', [(X, y, Z_OUTR_LOW + 0.05), (xs, y, Z_OUTR_LOW - 0.35)], 0.07, 'trim', square=True)
             box('outrigger_post', X - 0.07, X + 0.07, y - 0.07, y + 0.07, Z_OUTR_LOW, Z_OUTR_RAIL, 'trim')
         # thole pins where the unmanned oars rest
         for i in range(OARS_PER_SIDE):
