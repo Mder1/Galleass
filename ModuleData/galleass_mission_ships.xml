@@ -26,8 +26,8 @@
 		partial_hit_points_ratio="0.333"
 		ship_physics_reference_id="big_ship_physics">
 		<rudder_stock_position
-			x="4.4"
-			y="-20.3"
+			x="0.0"
+			y="-24.25"
 			z="-1.4" />
 		<deployment_area
 			width="12.10"
