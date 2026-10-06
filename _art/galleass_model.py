@@ -1029,7 +1029,36 @@ def build_stern_balcony():
             w = sc_hw(face_y) + o - t                     # stop at the side strip's inner face (no overlap)
             for xa, xb in segs:
                 xa, xb = max(xa, -w), min(xb, w)
+                # gilt bands at the stern door: stop short and curl down into a volute (user's sketch)
+                curl = role == 'gilt' and face_y == SC_Y_AFT and segs == door_a
+                if curl and abs(xb + SC_DOOR_W / 2) < 1e-6:
+                    xb -= CURL_GAP; door_curl(name, xb, -1, z0, z1, o, t)
+                elif curl and abs(xa - SC_DOOR_W / 2) < 1e-6:
+                    xa += CURL_GAP; door_curl(name, xa, 1, z0, z1, o, t)
                 box(f'sc_{name}_face', xa, xb, *sorted((face_y + sgn * o, face_y + sgn * (o - t))), z0, z1, role)
+    CURL_GAP = 0.4
+    def door_curl(name, x_end, toward, z0, z1, o, t):
+        """From the band's end (x_end), bend down toward the door and curl back into a volute (flat gilt).
+        toward = -1: the band lies at x < x_end... i.e. the door is at +x when toward == -1."""
+        dirx = -toward                                     # direction from the band end toward the door
+        zc, wdt = (z0 + z1) / 2, z1 - z0
+        R, Rv, drop = 0.1, 0.1, 0.31
+        path = [(x_end - dirx * 0.05, zc), (x_end, zc)]
+        cx, cz = x_end, zc - R                             # quarter arc turning down toward the door
+        for k in range(1, 13):
+            a = math.pi / 2 * (1 - k / 12)
+            path.append((cx + dirx * R * math.cos(a), cz + R * math.sin(a)))
+        xs = x_end + dirx * R
+        vb = zc - drop
+        path.append((xs, vb))
+        vcx = xs - dirx * Rv                               # volute curls away from the door
+        for k in range(1, 61):
+            f = k / 60
+            a = 1.9 * math.pi * f
+            r = Rv - (Rv - (wdt * 0.55 + 0.01)) * f        # eye stays open (no self-overlap of the band)
+            path.append((vcx + dirx * r * math.cos(a), vb - r * math.sin(a)))
+        fn = lambda u, v, dd: (u, SC_Y_AFT - dd, v)
+        flat_ribbon(f'sc_{name}_curl', path, wdt, o - t, o, fn, 'gilt')
     # bands run right up to the door frame (end flush with the opening, against the lining)
     door_f = [(-9, SC_DOOR_X - SC_DOOR_W / 2), (SC_DOOR_X + SC_DOOR_W / 2, 9)]
     door_a = [(-9, -SC_DOOR_W / 2), (SC_DOOR_W / 2, 9)]
