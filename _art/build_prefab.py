@@ -95,7 +95,12 @@ def new_entity(name, guid_seed):
     return el('entity', {'name': name}, el('prefab_link', None, el('instance', {'guid': g}), el('prefab', {'guid': ZERO})))
 
 def mesh_component(*names):
-    return el('components', None, *[el('meta_mesh_component', {'name': n}) for n in names])
+    # vanilla never self-closes meta_mesh_component (always <x name=".."></x>); a self-closing one crashes the
+    # engine's prefab loader at startup (TaleWorlds.Native.dll, 2026-10-07)
+    comps = el('components', None, *[el('meta_mesh_component', {'name': n}) for n in names])
+    for m in comps:
+        m.text = '\n'
+    return comps
 
 def tags(*names):
     return el('tags', None, el('tags', {'type_name': 'string'}, *[el('tag', {'name': n}) for n in names]))
@@ -203,7 +208,7 @@ report.append('rudder: galleass_rudder_a at %s rot %s, stock %s' % (RUDDER_POS, 
 
 # --- write --------------------------------------------------------------------------------------------------------
 ET.indent(folder, '\t', level=1)
-body = ET.tostring(folder, encoding='unicode')
+body = ET.tostring(folder, encoding='unicode').replace(' />', '/>')   # the editor's style
 with open(out_path, 'w', encoding='utf-8', newline='\n') as f:
     f.write('<?xml version="1.0"?>\n<prefab_files>\n</prefab_files>\n<prefab_folders>\n\t' + body + '\n</prefab_folders>\n')
 for line in report:
