@@ -74,6 +74,7 @@ SC_EWIN_Z = 4.6                           # front/stern windows: at side-window 
 BALC_RY = 1.3                             # stern balcony depth (apex reaches the stern post's face); width = cabin's
 BALC_INSET = 0.08                         # balustrade set in from the floor edge
 BALC_Z_BOT = FC_Z_BASE - 0.3              # plate reaches below the hull top: it closes the hull end behind the cabin
+POOP_INSET = 0.06                         # poop balustrade line inside the deck edge (posts never overhang)
 SC_STAIR_X = 3.25                        # centre line of the two stairs up to the poop
 LANTERN_Y = -24.15                       # on the poop deck, just inside the aft rail
 
@@ -176,6 +177,11 @@ def round_lining(name, c, n, r, d, lip=0.02, t=0.03, role='trim'):
         m[i][0], m[i][1], m[i][2], m[i][3] = u[i], z[i], nn[i], c[i]
     o.data.transform(m)
     return o
+
+def wall_normal(hw_fn, y, side):
+    """Outward horizontal normal of a side wall x = side * hw_fn(y) (accounts for the taper)."""
+    d = (hw_fn(y + 0.01) - hw_fn(y - 0.01)) / 0.02
+    return Vector((side, -d, 0)).normalized()
 
 def subtract(target, cutters):
     for i, c in enumerate(cutters):
@@ -411,8 +417,10 @@ def build_sides():
         cuts = []
         for i in range(OARS_PER_SIDE):
             y = oar_y(i)
-            cuts.append(cutter_box(side * side_hw(y), y, (OARPORT_Z0 + OARPORT_Z1) / 2, 0.8, OARPORT_W, OARPORT_Z1 - OARPORT_Z0))
-            lining('oarport_lining', (side * side_hw(y), y, (OARPORT_Z0 + OARPORT_Z1) / 2), (side, 0, 0),
+            nrm = wall_normal(side_hw, y, side)
+            cuts.append(cutter_box(side * side_hw(y), y, (OARPORT_Z0 + OARPORT_Z1) / 2, 0.8, OARPORT_W, OARPORT_Z1 - OARPORT_Z0,
+                                   math.atan2(nrm.y, nrm.x)))
+            lining('oarport_lining', (side * side_hw(y), y, (OARPORT_Z0 + OARPORT_Z1) / 2), nrm,
                    OARPORT_W, OARPORT_Z1 - OARPORT_Z0, SIDE_T, t=0.03)
             # dark back so the port doesn't show the void inside
             xb = side * (side_hw(y) - 0.5)
@@ -421,7 +429,8 @@ def build_sides():
         for i in range(GUNPORTS_PER_SIDE):
             y = gunport_y(i)
             w = side_hw(y)
-            cuts.append(cutter_box(side * w, y, (GP_SILL + GP_TOP) / 2, 0.8, GP_W, GP_TOP - GP_SILL))
+            nrm = wall_normal(side_hw, y, side)
+            cuts.append(cutter_box(side * w, y, (GP_SILL + GP_TOP) / 2, 0.8, GP_W, GP_TOP - GP_SILL, math.atan2(nrm.y, nrm.x)))
             # gilded wreath around the port (the drawing's rosettes), following the side's curve, and a sill
             # that fits inside the opening and stands 2 cm proud of the cut (no coplanar faces)
             ring = []
@@ -429,7 +438,7 @@ def build_sides():
                 yk = y + WREATH_RY * math.cos(2 * math.pi * k / 48)
                 ring.append((side * (side_hw(yk) + 0.06), yk, (GP_SILL + GP_TOP) / 2 + WREATH_RZ * math.sin(2 * math.pi * k / 48)))
             sweep('gunport_wreath', ring, 0.05, 'gilt', segs=8, closed=True)
-            lining('gunport_lining', (side * w, y, (GP_SILL + GP_TOP) / 2), (side, 0, 0), GP_W, GP_TOP - GP_SILL,
+            lining('gunport_lining', (side * w, y, (GP_SILL + GP_TOP) / 2), nrm, GP_W, GP_TOP - GP_SILL,
                    SIDE_T, sill_out=0.05)
         subtract(wall, cuts)
     # strakes along the oar-port row, rub rail at the deck line, gilded moulding, cap rail
@@ -691,11 +700,16 @@ def build_sterncastle():
     for side in (-1, 1):
         for i in range(nwin):
             y = SC_Y_AFT + 1.0 + (SC_Y_FORE - SC_Y_AFT - 2.0) * (i + 0.5) / nwin
-            cuts.append(cutter_box(side * sc_hw(y), y, (SCW_Z0 + SCW_Z1) / 2, 0.6, 0.5, SCW_Z1 - SCW_Z0))
-            lining('sc_window_lining', (side * sc_hw(y), y, (SCW_Z0 + SCW_Z1) / 2), (side, 0, 0), 0.5,
+            nrm = wall_normal(sc_hw, y, side)
+            cuts.append(cutter_box(side * sc_hw(y), y, (SCW_Z0 + SCW_Z1) / 2, 0.6, 0.5, SCW_Z1 - SCW_Z0,
+                                   math.atan2(nrm.y, nrm.x)))
+            lining('sc_window_lining', (side * sc_hw(y), y, (SCW_Z0 + SCW_Z1) / 2), nrm, 0.5,
                    SCW_Z1 - SCW_Z0, SC_WALL, sill_out=0.04)
             # arch over each window
-            arch = [(side * (sc_hw(y + 0.3 * math.cos(t)) + 0.05), y + 0.3 * math.cos(t), SCW_Z1 + SCW_ARCH * math.sin(t))
+            # arch springs from the outer edges of the window frame, in the plane of the (tapered) wall
+            tan = nrm.cross(Vector((0, 0, 1)))
+            base = Vector((side * sc_hw(y), y, SCW_Z1)) + nrm * 0.04
+            arch = [base + tan * (0.27 * math.cos(t)) + Vector((0, 0, SCW_ARCH * math.sin(t)))
                     for t in [math.pi * k / 20 for k in range(21)]]
             sweep('sc_window_arch', arch, 0.04, 'gilt', segs=10, cap=False)
     subtract(body, cuts)
@@ -860,33 +874,34 @@ def build_stern_balcony():
         n = int((SC_Y_FORE - SC_Y_AFT) / 0.32)
         for i in range(n + 1):
             y = SC_Y_AFT + (SC_Y_FORE - SC_Y_AFT) * i / n
-            x = side * (sc_hw(y) + 0.02)
+            x = side * (sc_hw(y) - POOP_INSET)
             if i % 6 == 0:                              # big posts with gilded finials
                 box('sc_post', x - 0.09, x + 0.09, y - 0.09, y + 0.09, zb, SC_Z_RAIL + 0.1, 'trim')
                 lathe('sc_finial', [(0.09, 0), (0.06, 0.04), (0.11, 0.12), (0.08, 0.22), (0.0, 0.3)], 'gilt',
                       at=(x, y, SC_Z_RAIL + 0.1), segs=8)
             else:
                 lathe('sc_baluster', prof, 'trim', at=(x, y, zb), segs=10)
-        rail = [(side * (sc_hw(SC_Y_AFT + (SC_Y_FORE - SC_Y_AFT) * k / 16) + 0.02),
+        rail = [(side * (sc_hw(SC_Y_AFT + (SC_Y_FORE - SC_Y_AFT) * k / 16) - POOP_INSET),
                  SC_Y_AFT + (SC_Y_FORE - SC_Y_AFT) * k / 16, SC_Z_RAIL - 0.05) for k in range(17)]
         sweep('sc_rail', rail, 0.07, 'trim', square=True)
-    w = sc_hw(SC_Y_AFT)
+    w = sc_hw(SC_Y_AFT) - POOP_INSET
     for i in range(int(2 * w / 0.32) + 1):
         x = -w + i * 0.32
         lathe('sc_baluster', prof, 'trim', at=(x, SC_Y_AFT, zb), segs=10)
     sweep('sc_rail_aft', [(-w, SC_Y_AFT, SC_Z_RAIL - 0.05), (w, SC_Y_AFT, SC_Z_RAIL - 0.05)], 0.07, 'trim', square=True)
     # forward rail of the poop with a gap for the stairs
-    wf = sc_hw(SC_Y_FORE) + 0.02
+    wf = sc_hw(SC_Y_FORE) - POOP_INSET
+    yf = SC_Y_FORE - POOP_INSET
     for x0, x1 in ((-wf, -SC_STAIR_X - 0.5), (-SC_STAIR_X + 0.5, SC_STAIR_X - 0.5), (SC_STAIR_X + 0.5, wf)):
-        sweep('sc_rail_fore', [(x0, SC_Y_FORE, SC_Z_RAIL - 0.05), (x1, SC_Y_FORE, SC_Z_RAIL - 0.05)], 0.07, 'trim', square=True)
+        sweep('sc_rail_fore', [(x0, yf, SC_Z_RAIL - 0.05), (x1, yf, SC_Z_RAIL - 0.05)], 0.07, 'trim', square=True)
         n = max(int((x1 - x0) / 0.32), 1)
         for k in range(1, n):
-            lathe('sc_baluster', prof, 'trim', at=(x0 + (x1 - x0) * k / n, SC_Y_FORE, zb), segs=10)
+            lathe('sc_baluster', prof, 'trim', at=(x0 + (x1 - x0) * k / n, yf, zb), segs=10)
         for x in (x0, x1):
-            box('sc_post', x - 0.09, x + 0.09, SC_Y_FORE - 0.09, SC_Y_FORE + 0.09, zb, SC_Z_RAIL + 0.1, 'trim')
+            box('sc_post', x - 0.09, x + 0.09, yf - 0.09, yf + 0.09, zb, SC_Z_RAIL + 0.1, 'trim')
     # awning frame (tendalino) over the after part of the poop
     ya, yb = SC_AWNING_Y
-    aw = lambda y: sc_hw(y) + 0.02                     # on the balustrade line
+    aw = lambda y: sc_hw(y) - POOP_INSET               # on the balustrade line
     for y in (ya, (ya + yb) / 2, yb):
         for side in (-1, 1):
             x = side * aw(y)
