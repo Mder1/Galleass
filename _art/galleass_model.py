@@ -1166,9 +1166,38 @@ def build_ends():
         q = p + nrm * OFF
         pts.append((0.0, q.x, q.y))
     # stern post above the hull end (fixed: the balcony notch and rails fit these), stem up the hull's end cap
-    stern_top = [(0, -26.6, 6.9), (0, -26.0, 6.2), (0, -25.6, 5.0), (0, -25.45, 3.3), (0, -25.35, 1.6)]
+    stern_top = [(0, -26.6, 6.9), (0, -26.0, 6.2), (0, -25.6, 5.0), (0, -25.45, 3.3)]
     stem_top = [(0, 25.3, 1.7), (0, 25.32, 2.3)]
-    path = catmull(stern_top + pts[2:-2] + stem_top, 420)
+    # hull outline only below the post's joint (z < 2.3): no zig-zag where the fixed post points meet it
+    # stern: the straight raked sternpost explicitly (offset OFF aft of its line), rounded into the keel at the heel
+    (hy, hz), (ty, tz) = STERN_HEEL, STERN_POST_TOP
+    dpost = Vector((-(ty - hy), tz - hz)).normalized()               # (y, z) up the post, ship frame
+    naft = Vector((-dpost.y, dpost.x))
+    if naft.x > 0: naft = -naft
+    heel = Vector((-hy, hz))
+    L = Vector((-(ty - hy), tz - hz)).length
+    post = [heel + dpost * (0.7 + (L - 0.7) * k / 6) + naft * OFF for k in range(6, -1, -1)]   # down to 0.7 m above the heel
+    body = [(0.0, q.x, q.y) for q in post]
+    body += [q for q in pts[2:-2] if q[1] > -hy + 1.0]                # keel outline from 1 m forward: rounded heel
+    ctrl = [Vector(q) for q in stern_top + body + stem_top]
+    # even spacing first (uniform Catmull-Rom overshoots/loops where control points are unevenly spaced)
+    even = [ctrl[0]]; acc = 0.0; step = 0.35
+    for a_, b_ in zip(ctrl, ctrl[1:]):
+        seg = (b_ - a_).length; pos = 0.0
+        while acc + seg - pos >= step:
+            pos += step - acc; acc = 0.0
+            even.append(a_ + (b_ - a_) * (pos / seg))
+        acc += seg - pos
+    if (even[-1] - ctrl[-1]).length > step * 0.5: even.append(ctrl[-1])
+    else: even[-1] = ctrl[-1]
+    path = catmull([tuple(v) for v in even], 600)
+    turn = max(math.degrees((path[i] - path[i - 1]).angle(path[i + 1] - path[i], 0.0)) for i in range(1, len(path) - 1)
+               if (path[i] - path[i - 1]).length > 1e-6 and (path[i + 1] - path[i]).length > 1e-6)
+    print('backbone max turn per step: %.1f deg' % turn)
+    for i in range(1, len(path) - 1):
+        u, w = path[i] - path[i - 1], path[i + 1] - path[i]
+        if u.length > 1e-6 and w.length > 1e-6 and math.degrees(u.angle(w)) > 20:
+            print('  sharp at', i, tuple(round(c, 3) for c in path[i]))
     radii = [0.17 + 0.03 * smoothstep(23.0, 25.0, abs(p.y)) for p in path]
     sweep('backbone', path, radii, 'trim', square=True)
     # carved scroll: continues the stern post seamlessly (same square section, same direction at the joint),
