@@ -68,6 +68,9 @@ SCW_Z0, SCW_Z1, SCW_ARCH = 4.4, 4.88, 0.18
 # cabin door beside the mizzen mast (the mast at y -13.7 stands on the centreline 0.8 m in front of the bulkhead)
 SC_DOOR_X, SC_DOOR_W = 1.35, 1.0
 SC_FWIN_X = 2.35                         # front windows, outboard of the door
+SC_WALL = 0.2                             # cabin wall thickness (cabin interior is walk-in)
+SC_AWIN_X = 1.25                          # small windows either side of the stern door
+BALC_RX, BALC_RY = 1.7, 1.15              # stern balcony half width / depth (stern post just behind its centre)
 SC_STAIR_X = 3.25                        # centre line of the two stairs up to the poop
 LANTERN_Y = -24.15                       # on the poop deck, just inside the aft rail
 
@@ -597,33 +600,99 @@ def side_strip(name, ya, yb, z0, z1, out, thick, role, n=16):
         obj_from_bm(bm, f'{name}_{side}', role)
 
 def build_sterncastle():
+    """Captain's cabin (walk-in: floor = gun deck level, poop deck as ceiling) with doors fore and aft,
+    windows, and a small stern balcony behind it."""
     body = tapered_block('sc_body', SC_Y_AFT, SC_Y_FORE, lambda y: z_top(y) - 0.1, SC_Z_FLOOR, sc_hw, 'paint')
     # cap over the hull end behind the cabin (the hull shell is open on top)
     tapered_block('stern_cap', -25.25, SC_Y_AFT + 0.05, FC_Z_BASE - 0.25, FC_Z_BASE, lambda y: half_beam(y, True) + 0.02, 'hull')
     cuts = []
+    # hollow the cabin: walls SC_WALL thick, open to the poop deck above (its underside is the ceiling)
+    cuts.append(tapered_block('cut', SC_Y_AFT + SC_WALL, SC_Y_FORE - SC_WALL, FC_Z_BASE, SC_Z_FLOOR + 0.05,
+                              lambda y: sc_hw(y) - SC_WALL, 'dark', n=16))
+    PARTS.pop()                                           # the inner volume is a cutter, not a part
+    c = cuts[-1]
+    for col in c.users_collection: col.objects.unlink(c)
+    coll('cutters').objects.link(c)
     # cabin door and two windows in the front bulkhead
     cuts.append(cutter_box(SC_DOOR_X, SC_Y_FORE, Z_GUN_DECK + 1.0, SC_DOOR_W, 0.6, 2.0))
     for x in (-SC_FWIN_X, SC_FWIN_X):
         cuts.append(cutter_box(x, SC_Y_FORE, 4.3, 0.6, 0.6, 0.6))
+    # stern door onto the balcony, with a window on each side
+    cuts.append(cutter_box(0, SC_Y_AFT, Z_GUN_DECK + 1.0, SC_DOOR_W, 0.6, 2.0))
+    for x in (-SC_AWIN_X, SC_AWIN_X):
+        cuts.append(cutter_box(x, SC_Y_AFT, 3.8, 0.5, 0.6, 0.6))
     # side windows (the drawing's band of small arched windows)
     nwin = 6
     for side in (-1, 1):
         for i in range(nwin):
             y = SC_Y_AFT + 1.0 + (SC_Y_FORE - SC_Y_AFT - 2.0) * (i + 0.5) / nwin
             cuts.append(cutter_box(side * sc_hw(y), y, (SCW_Z0 + SCW_Z1) / 2, 0.6, 0.5, SCW_Z1 - SCW_Z0))
-            box('sc_window_back', *sorted((side * (sc_hw(y) - 0.25), side * (sc_hw(y) - 0.3))), y - 0.3, y + 0.3, SCW_Z0 - 0.05, SCW_Z1 + 0.15, 'dark')
             # arch over each window
             arch = [(side * (sc_hw(y + 0.3 * math.cos(t)) + 0.05), y + 0.3 * math.cos(t), SCW_Z1 + SCW_ARCH * math.sin(t))
                     for t in [math.pi * k / 10 for k in range(11)]]
             sweep('sc_window_arch', arch, 0.04, 'gilt', segs=6, cap=False)
-    for x in (-SC_FWIN_X, SC_FWIN_X):
-        box('sc_front_window_back', x - 0.35, x + 0.35, SC_Y_FORE - 0.35, SC_Y_FORE - 0.3, 3.95, 4.65, 'dark')
-    box('sc_door_back', SC_DOOR_X - SC_DOOR_W / 2 - 0.05, SC_DOOR_X + SC_DOOR_W / 2 + 0.05, SC_Y_FORE - 0.6, SC_Y_FORE - 0.55, Z_GUN_DECK, Z_GUN_DECK + 2.05, 'dark')
     subtract(body, cuts)
+    # cabin floor (planked, level with the gun deck) and door frames
+    tapered_block('sc_floor', SC_Y_AFT + SC_WALL - 0.01, SC_Y_FORE - SC_WALL + 0.01, FC_Z_BASE, Z_GUN_DECK,
+                  lambda y: sc_hw(y) - SC_WALL + 0.01, 'deck', n=16)
+    for dx, dy, out in ((SC_DOOR_X, SC_Y_FORE, 1), (0.0, SC_Y_AFT, -1)):
+        x0, x1 = dx - SC_DOOR_W / 2, dx + SC_DOOR_W / 2
+        y0, y1 = sorted((dy + out * 0.04, dy - out * (SC_WALL + 0.02)))
+        for xa, xb in ((x0 - 0.1, x0), (x1, x1 + 0.1)):
+            box('sc_door_jamb', xa, xb, y0, y1, Z_GUN_DECK, Z_GUN_DECK + 2.1, 'trim')
+        box('sc_door_lintel', x0 - 0.1, x1 + 0.1, y0, y1, Z_GUN_DECK + 2.0, Z_GUN_DECK + 2.14, 'trim')
+    # a little furniture: table with benches, a chest against the forward bulkhead
+    ty = (SC_Y_AFT + SC_Y_FORE) / 2 - 1.0
+    box('cabin_table_top', -0.55, 0.55, ty - 1.0, ty + 1.0, Z_GUN_DECK + 0.72, Z_GUN_DECK + 0.78, 'trim')
+    for lx in (-0.42, 0.42):
+        for ly in (ty - 0.85, ty + 0.85):
+            box('cabin_table_leg', lx - 0.04, lx + 0.04, ly - 0.04, ly + 0.04, Z_GUN_DECK, Z_GUN_DECK + 0.72, 'trim')
+    for bx in (-1.05, 1.05):
+        box('cabin_bench', bx - 0.18, bx + 0.18, ty - 0.9, ty + 0.9, Z_GUN_DECK + 0.4, Z_GUN_DECK + 0.46, 'trim')
+        for ly in (ty - 0.75, ty + 0.75):
+            box('cabin_bench_leg', bx - 0.12, bx + 0.12, ly - 0.03, ly + 0.03, Z_GUN_DECK, Z_GUN_DECK + 0.4, 'trim')
+    box('cabin_chest', -1.9, -0.9, SC_Y_FORE - SC_WALL - 0.65, SC_Y_FORE - SC_WALL - 0.05, Z_GUN_DECK, Z_GUN_DECK + 0.6, 'trim')
+    box('cabin_chest_band', -1.92, -0.88, SC_Y_FORE - SC_WALL - 0.67, SC_Y_FORE - SC_WALL - 0.03, Z_GUN_DECK + 0.42, Z_GUN_DECK + 0.48, 'iron')
+    build_stern_balcony()
+
+def build_stern_balcony():
+    """Half-oval balcony behind the stern door, at cabin-floor level, with a turned balustrade ending on the
+    stern post, carried by two carved knees."""
+    rx, ry = BALC_RX, BALC_RY
+    def edge(t):                                          # t: 0 = port end at the stern wall, pi = starboard end
+        return (-rx * math.cos(t), SC_Y_AFT - ry * math.sin(t))
+    n = 24
+    bm = bmesh.new()
+    top = [bm.verts.new((*edge(math.pi * i / n), Z_GUN_DECK)) for i in range(n + 1)]
+    bot = [bm.verts.new((*edge(math.pi * i / n), Z_GUN_DECK - 0.16)) for i in range(n + 1)]
+    bm.faces.new(top); bm.faces.new(list(reversed(bot)))
+    for i in range(n):
+        bm.faces.new((bot[i], bot[i + 1], top[i + 1], top[i]))
+    bm.faces.new((bot[-1], bot[0], top[0], top[-1]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    obj_from_bm(bm, 'balcony_floor', 'deck')
+    # balustrade along the curved edge; the stern post stands at the aft centre, the rail ends on it
+    zb, zr = Z_GUN_DECK, Z_GUN_DECK + 1.0
+    prof = [(0.045, 0), (0.065, 0.08), (0.04, 0.25), (0.075, 0.5), (0.045, 0.75), (0.06, 0.85), (0.045, 0.9)]
+    prof = [(r, z * (zr - zb - 0.08) / 0.9) for r, z in prof]
+    post_gap = 0.26
+    for half in ((0.02, math.pi / 2), (math.pi / 2, math.pi - 0.02)):
+        ts = [half[0] + (half[1] - half[0]) * k / 12 for k in range(13)]
+        pts = [edge(t) for t in ts]
+        pts = [(x, y) for x, y in pts if abs(x) > post_gap]
+        sweep('balcony_rail', [(x, y, zr - 0.04) for x, y in pts], 0.06, 'trim', square=True)
+        for x, y in pts[:-1]:
+            lathe('balcony_baluster', prof, 'trim', at=(x, y, zb), segs=6)
+    # knees under the floor, from the hull/stern cap out to the balcony edge
+    for x in (-1.0, 1.0):
+        y_edge = edge(math.acos(-x / rx))[1]
+        sweep('balcony_knee', [(x, SC_Y_AFT + 0.05, Z_GUN_DECK - 1.1), (x, SC_Y_AFT - 0.4, Z_GUN_DECK - 0.55),
+                               (x, y_edge + 0.1, Z_GUN_DECK - 0.17)], 0.09, 'trim', square=True)
     # mouldings: above the bulwark line, under the windows, under the poop deck
     sc_out = sc_hw(0) - side_hw(0)                       # cabin sides stand this far outside the ship's side line
     for name, (z0, z1, out, thick, role) in {**BANDS, **STRAKES}.items():
-        side_strip(f'sc_{name}', SC_Y_AFT, SC_Y_FORE, z0, z1, out - sc_out, thick, role)
+        # never deeper than the cabin wall (the cabin is walk-in, bands must not show inside)
+        side_strip(f'sc_{name}', SC_Y_AFT, SC_Y_FORE, z0, z1, out - sc_out, min(thick, out - sc_out + SC_WALL - 0.03), role)
     for z0, z1, role in ((SCW_Z0 - 0.2, SCW_Z0 - 0.1, 'gilt'), (SC_Z_FLOOR - 0.12, SC_Z_FLOOR, 'trim')):
         side_strip('sc_moulding', SC_Y_AFT, SC_Y_FORE, z0, z1, 0.06, 0.12, role)
     # poop deck and turned balustrade
@@ -879,6 +948,10 @@ show_preview('figurehead_lion')
 look('chk_poop_corner.png', (-6.5, -27.5, 8.5), (-3.0, -23.5, 6.0), lens=30)
 look('chk_awning.png', (2.5, -16.5, 10.5), (0, -21.0, 8.4), lens=30)
 look('chk_sc_stairs.png', (5.5, -9.5, 7.5), (3.2, -14.3, 5.8), lens=30)
+look('chk_balcony.png', (4.5, -29.5, 4.2), (0.0, -24.6, 2.8), lens=30)
+look('chk_balcony_top.png', (0.0, -27.0, 6.5), (0.0, -24.3, 2.3), lens=26)
+look('chk_cabin_in.png', (-1.5, -15.4, 3.9), (1.0, -23.0, 2.9), lens=20)
+look('chk_cabin_aft_in.png', (0.6, -22.2, 3.6), (0.0, -25.0, 3.0), lens=24)
 look('chk_sc_door.png', (0.5, -7.5, 4.2), (0.6, -14.5, 3.2), lens=30)
 look('chk_fc_stairs.png', (5.0, 13.0, 5.5), (2.4, 18.4, 4.0), lens=30)
 look('chk_scroll_fore.png', (10.5, 23.5, 3.2), (5.5, 20.6, 2.0), lens=30)
