@@ -596,23 +596,24 @@ def outer_x(y, z):
     return hull_x_at(y, z)
 
 # ================================================================= forecastle
-def horseshoe(r, n=48):
-    """Plan outline: straight sides from FC_Y_BACK to FC_CY, semicircle in front (port -> bow -> starboard)."""
-    pts = [(-r, FC_Y_BACK)]
+def horseshoe(r, n=48, y_back=None):
+    """Plan outline: straight sides from FC_Y_BACK (or y_back) to FC_CY, semicircle in front (port -> bow -> starboard)."""
+    yb = FC_Y_BACK if y_back is None else y_back
+    pts = [(-r, yb)]
     for i in range(n + 1):
         a = math.pi - math.pi * i / n
         pts.append((r * math.cos(a), FC_CY + r * math.sin(a)))
-    pts.append((r, FC_Y_BACK))
+    pts.append((r, yb))
     return pts
 
 def fc_radius(z):
     """Vertical-sided forecastle exactly as wide as the ship's side where they meet (flush corner)."""
     return side_hw(FC_Y_BACK)
 
-def horseshoe_wall(name, z0, z1, wall, role, grow=0.0):
+def horseshoe_wall(name, z0, z1, wall, role, grow=0.0, y_back=None):
     bm = bmesh.new()
-    o0, o1 = horseshoe(fc_radius(z0) + grow), horseshoe(fc_radius(z1) + grow)
-    i0, i1 = horseshoe(fc_radius(z0) + grow - wall), horseshoe(fc_radius(z1) + grow - wall)
+    o0, o1 = horseshoe(fc_radius(z0) + grow, y_back=y_back), horseshoe(fc_radius(z1) + grow, y_back=y_back)
+    i0, i1 = horseshoe(fc_radius(z0) + grow - wall, y_back=y_back), horseshoe(fc_radius(z1) + grow - wall, y_back=y_back)
     def layer(pts, z): return [bm.verts.new((x, y, z)) for x, y in pts]
     ob, ot, ib, it = layer(o0, z0), layer(o1, z1), layer(i0, z0), layer(i1, z1)
     for i in range(len(o0) - 1):
@@ -625,9 +626,9 @@ def horseshoe_wall(name, z0, z1, wall, role, grow=0.0):
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     return obj_from_bm(bm, name, role)
 
-def horseshoe_slab(name, r, z0, z1, role):
+def horseshoe_slab(name, r, z0, z1, role, y_back=None):
     bm = bmesh.new()
-    pts = horseshoe(r)
+    pts = horseshoe(r, y_back=y_back)
     bot = [bm.verts.new((x, y, z0)) for x, y in pts]; top = [bm.verts.new((x, y, z1)) for x, y in pts]
     bm.faces.new(list(reversed(bot))); bm.faces.new(top)
     for i in range(len(pts)):
@@ -690,9 +691,15 @@ def build_forecastle():
     subtract(par, cuts)
     # mouldings: band at the platform level and cap of the parapet (no railing on top, user 2026-10-06)
     for name, (z0, z1, out, thick, role) in BANDS.items():   # same lines as along the side
-        horseshoe_wall(f'fc_{name}', z0, z1, thick, role, grow=out)
+        # start at the box end wall's band (butt joint, no overlapping band volumes)
+        horseshoe_wall(f'fc_{name}', z0, z1, thick, role, grow=out, y_back=WING_Y1 + out)
+    # soffit: one plain timber underside of the overhang, from the hull out to the rub rail's outer face,
+    # just below the rail (hides the wall bottom and the skirt edge)
+    rz0 = BANDS['rub_rail'][0]
+    horseshoe_slab('fc_soffit', fc_radius(FC_Z_BASE) + BANDS['rub_rail'][2], rz0 - 0.015, rz0 + 0.02, 'trim',
+                   y_back=WING_Y1 + BANDS['rub_rail'][2])
     # skirt under the forecastle's overhang down to the rising hull top (no open slot into the hull)
-    tapered_block('fc_skirt', FC_Y_BACK - 0.05, 24.0, lambda y: z_top(y) - 0.1, FC_Z_BASE + 0.005,
+    tapered_block('fc_skirt', WING_Y1 - 0.05, 24.0, lambda y: z_top(y) - 0.1, FC_Z_BASE + 0.005,
                   lambda y: half_beam(y, True), 'hull', n=24)
     horseshoe_wall('fc_cap', FC_Z_PARAPET, FC_Z_PARAPET + 0.1, 0.45, 'trim')
     # rail along the open back edge of the platform, gaps where the stairs arrive
@@ -1228,7 +1235,15 @@ def build_markers():
 # ================================================================= build
 FINIAL = _finial()
 build_hull()
-wale('wale_low', lambda y: WING_Z0 + 0.05, WING_Y0 + 0.05, WING_Y1 - 0.05, height=0.18, x_fn=cove_start_x)  # seam where the flare leaves the hull
+# lower wale: covers the seam where the flare leaves the hull, and runs on along the hull to the stem and stern post
+WALE_Z = WING_Z0 + 0.05
+_ys = [y / 10 for y in range(-260, 261)]
+_hull_ys = [y for y in _ys if z_bottom(y) < WALE_Z - 0.12]
+def _wale_x(y):
+    hx = hull_x_at(y, WALE_Z)
+    f = smoothstep(WING_Y0 - 0.5, WING_Y0 + 1.5, y) * (1 - smoothstep(WING_Y1 - 1.5, WING_Y1 + 0.5, y))
+    return hx + (max(cove_start_x(y), hx) - hx) * f
+wale('wale_low', lambda y: WALE_Z, min(_hull_ys), max(_hull_ys), height=0.18, n=200, x_fn=_wale_x)
 wale('wale_top', lambda y: z_top(y) - 0.05, -19.5, 19.5, height=0.2)
 build_sides(); build_deck_fittings()
 build_forecastle(); build_sterncastle(); build_ends(); build_markers()
