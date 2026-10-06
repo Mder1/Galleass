@@ -39,7 +39,7 @@ Z_OUTR_LOW, Z_OUTR_RAIL = 1.0, 1.7
 
 # closed rowing level: oar ports in the side planking (unmanned oars rest on the outrigger rail)
 OARS_PER_SIDE = 16
-OAR_Y_AFT, OAR_Y_FORE = -16.5, 17.5
+OAR_Y_AFT, OAR_Y_FORE = -14.3, 17.5       # first port just forward of the sterncastle front (-14.5)
 OARPORT_W, OARPORT_Z0, OARPORT_Z1 = 0.32, 1.25, 1.6
 
 # broadside gunports in the gun-deck bulwark (cannons)
@@ -48,7 +48,6 @@ GP_SILL, GP_TOP, GP_W = 2.85, 3.45, 0.6
 
 # forecastle: tapered horseshoe, five gun embrasures on the upper tier (0, +-45, +-90 deg)
 FC_CY = 21.6                             # centre of the round front
-FC_R_BASE, FC_R_TOP = 4.35 * K_WID, 4.15 * K_WID
 FC_Y_BACK = 18.6
 FC_Z_BASE = 2.15
 FC_Z_PLATFORM, FC_Z_PARAPET, FC_Z_RAIL = 3.9, 5.3, 6.0
@@ -294,7 +293,18 @@ def side_hw(y):
     """Outer face of the ship's side above the hull shell (rowing level + bulwark): follows the planform."""
     return half_beam(y, True)
 
-SIDE_Y0, SIDE_Y1 = OAR_Y_AFT - 0.3, FC_Y_BACK + 0.4    # ends hidden inside the sterncastle / forecastle
+SIDE_Y0, SIDE_Y1 = Y_GUNDECK_AFT - 0.1, FC_Y_BACK      # wall: tucked 0.1 into the cabin, flush with the forecastle back
+BAND_Y0, BAND_Y1 = Y_GUNDECK_AFT, FC_Y_BACK            # mouldings end exactly at the castle faces
+# horizontal bands (z0, z1, out from the side face, thickness inboard, role), shared by the side and the castles
+BANDS = {
+    'rub_rail': (Z_GUN_DECK - 0.32, Z_GUN_DECK - 0.1, 0.1, 0.14, 'trim'),
+    'moulding': (GP_TOP + 0.08, GP_TOP + 0.14, 0.05, 0.08, 'gilt'),
+    'cap_rail': (Z_BULWARK_TOP, Z_BULWARK_TOP + 0.1, 0.06, 0.34, 'trim'),
+}
+STRAKES = {
+    'strake_low': (OARPORT_Z0 - 0.16, OARPORT_Z0 - 0.05, 0.06, 0.1, 'trim'),
+    'strake_high': (OARPORT_Z1 + 0.05, OARPORT_Z1 + 0.16, 0.06, 0.1, 'trim'),
+}
 SIDE_T = 0.2                                             # planking thickness
 
 def side_loft(name, y0, y1, z0, z1, out, thick, role, n=120, hw_fn=side_hw):
@@ -350,11 +360,8 @@ def build_sides():
                 y + GP_W / 2 + 0.05, GP_SILL - 0.06, GP_SILL, 'trim')
         subtract(wall, cuts)
     # strakes along the oar-port row, rub rail at the deck line, gilded moulding, cap rail
-    side_loft('strake_low', SIDE_Y0, SIDE_Y1, OARPORT_Z0 - 0.16, OARPORT_Z0 - 0.05, 0.06, 0.1, 'trim')
-    side_loft('strake_high', SIDE_Y0, SIDE_Y1, OARPORT_Z1 + 0.05, OARPORT_Z1 + 0.16, 0.06, 0.1, 'trim')
-    side_loft('rub_rail', SIDE_Y0, SIDE_Y1, Z_GUN_DECK - 0.32, Z_GUN_DECK - 0.1, 0.1, 0.14, 'trim')
-    side_loft('moulding', SIDE_Y0, SIDE_Y1, GP_TOP + 0.08, GP_TOP + 0.14, 0.05, 0.08, 'gilt')
-    side_loft('cap_rail', SIDE_Y0, SIDE_Y1, Z_BULWARK_TOP, Z_BULWARK_TOP + 0.1, 0.06, SIDE_T + 0.14, 'trim')
+    for name, (z0, z1, out, thick, role) in {**BANDS, **STRAKES}.items():
+        side_loft(name, BAND_Y0, BAND_Y1, z0, z1, out, thick, role)
     # gun deck follows the inside of the walls; stanchions on the inside of the bulwark
     tapered_block('gun_deck', Y_GUNDECK_AFT, Y_GUNDECK_FORE + 0.4, Z_GUN_DECK - 0.15, Z_GUN_DECK,
                   lambda y: side_hw(y) - SIDE_T + 0.01, 'deck', n=40)
@@ -427,13 +434,13 @@ def horseshoe(r, n=48):
     return pts
 
 def fc_radius(z):
-    t = (z - FC_Z_BASE) / (FC_Z_RAIL - FC_Z_BASE)
-    return FC_R_BASE + (FC_R_TOP - FC_R_BASE) * t
+    """Vertical-sided forecastle exactly as wide as the ship's side where they meet (flush corner)."""
+    return side_hw(FC_Y_BACK)
 
-def horseshoe_wall(name, z0, z1, wall, role):
+def horseshoe_wall(name, z0, z1, wall, role, grow=0.0):
     bm = bmesh.new()
-    o0, o1 = horseshoe(fc_radius(z0)), horseshoe(fc_radius(z1))
-    i0, i1 = horseshoe(fc_radius(z0) - wall), horseshoe(fc_radius(z1) - wall)
+    o0, o1 = horseshoe(fc_radius(z0) + grow), horseshoe(fc_radius(z1) + grow)
+    i0, i1 = horseshoe(fc_radius(z0) + grow - wall), horseshoe(fc_radius(z1) + grow - wall)
     def layer(pts, z): return [bm.verts.new((x, y, z)) for x, y in pts]
     ob, ot, ib, it = layer(o0, z0), layer(o1, z1), layer(i0, z0), layer(i1, z1)
     for i in range(len(o0) - 1):
@@ -504,8 +511,11 @@ def build_forecastle():
         box(f'fc_gun_{deg:+d}', gx - 0.1, gx + 0.1, gy - 0.1, gy + 0.1, FC_Z_PLATFORM, FC_Z_PLATFORM + 0.3, 'dark', 'markers')
     subtract(par, cuts)
     # mouldings: band at the platform level and cap of the parapet (no railing on top, user 2026-10-06)
-    horseshoe_wall('fc_band_low', FC_Z_BASE - 0.12, FC_Z_BASE + 0.05, -0.08, 'trim')
-    horseshoe_wall('fc_band_mid', FC_Z_PLATFORM - 0.1, FC_Z_PLATFORM + 0.06, -0.06, 'gilt')
+    for name, (z0, z1, out, thick, role) in BANDS.items():   # same lines as along the side
+        horseshoe_wall(f'fc_{name}', z0, z1, thick, role, grow=out)
+    # skirt under the forecastle's overhang down to the rising hull top (no open slot into the hull)
+    tapered_block('fc_skirt', FC_Y_BACK - 0.05, 24.0, lambda y: z_top(y) - 0.1, FC_Z_BASE,
+                  lambda y: half_beam(y, True), 'hull', n=24)
     horseshoe_wall('fc_cap', FC_Z_PARAPET, FC_Z_PARAPET + 0.1, 0.45, 'trim')
     # rail along the open back edge of the platform, gaps where the stairs arrive
     r = fc_radius(FC_Z_PLATFORM) - 0.35
@@ -579,7 +589,10 @@ def build_sterncastle():
     box('sc_door_back', -0.6, 0.6, SC_Y_FORE - 0.6, SC_Y_FORE - 0.55, Z_GUN_DECK, Z_GUN_DECK + 2.05, 'dark')
     subtract(body, cuts)
     # mouldings: above the bulwark line, under the windows, under the poop deck
-    for z0, z1, role in ((Z_BULWARK_TOP, Z_BULWARK_TOP + 0.12, 'trim'), (4.35, 4.45, 'gilt'), (SC_Z_FLOOR - 0.12, SC_Z_FLOOR, 'trim')):
+    sc_out = sc_hw(0) - side_hw(0)                       # cabin sides stand this far outside the ship's side line
+    for name, (z0, z1, out, thick, role) in {**BANDS, **STRAKES}.items():
+        side_strip(f'sc_{name}', SC_Y_AFT, SC_Y_FORE, z0, z1, out - sc_out, thick, role)
+    for z0, z1, role in ((4.35, 4.45, 'gilt'), (SC_Z_FLOOR - 0.12, SC_Z_FLOOR, 'trim')):
         side_strip('sc_moulding', SC_Y_AFT, SC_Y_FORE, z0, z1, 0.06, 0.12, role)
     # poop deck and turned balustrade
     tapered_block('poop_deck', SC_Y_AFT - 0.3, SC_Y_FORE + 0.25, SC_Z_FLOOR, SC_Z_FLOOR + 0.12, sc_hw, 'deck', grow=0.12)
