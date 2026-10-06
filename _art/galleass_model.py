@@ -63,6 +63,8 @@ SC_Z_FLOOR = 5.3                         # poop deck
 SC_Z_RAIL = 6.45
 SC_AWNING_Y = (-23.4, -18.6)            # aft hoop clears the stern lantern
 SC_Z_AWNING = 8.7
+# cabin windows: opening z, arch rise; arch top (+ tube) stays below the deck-line moulding at SC_Z_FLOOR - 0.12
+SCW_Z0, SCW_Z1, SCW_ARCH = 4.4, 4.88, 0.18
 SC_STAIR_X = 3.25                        # centre line of the two stairs up to the poop
 LANTERN_Y = -24.15                       # on the poop deck, just inside the aft rail
 
@@ -605,10 +607,10 @@ def build_sterncastle():
     for side in (-1, 1):
         for i in range(nwin):
             y = SC_Y_AFT + 1.0 + (SC_Y_FORE - SC_Y_AFT - 2.0) * (i + 0.5) / nwin
-            cuts.append(cutter_box(side * sc_hw(y), y, 4.75, 0.6, 0.5, 0.55))
-            box('sc_window_back', *sorted((side * (sc_hw(y) - 0.25), side * (sc_hw(y) - 0.3))), y - 0.3, y + 0.3, 4.4, 5.1, 'dark')
+            cuts.append(cutter_box(side * sc_hw(y), y, (SCW_Z0 + SCW_Z1) / 2, 0.6, 0.5, SCW_Z1 - SCW_Z0))
+            box('sc_window_back', *sorted((side * (sc_hw(y) - 0.25), side * (sc_hw(y) - 0.3))), y - 0.3, y + 0.3, SCW_Z0 - 0.05, SCW_Z1 + 0.15, 'dark')
             # arch over each window
-            arch = [(side * (sc_hw(y + 0.3 * math.cos(t)) + 0.05), y + 0.3 * math.cos(t), 5.02 + 0.22 * math.sin(t))
+            arch = [(side * (sc_hw(y + 0.3 * math.cos(t)) + 0.05), y + 0.3 * math.cos(t), SCW_Z1 + SCW_ARCH * math.sin(t))
                     for t in [math.pi * k / 10 for k in range(11)]]
             sweep('sc_window_arch', arch, 0.04, 'gilt', segs=6, cap=False)
     for x in (-2.2, 2.2):
@@ -619,7 +621,7 @@ def build_sterncastle():
     sc_out = sc_hw(0) - side_hw(0)                       # cabin sides stand this far outside the ship's side line
     for name, (z0, z1, out, thick, role) in {**BANDS, **STRAKES}.items():
         side_strip(f'sc_{name}', SC_Y_AFT, SC_Y_FORE, z0, z1, out - sc_out, thick, role)
-    for z0, z1, role in ((4.35, 4.45, 'gilt'), (SC_Z_FLOOR - 0.12, SC_Z_FLOOR, 'trim')):
+    for z0, z1, role in ((SCW_Z0 - 0.2, SCW_Z0 - 0.1, 'gilt'), (SC_Z_FLOOR - 0.12, SC_Z_FLOOR, 'trim')):
         side_strip('sc_moulding', SC_Y_AFT, SC_Y_FORE, z0, z1, 0.06, 0.12, role)
     # poop deck and turned balustrade
     tapered_block('poop_deck', SC_Y_AFT - 0.3, SC_Y_FORE + 0.25, SC_Z_FLOOR, SC_Z_FLOOR + 0.12, sc_hw, 'deck', grow=0.12)
@@ -694,11 +696,6 @@ def build_ends():
     sweep('stern_post', sp, 0.2, 'trim', square=True)
     vol = spiral((0, -26.6, 6.45), 0.45, 0.12, math.pi / 2, math.pi / 2 - 1.7 * math.pi, n=24)
     sweep('stern_volute', vol, [0.17 - 0.1 * i / 24 for i in range(25)], 'gilt', segs=8)
-    # small quarter volutes on both sides of the stern (drawing: the twin scrolls)
-    for side in (-1, 1):
-        x = side * (sc_hw(SC_Y_AFT) - 0.2)
-        q = spiral((x, SC_Y_AFT - 0.35, SC_Z_RAIL + 0.15), 0.3, 0.08, -math.pi / 2, -math.pi / 2 + 1.6 * math.pi, n=18)
-        sweep('quarter_volute', [(x, SC_Y_AFT - 0.1, SC_Z_FLOOR)] + q, 0.06, 'gilt', segs=6)
 
 def build_beak():
     """Carved beak (knee of the head) from the stem forward under the forecastle; the figurehead sits on its end."""
