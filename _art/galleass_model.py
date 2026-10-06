@@ -1278,7 +1278,9 @@ _hull_ys = [_crossing(-1), _crossing(1)]     # wales run into the stem and the s
 def _wale_x(y):
     hx = hull_x_at(y, WALE_Z)
     f = smoothstep(WING_Y0 - 1.5, WING_Y0, y) * (1 - smoothstep(WING_Y1, WING_Y1 + 1.5, y))   # full under the flare
-    return max(hx + (max(cove_start_x(y), hx) - hx) * f, 0.1)   # never thinner than the backbone's face
+    # at the ends the hull narrows to nothing, so the wale slides into the stem/sternpost and its end is buried
+    # inside the backbone (outer face 0.045+0.078 < the post's half width 0.14): a seamless joint
+    return max(hx + (max(cove_start_x(y), hx) - hx) * f, 0.0)
 wale('wale_low', lambda y: WALE_Z, min(_hull_ys), max(_hull_ys), height=0.22, n=400, x_fn=_wale_x)
 wale('wale_top', lambda y: z_top(y) - 0.05, -19.5, 19.5, height=0.2)
 build_sides(); build_deck_fittings()
