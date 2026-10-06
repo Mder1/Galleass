@@ -1303,7 +1303,6 @@ def _wale_x(y):
     # inside the backbone (outer face 0.045+0.078 < the post's half width 0.14): a seamless joint
     return max(hx + (max(cove_start_x(y), hx) - hx) * f, 0.0)
 wale('wale_low', lambda y: WALE_Z, min(_hull_ys), max(_hull_ys), height=0.22, n=400, x_fn=_wale_x)
-wale('wale_top', lambda y: z_top(y) - 0.05, -19.5, 19.5, height=0.2)
 build_sides(); build_deck_fittings()
 build_forecastle(); build_sterncastle(); build_ends(); build_markers()
 rudder = build_rudder()
