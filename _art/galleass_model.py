@@ -40,7 +40,14 @@ Z_OUTR_LOW, Z_OUTR_RAIL = 1.0, 1.7
 # closed rowing level: oar ports in the side planking (unmanned oars rest on the outrigger rail)
 OARS_PER_SIDE = 16
 OAR_Y_AFT, OAR_Y_FORE = -14.3, 17.5       # first port just forward of the sterncastle front (-14.5)
-OARPORT_W, OARPORT_Z0, OARPORT_Z1 = 0.32, 1.25, 1.6
+OARPORT_W, OARPORT_Z0, OARPORT_Z1 = 0.3, 1.12, 1.42      # in the wings' outer face (port above the water: oars slope down)
+# rowing-level wings (drawing's front section): the hull flares out above the waterline into a broad sponson
+# upper hull (drawing's front + side views): above the waterline the hull flares out (curved cove) into a wide box
+# whose outer wall carries the oar ports (low) and the gunports (high); the forecastle tower and the cabin are
+# narrower and stand at its ends
+WING_HW = 6.2 * K_WID                     # outer wall half width
+WING_Y0, WING_Y1 = -17.6, 20.6            # extent along the ship (side view's band)
+WING_Z0, WING_Z_FACE = 0.5, 0.95          # cove starts on the hull / outer wall bottom
 
 # broadside gunports in the gun-deck bulwark (cannons)
 GUNPORTS_PER_SIDE = 5
@@ -423,60 +430,115 @@ def gunport_y(i):
     span = (Y_GUNDECK_FORE - 3.0) - (Y_GUNDECK_AFT + 3.0)
     return Y_GUNDECK_AFT + 3.0 + span * (i + 0.5) / GUNPORTS_PER_SIDE
 
+def box_inner_x(y):
+    """Inner edge of the box's end walls: just inside the castle wall there (forecastle side / cabin side)."""
+    return (fc_radius(Z_GUN_DECK) if y > 0 else sc_hw(y)) - 0.1
+
+def cove_xz(y, th):
+    hx = hull_x_at(y, WING_Z0)
+    return hx + (WING_HW - hx) * (1 - math.cos(th)), WING_Z0 + (WING_Z_FACE - WING_Z0) * math.sin(th)
+
 def build_sides():
-    """One continuous planked side per board from the hull top to the bulwark cap (rowing level closed,
-    rowers hidden), with the oar ports and gunports cut out. Strakes and rails run fore and aft."""
-    walls = side_loft('side_wall', SIDE_Y0, SIDE_Y1, lambda y: z_top(y) - 0.1, Z_BULWARK_TOP, 0.0, SIDE_T, 'paint')
-    for wall, side in zip(walls, (-1, 1)):
+    """Wide upper hull: cove from the hull out to the outer wall at WING_HW, outer wall up to the bulwark cap with
+    oar ports (low) and gunports (high), end walls against the forecastle/cabin, a full-width gun deck."""
+    W, Y0, Y1 = WING_HW, WING_Y0, WING_Y1
+    for side in (-1, 1):
+        # cove (solid): leaves the hull upward and turns outward to the wall's foot
+        bm = bmesh.new(); rings = []
+        for i in range(91):                                        # ends tucked inside the end walls
+            y = (Y0 + 0.05) + (Y1 - Y0 - 0.1) * i / 90
+            hx = hull_x_at(y, WING_Z0)
+            pts = [(hx - 0.15, WING_Z0 - 0.05)] + [cove_xz(y, math.pi / 2 * k / 12) for k in range(13)]
+            pts += [(W - SIDE_T, WING_Z_FACE), (hx - 0.15, WING_Z_FACE)]
+            rings.append([bm.verts.new((side * x, y, z)) for x, z in pts])
+        k = len(rings[0])
+        for a, b in zip(rings, rings[1:]):
+            for j in range(k):
+                bm.faces.new((a[j], a[(j + 1) % k], b[(j + 1) % k], b[j]))
+        bm.faces.new(list(reversed(rings[0]))); bm.faces.new(rings[-1])
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        obj_from_bm(bm, 'cove', 'paint', smooth=True)
+        # outer wall with oar ports and gunports
+        x0, x1 = sorted((side * W, side * (W - SIDE_T)))
+        wall = box(f'outer_wall', x0, x1, Y0 + 0.05, Y1 - 0.05, WING_Z_FACE - 0.01, Z_BULWARK_TOP, 'paint')
         cuts = []
         for i in range(OARS_PER_SIDE):
-            y = oar_y(i)
-            nrm = wall_normal(side_hw, y, side)
-            cuts.append(cutter_box(side * side_hw(y), y, (OARPORT_Z0 + OARPORT_Z1) / 2, 0.8, OARPORT_W, OARPORT_Z1 - OARPORT_Z0,
-                                   math.atan2(nrm.y, nrm.x)))
-            lining('oarport_lining', (side * side_hw(y), y, (OARPORT_Z0 + OARPORT_Z1) / 2), nrm,
-                   OARPORT_W, OARPORT_Z1 - OARPORT_Z0, SIDE_T, t=0.03)
-            # dark back so the port doesn't show the void inside
-            xb = side * (side_hw(y) - 0.5)
-            box('oarport_back', *sorted((xb, xb + side * 0.05)), y - OARPORT_W, y + OARPORT_W,
+            y = oar_y(i); zc = (OARPORT_Z0 + OARPORT_Z1) / 2
+            cuts.append(cutter_box(side * W, y, zc, 0.6, OARPORT_W, OARPORT_Z1 - OARPORT_Z0))
+            lining('oarport_lining', (side * W, y, zc), (side, 0, 0), OARPORT_W, OARPORT_Z1 - OARPORT_Z0, SIDE_T, t=0.03)
+            xb = side * (W - 0.5)
+            box('oarport_back', *sorted((xb, xb - side * 0.05)), y - OARPORT_W, y + OARPORT_W,
                 OARPORT_Z0 - 0.1, OARPORT_Z1 + 0.1, 'dark')
         for i in range(GUNPORTS_PER_SIDE):
-            y = gunport_y(i)
-            w = side_hw(y)
-            nrm = wall_normal(side_hw, y, side)
-            cuts.append(cutter_box(side * w, y, (GP_SILL + GP_TOP) / 2, 0.8, GP_W, GP_TOP - GP_SILL, math.atan2(nrm.y, nrm.x)))
-            # gilded wreath around the port (the drawing's rosettes), following the side's curve, and a sill
-            # that fits inside the opening and stands 2 cm proud of the cut (no coplanar faces)
-            ring = []
-            for k in range(49):
-                yk = y + WREATH_RY * math.cos(2 * math.pi * k / 48)
-                ring.append((side * (side_hw(yk) + 0.06), yk, (GP_SILL + GP_TOP) / 2 + WREATH_RZ * math.sin(2 * math.pi * k / 48)))
+            y = gunport_y(i); zc = (GP_SILL + GP_TOP) / 2
+            cuts.append(cutter_box(side * W, y, zc, 0.8, GP_W, GP_TOP - GP_SILL))
+            ring = [(side * (W + 0.06), y + WREATH_RY * math.cos(2 * math.pi * k / 48),
+                     zc + WREATH_RZ * math.sin(2 * math.pi * k / 48)) for k in range(49)]
             sweep('gunport_wreath', ring, 0.05, 'gilt', segs=8, closed=True)
-            lining('gunport_lining', (side * w, y, (GP_SILL + GP_TOP) / 2), nrm, GP_W, GP_TOP - GP_SILL,
-                   SIDE_T, sill_out=0.05)
+            lining('gunport_lining', (side * W, y, zc), (side, 0, 0), GP_W, GP_TOP - GP_SILL, SIDE_T, sill_out=0.05)
         subtract(wall, cuts)
-    # strakes along the oar-port row, rub rail at the deck line, gilded moulding, cap rail
+        # end walls against the castles, lower edge on the cove
+        for yend, d in ((Y1, -1), (Y0, 1)):
+            xi = box_inner_x(yend)
+            hx = hull_x_at(yend, WING_Z0)
+            th_in = math.acos(max(min(1 - (xi - hx) / (W - hx), 1), -1)) if xi > hx else 0.0
+            prof = [cove_xz(yend, th_in + (math.pi / 2 - th_in) * k / 10) for k in range(11)]
+            if xi < prof[0][0]:
+                prof = [(xi, prof[0][1])] + prof
+            prof += [(W, Z_BULWARK_TOP), (xi, Z_BULWARK_TOP)]
+            bm = bmesh.new()
+            front = [bm.verts.new((side * x, yend, z)) for x, z in prof]
+            back = [bm.verts.new((side * x, yend + d * SIDE_T, z)) for x, z in prof]
+            bm.faces.new(front); bm.faces.new(list(reversed(back)))
+            for j in range(len(prof)):
+                jj = (j + 1) % len(prof)
+                bm.faces.new((front[j], back[j], back[jj], front[jj]))
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+            obj_from_bm(bm, 'end_wall', 'paint')
+            # gilded scroll on the end wall's outer upper corner (drawing's front section)
+            c = (side * (W - 0.35), yend - d * 0.03, Z_BULWARK_TOP - 0.55)
+            vol = [(c[0] + side * r * math.cos(a), c[1], c[2] + r * math.sin(a))
+                   for r, a in [(0.05 + 0.22 * k / 24, math.pi * 2.2 * (1 - k / 24) - 0.4) for k in range(25)]]
+            sweep('box_end_scroll', vol, [0.02 + 0.015 * k / 24 for k in range(25)], 'gilt', segs=8)
+    # bands along the outer wall, wrapped round the end walls to the castles
     for name, (z0, z1, out, thick, role) in {**BANDS, **STRAKES}.items():
-        if name != 'moulding':
-            side_loft(name, BAND_Y0, BAND_Y1, z0, z1, out, thick, role)
-            continue
-        # the gilded moulding runs at wreath height: break it around each gunport wreath
-        gap = WREATH_RY + 0.12
-        edges = [BAND_Y0] + [e for i in range(GUNPORTS_PER_SIDE) for e in (gunport_y(i) - gap, gunport_y(i) + gap)] + [BAND_Y1]
-        for a, b in zip(edges[::2], edges[1::2]):
-            side_loft(name, a, b, z0, z1, out, thick, role, n=max(int((b - a) * 4), 2))
-    # gun deck follows the inside of the walls; stanchions on the inside of the bulwark
-    tapered_block('gun_deck', Y_GUNDECK_AFT, Y_GUNDECK_FORE + 0.4, Z_GUN_DECK - 0.15, Z_GUN_DECK,
-                  lambda y: side_hw(y) - SIDE_T + 0.01, 'deck', n=40)
+        segs = [(Y0 - out, Y1 + out)]
+        if name == 'moulding':                                     # breaks round the gunport wreaths
+            gap = WREATH_RY + 0.12
+            edges = [Y0 - out] + [e for i in range(GUNPORTS_PER_SIDE) for e in (gunport_y(i) - gap, gunport_y(i) + gap)] + [Y1 + out]
+            segs = list(zip(edges[::2], edges[1::2]))
+        for side in (-1, 1):
+            for a, b in segs:
+                box(name, *sorted((side * (W + out), side * (W + out - thick))), a, b, z0, z1, role)
+            for yend, d in ((Y1, 1), (Y0, -1)):                    # across the end walls (outer face at yend)
+                xi = box_inner_x(yend) + 0.1
+                box(name + '_end', *sorted((side * xi, side * (W + out - thick))),
+                    *sorted((yend + d * out, yend + d * (out - min(thick, SIDE_T)))), z0, z1, role)
+    # full-width gun deck; side decks beside the forecastle and the cabin
+    WD = W - SIDE_T + 0.01
+    box('gun_deck', -WD, WD, Y_GUNDECK_AFT, FC_Y_BACK, Z_GUN_DECK - 0.15, Z_GUN_DECK, 'deck')
     for side in (-1, 1):
-        for k in range(int((Y_GUNDECK_FORE - Y_GUNDECK_AFT) / 1.6) + 1):
-            y = Y_GUNDECK_AFT + 0.3 + k * 1.6
-            if any(abs(y - gunport_y(i)) < 0.6 for i in range(GUNPORTS_PER_SIDE)):
+        box('side_deck_fore', *sorted((side * (fc_radius(Z_GUN_DECK) - 0.02), side * WD)), FC_Y_BACK, Y1 - SIDE_T + 0.01,
+            Z_GUN_DECK - 0.15, Z_GUN_DECK, 'deck')
+        bm = bmesh.new(); rings = []
+        for i in range(13):
+            y = Y0 + SIDE_T - 0.01 + (Y_GUNDECK_AFT - Y0 - SIDE_T + 0.01) * i / 12
+            xi, xo = side * (sc_hw(y) - 0.02), side * WD
+            rings.append([bm.verts.new(c) for c in ((xi, y, Z_GUN_DECK - 0.15), (xo, y, Z_GUN_DECK - 0.15),
+                                                     (xo, y, Z_GUN_DECK), (xi, y, Z_GUN_DECK))])
+        for a, b in zip(rings, rings[1:]):
+            for j in range(4):
+                bm.faces.new((a[j], a[(j + 1) % 4], b[(j + 1) % 4], b[j]))
+        bm.faces.new(list(reversed(rings[0]))); bm.faces.new(rings[-1])
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        obj_from_bm(bm, 'side_deck_aft', 'deck')
+        # stanchions on the inside of the bulwark
+        for k in range(int((Y1 - Y0) / 1.6)):
+            y = Y0 + 0.5 + k * 1.6
+            if any(abs(y - gunport_y(i)) < 0.6 for i in range(GUNPORTS_PER_SIDE)) or y > Y1 - 0.4:
                 continue
-            w = side_hw(y) - SIDE_T
+            w = W - SIDE_T
             box('stanchion', *sorted((side * w, side * (w - 0.12))), y - 0.07, y + 0.07, Z_GUN_DECK, Z_BULWARK_TOP, 'trim')
-    # deck under the rowing level, only so the oar ports show a floor
-    tapered_block('row_deck', OAR_Y_AFT, OAR_Y_FORE, 0.15, 0.25, lambda y: hull_x_at(y, 0.15) - 0.15, 'dark', n=40)
 
 def build_deck_fittings():
     # hatches (gratings) and mast partners
@@ -496,49 +558,6 @@ def outer_x(y, z):
     if z >= z_top(y) - 0.1:
         return half_beam(y, True) + (0.02 if y < SC_Y_FORE else 0.0)
     return hull_x_at(y, z)
-
-def build_outriggers():
-    for side in (-1, 1):
-        s = 'stbd' if side > 0 else 'port'
-        X = side * OUTRIGGER_HW
-        box(f'outrigger_rail_{s}', X - 0.12, X + 0.12, Y_OUTR_AFT, Y_OUTR_FORE, Z_OUTR_RAIL - 0.22, Z_OUTR_RAIL, 'trim')
-        box(f'outrigger_low_{s}', X - 0.09, X + 0.09, Y_OUTR_AFT, Y_OUTR_FORE, Z_OUTR_LOW, Z_OUTR_LOW + 0.15, 'trim')
-        n = 12
-        for i in range(n):
-            y = Y_OUTR_AFT + 0.5 + (Y_OUTR_FORE - Y_OUTR_AFT - 1) * i / (n - 1)
-            # inner ends 5 cm into whatever surface is there at their height (hull near the ends)
-            xb = side * (outer_x(y, Z_OUTR_RAIL - 0.32) - 0.05)
-            xs = side * (outer_x(y, Z_OUTR_LOW - 0.35) - 0.05)
-            box('outrigger_bracket', *sorted((xb, X)), y - 0.12, y + 0.12, Z_OUTR_RAIL - 0.42, Z_OUTR_RAIL - 0.22, 'trim')
-            sweep('outrigger_strut', [(X, y, Z_OUTR_LOW + 0.05), (xs, y, Z_OUTR_LOW - 0.35)], 0.07, 'trim', square=True)
-            box('outrigger_post', X - 0.07, X + 0.07, y - 0.07, y + 0.07, Z_OUTR_LOW, Z_OUTR_RAIL, 'trim')
-        # thole pins where the unmanned oars rest
-        for i in range(OARS_PER_SIDE):
-            y = OAR_Y_AFT + (OAR_Y_FORE - OAR_Y_AFT) * (i + 0.5) / OARS_PER_SIDE
-            lathe('thole', [(0.04, 0), (0.04, 0.22), (0.0, 0.25)], 'trim', at=(X, y + 0.14, Z_OUTR_RAIL), segs=6)
-        # carved scroll brackets closing the frame at both ends (front view of the drawing)
-        for yend, d in ((Y_OUTR_FORE, -1), (Y_OUTR_AFT, 1)):
-            yp = yend + d * 0.08                              # centre of the end post (rail/stringer end flush on it)
-            box('outrigger_end_post', X - 0.09, X + 0.09, *sorted((yend, yend + d * 0.16)), Z_OUTR_LOW - 0.05,
-                Z_OUTR_RAIL, 'trim')
-            # carved bracket: a small volute standing on the end post (kept within the rail's width), then an
-            # S curve up and inboard into the castle side
-            z_end = Z_GUN_DECK + 0.45
-            xw = side * (fc_radius(z_end) if yend > 0 else sc_hw(yend))
-            rv, n = 0.085, 18
-            cz = Z_OUTR_RAIL + rv
-            pts = []
-            for i in range(n + 1):
-                t = i / n
-                a = math.radians(450 - 540 * t)               # 1.5 turns, ends at the bottom heading inboard
-                r = 0.03 + (rv - 0.03) * t
-                pts.append((X + side * r * math.cos(a), yp, cz + r * math.sin(a)))
-            for t in (0.25, 0.5, 0.75, 1.0):
-                x = X + (xw - X) * t
-                z = Z_OUTR_RAIL + 0.03 + (z_end - Z_OUTR_RAIL - 0.03) * (3 * t * t - 2 * t ** 3)
-                pts.append((x, yp, z))
-            radii = [0.02 + 0.02 * min(i / n, 1) for i in range(n + 1)] + [0.045, 0.05, 0.055, 0.06]
-            sweep('outrigger_scroll', pts, radii, 'trim', segs=8)
 
 # ================================================================= forecastle
 def horseshoe(r, n=48):
@@ -884,12 +903,6 @@ def build_stern_balcony():
     for name, (z0, z1, out, thick, role) in BANDS.items():
         # rub rail: the balcony plate covers the stern face at its height
         wrap(name, z0, z1, out, thick, role, aft=None if name == 'rub_rail' else door_a)
-    # the strakes run on from the cabin front to the stern post on whatever surface is there at their
-    # height: the cabin wall where it reaches down that far, the (flaring) hull below it
-    for name, (z0, z1, out, thick, role) in STRAKES.items():
-        zc = (z0 + z1) / 2
-        surf = lambda y, zc=zc: side_hw(y) if zc >= z_top(y) - 0.1 else hull_x_at(y, zc)
-        side_loft(f'stern_{name}', -25.1, BAND_Y0, z0, z1, out, thick, role, n=60, hw_fn=surf)
     wrap('window_band', SCW_Z0 - 0.2, SCW_Z0 - 0.1, 0.06 + sc_out, 0.12, 'gilt', fore=door_f, aft=door_a)
     wrap('deck_line', SC_Z_FLOOR - 0.12, SC_Z_FLOOR, 0.06 + sc_out, 0.12, 'trim', fore=stairs_f, aft=[(-9, 9)])
     # poop deck and turned balustrade
@@ -1179,9 +1192,9 @@ def build_markers():
 # ================================================================= build
 FINIAL = _finial()
 build_hull()
-wale('wale_low', lambda y: 0.35, -21.0, 21.0, height=0.16)
+wale('wale_low', lambda y: WING_Z0 + 0.03, -21.0, 21.0, height=0.18)   # covers the seam where the cove leaves the hull
 wale('wale_top', lambda y: z_top(y) - 0.05, -19.5, 19.5, height=0.2)
-build_sides(); build_deck_fittings(); build_outriggers()
+build_sides(); build_deck_fittings()
 build_forecastle(); build_sterncastle(); build_ends(); build_markers()
 rudder = build_rudder()
 build_beak()
