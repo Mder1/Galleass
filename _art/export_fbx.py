@@ -15,8 +15,14 @@ for c in bpy.data.collections:
 for o in bpy.data.objects:
     o.hide_viewport = False; o.hide_set(False)
 
+# the Kit takes '<name>_lodN' objects in the same FBX as LODs of '<name>' (tested with the rudder: one mesh
+# results); the '.lodN' names from the model script are renamed for export
+for o in list(bpy.data.objects):
+    if '.lod' in o.name:
+        o.name = o.name.replace('.lod', '_lod')
+
 def objs(base, lods=True):
-    names = [base] + ([f'{base}.lod{i}' for i in (1, 2, 3)] if lods else [])
+    names = [base] + ([f'{base}_lod{i}' for i in (1, 2, 3)] if lods else [])
     return [bpy.data.objects[n] for n in names if n in bpy.data.objects]
 
 ROLES = ['hull', 'paint', 'deck', 'trim', 'gilt', 'iron', 'dark', 'glass']
@@ -35,7 +41,7 @@ for name, pm in (('bo_composite_conv_galleass', 'wood_ship'), ('bo_galleass', 'w
     me.materials.clear(); me.materials.append(bpy.data.materials.get(pm) or bpy.data.materials.new(pm))
 
 # the painted planking is plain wood under the faction overlay: same material as the hull planking
-for n in ['galleass_paint'] + [f'galleass_paint.lod{i}' for i in (1, 2, 3)]:
+for n in ['galleass_paint'] + [f'galleass_paint_lod{i}' for i in (1, 2, 3)]:
     if n in bpy.data.objects:
         me = bpy.data.objects[n].data
         me.materials.clear(); me.materials.append(bpy.data.materials['galleass_hull'])
@@ -59,7 +65,7 @@ for fbx, group in GROUPS.items():
                              mesh_smooth_type='FACE', use_tspace=False, axis_forward='Y', axis_up='Z',
                              apply_unit_scale=True, global_scale=1.0, bake_anim=False, path_mode='STRIP',
                              add_leaf_bones=False)
-    tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in group if '.lod' not in o.name)
+    tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in group if '_lod' not in o.name)
     mats = sorted({m.name for o in group for m in o.data.materials if m})
     report.append('%-30s objects %2d  LOD0 tris %6d  materials %s' % (fbx + '.fbx', len(group), tris, mats))
 
