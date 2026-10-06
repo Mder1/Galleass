@@ -226,6 +226,24 @@ def flat_disc(name, fn, ry, rz, d0, d1, K=64):
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     return obj_from_bm(bm, name, 'dark', 'cutters')
 
+def flat_ribbon(name, path, width, d0, d1, fn, role):
+    """Flat band along a 2D path (u, v) in a wall's local frame (fn as for flat_annulus), width in-plane,
+    standing d0..d1 out of the wall."""
+    bm = bmesh.new(); rings = []
+    n = len(path)
+    for i, (u, v) in enumerate(path):
+        a = Vector(path[max(i - 1, 0)]); b = Vector(path[min(i + 1, n - 1)])
+        t = (b - a).normalized(); nrm = Vector((-t.y, t.x)) * (width / 2)
+        pts = [(u - nrm.x, v - nrm.y), (u + nrm.x, v + nrm.y)]
+        rings.append([bm.verts.new(fn(pu, pv, dd)) for (pu, pv), dd in
+                      ((pts[0], d0), (pts[1], d0), (pts[1], d1), (pts[0], d1))])
+    for a_, b_ in zip(rings, rings[1:]):
+        for j in range(4):
+            bm.faces.new((a_[j], a_[(j + 1) % 4], b_[(j + 1) % 4], b_[j]))
+    bm.faces.new(list(reversed(rings[0]))); bm.faces.new(rings[-1])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return obj_from_bm(bm, name, role)
+
 def subtract(target, cutters):
     for i, c in enumerate(cutters):
         m = target.modifiers.new(f'cut{i}', 'BOOLEAN'); m.object = c; m.operation = 'DIFFERENCE'
@@ -556,11 +574,19 @@ def build_sides():
                 bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
                 bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
                 obj_from_bm(bm, 'end_wall', role)
-            # gilded scroll on the end wall's outer upper corner (drawing's front section)
-            c = (side * (W - 0.35), yend - d * 0.03, Z_BULWARK_TOP - 0.55)
-            vol = [(c[0] + side * r * math.cos(a), c[1], c[2] + r * math.sin(a))
-                   for r, a in [(0.05 + 0.22 * k / 24, math.pi * 2.2 * (1 - k / 24) - 0.4) for k in range(25)]]
-            sweep('box_end_scroll', vol, [0.02 + 0.015 * k / 24 for k in range(25)], 'gilt', segs=8)
+            # flat gilded bead: from the gilt moulding down the outer corner, then curling inward into a volute
+            # just above the rub rail (user's sketch)
+            u0, R = 0.08, 0.22
+            z_top_b = BANDS['moulding'][0] + 0.03            # starts inside the moulding (joins it)
+            zb = BANDS['rub_rail'][1] + 0.08 + R
+            path = [(u0, z_top_b - (z_top_b - zb) * k / 20) for k in range(20)]
+            for k in range(61):
+                f = k / 60
+                a = math.pi + 2.25 * math.pi * f
+                r = R - (R - 0.06) * f
+                path.append((u0 + R + r * math.cos(a), zb + r * math.sin(a)))
+            fn = lambda u, v, dd, yend=yend, d=d: (side * (W - u), yend - d * dd, v)
+            flat_ribbon('box_end_bead', path, 0.05, -0.01, 0.035, fn, 'gilt')
     # bands along the outer wall, wrapped round the end walls to the castles
     for name, (z0, z1, out, thick, role) in {**BANDS, **STRAKES}.items():
         segs = [(Y0 - out, Y1 + out)]
