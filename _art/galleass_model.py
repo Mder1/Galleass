@@ -373,14 +373,15 @@ def build_hull():
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     return obj_from_bm(bm, 'hull_shell', 'hull', smooth=True)
 
-def wale(name, z_fn, y0, y1, thick=0.09, height=0.18, n=80, role='trim'):
-    """Strake running along the hull surface on both sides at height z_fn(y)."""
+def wale(name, z_fn, y0, y1, thick=0.09, height=0.18, n=80, role='trim', x_fn=None):
+    """Strake running along the hull surface on both sides at height z_fn(y) (x_fn overrides the surface)."""
     for side in (-1, 1):
         pts = []
         for i in range(n + 1):
             y = y0 + (y1 - y0) * i / n
             z = z_fn(y)
-            pts.append((side * (hull_x_at(y, z) + thick * 0.5), y, z))
+            sx = x_fn(y) if x_fn else hull_x_at(y, z)
+            pts.append((side * (sx + thick * 0.5), y, z))
         sweep(f'{name}_{side}', pts, max(thick, height) * 0.5, role, square=True)
 
 # ================================================================= rowing level and gun deck
@@ -434,6 +435,13 @@ def box_inner_x(y):
     """Inner edge of the box's end walls: just inside the castle wall there (forecastle side / cabin side)."""
     return (fc_radius(Z_GUN_DECK) if y > 0 else sc_hw(y)) - 0.1
 
+def end_surface_x(y, z):
+    """Inner limit for the box's end walls at height z: just inside the castle wall where the castle reaches down,
+    else just inside the hull (the bow/stern taper)."""
+    if z >= z_top(y) - 0.1:
+        return box_inner_x(y)
+    return hull_x_at(y, z) - 0.05
+
 def cove_start_x(y):
     """Where the flare leaves the hull: the hull's widest point between the flare's start and the wall foot."""
     return max(hull_x_at(y, WING_Z0 + (WING_Z_FACE - WING_Z0) * k / 8) for k in range(9)) + 0.01
@@ -474,7 +482,7 @@ def build_sides():
                 bm.faces.new((a[j], a[(j + 1) % k], b[(j + 1) % k], b[j]))
         bm.faces.new(list(reversed(rings[0]))); bm.faces.new(rings[-1])
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-        obj_from_bm(bm, 'cove', 'hull', smooth=True)              # the hull itself flaring out (planking)
+        obj_from_bm(bm, 'cove', 'paint', smooth=True)             # painted: part of the topside extension
         # outer wall with oar ports and gunports
         x0, x1 = sorted((side * W, side * (W - SIDE_T)))
         wall = box(f'outer_wall', x0, x1, Y0 + 0.05, Y1 - 0.05, WING_Z_FACE - 0.01, Z_BULWARK_TOP, 'paint')
@@ -503,8 +511,16 @@ def build_sides():
             if xi < prof[0][0]:
                 prof = [(xi, prof[0][1])] + prof
             # lower part (on the flare, up to the wall foot) is hull planking, the rest painted like the wall
-            for poly, role in ((prof + [(xi, WING_Z_FACE)], 'hull'),
-                               ([(xi, WING_Z_FACE), (W, WING_Z_FACE), (W, Z_BULWARK_TOP), (xi, Z_BULWARK_TOP)], 'paint')):
+            # inner edge of the lower part follows the hull surface (the bow/stern taper), never in front of it
+            xin = lambda z: min(xi, end_surface_x(yend, z))
+            z_lo = prof[0][1]
+            prof[0] = (xin(z_lo), z_lo)
+            inner = [(xin(WING_Z_FACE - (WING_Z_FACE - z_lo) * k / 8), WING_Z_FACE - (WING_Z_FACE - z_lo) * k / 8)
+                     for k in range(8)]
+            for poly, role in ((prof + inner, 'paint'),
+                               ([(W, WING_Z_FACE), (W, Z_BULWARK_TOP)] +
+                                [(xin(Z_BULWARK_TOP - (Z_BULWARK_TOP - WING_Z_FACE) * k / 12),
+                                  Z_BULWARK_TOP - (Z_BULWARK_TOP - WING_Z_FACE) * k / 12) for k in range(13)], 'paint')):
                 bm = bmesh.new()
                 front = [bm.verts.new((side * x, yend, z)) for x, z in poly]
                 back = [bm.verts.new((side * x, yend + d * SIDE_T, z)) for x, z in poly]
@@ -531,7 +547,7 @@ def build_sides():
             for a, b in segs:
                 box(name, *sorted((side * (W + out), side * (W + out - thick))), a, b, z0, z1, role)
             for yend, d in ((Y1, 1), (Y0, -1)):                    # across the end walls (outer face at yend)
-                xi = box_inner_x(yend) + 0.1
+                xi = min(box_inner_x(yend) + 0.1, end_surface_x(yend, (z0 + z1) / 2) + 0.05)
                 box(name + '_end', *sorted((side * xi, side * (W + out - thick))),
                     *sorted((yend + d * out, yend + d * (out - min(thick, SIDE_T)))), z0, z1, role)
     # full-width gun deck; side decks beside the forecastle and the cabin
@@ -1212,7 +1228,7 @@ def build_markers():
 # ================================================================= build
 FINIAL = _finial()
 build_hull()
-wale('wale_low', lambda y: WING_Z0 + 0.05, -21.0, 21.0, height=0.18)   # covers the seam where the flare leaves the hull
+wale('wale_low', lambda y: WING_Z0 + 0.05, WING_Y0 + 0.05, WING_Y1 - 0.05, height=0.18, x_fn=cove_start_x)  # seam where the flare leaves the hull
 wale('wale_top', lambda y: z_top(y) - 0.05, -19.5, 19.5, height=0.2)
 build_sides(); build_deck_fittings()
 build_forecastle(); build_sterncastle(); build_ends(); build_markers()
