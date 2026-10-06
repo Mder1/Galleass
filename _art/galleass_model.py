@@ -1031,14 +1031,15 @@ def build_stern_balcony():
             for xa, xb in segs:
                 xa, xb = max(xa, -w), min(xb, w)
                 # gilt bands at the stern door: stop short and curl down into a volute (user's sketch)
-                curl = role == 'gilt' and face_y == SC_Y_AFT and segs == door_a
-                if curl and abs(xb + SC_DOOR_W / 2) < 1e-6:
-                    xb -= CURL_GAP; door_curl(name, xb, -1, z0, z1, o, t)
-                elif curl and abs(xa - SC_DOOR_W / 2) < 1e-6:
-                    xa += CURL_GAP; door_curl(name, xa, 1, z0, z1, o, t)
+                dx = SC_DOOR_X if face_y == SC_Y_FORE else 0.0          # door centre on this face
+                curl = role == 'gilt' and segs in (door_a, door_f)
+                if curl and abs(xb - (dx - SC_DOOR_W / 2)) < 1e-6:
+                    xb -= CURL_GAP; door_curl(name, xb, -1, z0, z1, o, t, face_y, sgn)
+                elif curl and abs(xa - (dx + SC_DOOR_W / 2)) < 1e-6:
+                    xa += CURL_GAP; door_curl(name, xa, 1, z0, z1, o, t, face_y, sgn)
                 box(f'sc_{name}_face', xa, xb, *sorted((face_y + sgn * o, face_y + sgn * (o - t))), z0, z1, role)
     CURL_GAP = 0.4
-    def door_curl(name, x_end, toward, z0, z1, o, t):
+    def door_curl(name, x_end, toward, z0, z1, o, t, face_y=SC_Y_AFT, sgn=-1):
         """From the band's end (x_end), bend down toward the door and curl back into a volute (flat gilt).
         toward = -1: the band lies at x < x_end... i.e. the door is at +x when toward == -1."""
         dirx = -toward                                     # direction from the band end toward the door
@@ -1071,7 +1072,7 @@ def build_stern_balcony():
         cap0 = BANDS['cap_rail'][1]
         low = min(v - w / 2 for (u, v), w in zip(path, widths))
         print(f'door curl {name}: self clearance {worst:.3f}, lowest {low:.3f} (cap rail top {cap0:.2f})')
-        fn = lambda u, v, dd: (u, SC_Y_AFT - dd, v)
+        fn = lambda u, v, dd: (u, face_y + sgn * dd, v)
         flat_ribbon(f'sc_{name}_curl', path, widths, o - t, o, fn, 'gilt')
     # bands run right up to the door frame (end flush with the opening, against the lining)
     door_f = [(-9, SC_DOOR_X - SC_DOOR_W / 2), (SC_DOOR_X + SC_DOOR_W / 2, 9)]
