@@ -20,6 +20,11 @@ for o in bpy.data.objects:
 for o in list(bpy.data.objects):
     if '.lod' in o.name:
         o.name = o.name.replace('.lod', '_lod')
+# 'galleass_rudder' stays blocked in the Kit after the deleted rudder_a test import (a fresh import of that name
+# silently fails, the same file renamed imports), so the Kit mesh is galleass_rudder_a
+for o in list(bpy.data.objects):
+    if o.name == 'galleass_rudder' or o.name.startswith('galleass_rudder_lod'):
+        o.name = o.name.replace('galleass_rudder', 'galleass_rudder_a')
 # FBX geometry names = mesh datablock names: no dots anywhere (the Kit's importer silently fails on them)
 for o in bpy.data.objects:
     if o.type == 'MESH':
@@ -39,7 +44,7 @@ GROUPS = {
     'galleass_hull': [o for r in ROLES for o in objs(f'galleass_{r}')],
     'galleass_faction_paint': objs('galleass_faction_paint'),
     'galleass_interior': objs('galleass_interior'),
-    'galleass_rudder': objs('galleass_rudder'),
+    'galleass_rudder_a': objs('galleass_rudder_a'),
     'galleass_deckwater': objs('galleass_deckwater', False),
     'bo_composite_conv_galleass': objs('bo_composite_conv_galleass', False),
     'bo_galleass': objs('bo_galleass', False),
@@ -56,9 +61,9 @@ for n in ['galleass_paint'] + [f'galleass_paint_lod{i}' for i in (1, 2, 3)]:
         me.materials.clear(); me.materials.append(bpy.data.materials['galleass_hull'])
 
 # rudder: export in its own frame (mesh data is already local to the hinge)
-rud = [o for o in GROUPS['galleass_rudder']]
+rud = [o for o in GROUPS['galleass_rudder_a']]
 rud_frames = {o.name: o.matrix_world.copy() for o in rud}
-r0 = bpy.data.objects['galleass_rudder']
+r0 = bpy.data.objects['galleass_rudder_a']
 loc, rot = r0.matrix_world.to_translation(), r0.matrix_world.to_euler()
 for o in rud:
     o.matrix_world.identity()
