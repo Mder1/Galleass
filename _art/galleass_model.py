@@ -55,18 +55,24 @@ FC_Z_PLATFORM, FC_Z_PARAPET, FC_Z_RAIL = 3.9, 5.3, 6.0
 FC_EMB_SILL, FC_EMB_TOP, FC_EMB_W = 4.3, 5.0, 0.8
 FC_GUN_DEGS = (-90, -45, 0, 45, 90)
 FC_LOWER_PORT_DEGS = (-40, 0, 40)        # round decorative ports on the lower tier
+FC_STAIR_X = 2.4                         # centre line of the two stairs up to the platform
 
 # sterncastle: cabin with windows, poop deck with turned balustrade, awning frame, lantern
 SC_Y_AFT, SC_Y_FORE = -24.0, -14.5
 SC_Z_FLOOR = 5.3                         # poop deck
 SC_Z_RAIL = 6.45
-SC_AWNING_Y = (-24.0, -18.6)
+SC_AWNING_Y = (-23.4, -18.6)            # aft hoop clears the stern lantern
 SC_Z_AWNING = 8.7
-LANTERN_Y = -24.6
+SC_STAIR_X = 3.25                        # centre line of the two stairs up to the poop
+LANTERN_Y = -24.15                       # on the poop deck, just inside the aft rail
 
 # masts (vanilla lateen rigs go here later): mizzen, main, fore
 MASTS = {'mizzen': -13.7, 'main': 5.5, 'fore': 22.5}
-SPUR_ROOT, SPUR_TIP = (23.5, 2.0), (31.3, 2.0)   # (y, z)
+# bow slot: vanilla rams (ram_01..08) as on the meditheavy (scale 1.9, at the waterline), shifted from the
+# meditheavy's waterline stem (y 18.46) to ours (y 25.0). The adaptor sheath is shown only with a ram fitted.
+RAM_FWD, RAM_DOWN = 0.0, 0.0             # same relation to the waterline stem as on the meditheavy
+RAM_POS, RAM_SCALE = (0.0, -10.74 + (Y_STEM_WL - 18.46) + RAM_FWD, 1.18 - RAM_DOWN), 1.9
+ADAPTOR_Y0, ADAPTOR_Z = 21.5, (-1.7, 1.9)
 
 ROLES = {                                 # role -> blockout colour (real materials are set up in the Kit)
     'hull':  (0.42, 0.28, 0.17),          # hull planking (below the rowing level)
@@ -378,16 +384,23 @@ def build_outriggers():
             y = OAR_Y_AFT + (OAR_Y_FORE - OAR_Y_AFT) * (i + 0.5) / OARS_PER_SIDE
             lathe('thole', [(0.04, 0), (0.04, 0.22), (0.0, 0.25)], 'trim', at=(X, y + 0.14, Z_OUTR_RAIL), segs=6)
         # carved scroll brackets closing the frame at both ends (front view of the drawing)
-        for yend, d in ((Y_OUTR_FORE, 1), (Y_OUTR_AFT, -1)):
-            xh = side * (half_beam(yend, True) + 0.05)
-            pts = [(X, yend, Z_OUTR_LOW)]
-            pts += [(X + (xh - X) * t, yend, Z_OUTR_RAIL + (Z_GUN_DECK + 0.4 - Z_OUTR_RAIL) * math.sin(t * math.pi / 2))
-                    for t in (0.2, 0.45, 0.7, 0.9, 1.0)]
-            sweep('outrigger_scroll', pts, 0.1, 'trim', square=True)
-            c = (X + side * 0.05, yend, Z_OUTR_RAIL + 0.32)
-            vol = [(c[0] + side * r * math.cos(a), yend, c[2] + r * math.sin(a))
-                   for r, a in zip([0.3 - 0.2 * i / 20 for i in range(21)], [math.pi * 1.6 * i / 20 - 0.5 for i in range(21)])]
-            sweep('outrigger_volute', vol, 0.05, 'gilt', segs=6)
+        for yend in (Y_OUTR_FORE, Y_OUTR_AFT):
+            # outer face of what stands there: forecastle side forward, sterncastle side aft
+            z_end = Z_GUN_DECK + 0.45
+            xw = side * (fc_radius(z_end) if yend > 0 else sc_hw(yend))
+            # volute wound around a centre above the rail end, leaving it at the bottom heading inboard
+            cz, n = Z_OUTR_RAIL + 0.28, 20
+            pts = []
+            for i in range(n + 1):
+                t = i / n
+                a = math.radians(450 - 540 * t)               # 1.5 turns, ends at -90 deg (bottom)
+                r = 0.07 + 0.21 * t
+                pts.append((X + side * r * math.cos(a), yend, cz + r * math.sin(a)))
+            for t in (0.25, 0.5, 0.75, 1.0):                   # S curve up and inboard to the castle side
+                x = X + (xw - X) * t
+                z = Z_OUTR_RAIL + 0.07 + (z_end - Z_OUTR_RAIL - 0.07) * (3 * t * t - 2 * t ** 3)
+                pts.append((x, yend, z))
+            sweep('outrigger_scroll', pts, [0.045 + 0.05 * min(i / n, 1) for i in range(len(pts))], 'trim', segs=8)
 
 # ================================================================= forecastle
 def horseshoe(r, n=48):
@@ -453,6 +466,11 @@ def stairs(name, x0, x1, y_bottom, z_bottom, y_top, z_top, role='trim', step=0.2
 
 def build_forecastle():
     lower = horseshoe_wall('fc_lower', FC_Z_BASE, FC_Z_PLATFORM, 0.35, 'paint')
+    # planking between the last oar bay and the forecastle (hull top is still low there)
+    for side in (-1, 1):
+        w = half_beam((OAR_Y_FORE + FC_Y_BACK) / 2, True)
+        box('row_wall_fore', *sorted((side * w, side * (w - 0.15))), OAR_Y_FORE, FC_Y_BACK + 0.3,
+            Z_HULL_TOP - 0.1, FC_Z_BASE, 'paint')
     cuts = []
     for deg in FC_LOWER_PORT_DEGS:
         x, y = fc_point(deg, fc_radius(2.95))
@@ -490,14 +508,15 @@ def build_forecastle():
     # rail along the open back edge of the platform, gaps where the stairs arrive
     r = fc_radius(FC_Z_PLATFORM) - 0.35
     yb = FC_Y_BACK + 0.05
-    for x0, x1 in ((-r, -2.95), (-1.85, 1.85), (2.95, r)):
+    for x0, x1 in ((-r, -FC_STAIR_X - 0.5), (-FC_STAIR_X + 0.5, FC_STAIR_X - 0.5), (FC_STAIR_X + 0.5, r)):
         sweep('fc_back_rail', [(x0, yb, FC_Z_PLATFORM + 0.95), (x1, yb, FC_Z_PLATFORM + 0.95)], 0.05, 'trim', square=True)
-        for k in range(int((x1 - x0) / 0.6) + 1):
-            x = x0 + k * 0.6
-            box('fc_back_post', x - 0.04, x + 0.04, yb - 0.04, yb + 0.04, FC_Z_PLATFORM, FC_Z_PLATFORM + 0.95, 'trim')
+        n = max(int(round((x1 - x0) / 0.6)), 1)
+        for k in range(n + 1):
+            x = x0 + (x1 - x0) * k / n
+            box('fc_back_post', x - 0.04, x + 0.04, yb - 0.04, yb + 0.04, FC_Z_PLATFORM, FC_Z_PLATFORM + 0.98, 'trim')
     # stairs from the gun deck up to the platform, one per side behind the forecastle
     for side in (-1, 1):
-        x = side * 2.4
+        x = side * FC_STAIR_X
         stairs(f'fc_stairs_{side}', x - 0.5, x + 0.5, FC_Y_BACK - 3.0, Z_GUN_DECK, FC_Y_BACK, FC_Z_PLATFORM)
 
 # ================================================================= sterncastle
@@ -505,10 +524,12 @@ def sc_hw(y):
     return half_beam(y, True) + 0.02
 
 def tapered_block(name, ya, yb, z0, z1, hw_fn, role, n=16, grow=0.0):
+    """Block whose half width follows hw_fn(y); z0 may be a function of y (bottom following the hull)."""
     bm = bmesh.new(); rings = []
     for i in range(n + 1):
         y = ya + (yb - ya) * i / n; w = hw_fn(y) + grow
-        rings.append([bm.verts.new(c) for c in ((-w, y, z0), (w, y, z0), (w, y, z1), (-w, y, z1))])
+        zb = z0(y) if callable(z0) else z0
+        rings.append([bm.verts.new(c) for c in ((-w, y, zb), (w, y, zb), (w, y, z1), (-w, y, z1))])
     for a, b in zip(rings, rings[1:]):
         for i in range(4):
             bm.faces.new((a[i], a[(i + 1) % 4], b[(i + 1) % 4], b[i]))
@@ -532,7 +553,9 @@ def side_strip(name, ya, yb, z0, z1, out, thick, role, n=16):
         obj_from_bm(bm, f'{name}_{side}', role)
 
 def build_sterncastle():
-    body = tapered_block('sc_body', SC_Y_AFT, SC_Y_FORE, FC_Z_BASE, SC_Z_FLOOR, sc_hw, 'paint')
+    body = tapered_block('sc_body', SC_Y_AFT, SC_Y_FORE, lambda y: z_top(y) - 0.1, SC_Z_FLOOR, sc_hw, 'paint')
+    # cap over the hull end behind the cabin (the hull shell is open on top)
+    tapered_block('stern_cap', -25.25, SC_Y_AFT + 0.05, FC_Z_BASE - 0.25, FC_Z_BASE, lambda y: half_beam(y, True) + 0.02, 'hull')
     cuts = []
     # cabin door and two windows in the front bulkhead
     cuts.append(cutter_box(0, SC_Y_FORE, Z_GUN_DECK + 1.0, 1.1, 0.6, 2.0))
@@ -569,7 +592,7 @@ def build_sterncastle():
             x = side * (sc_hw(y) + 0.02)
             if i % 6 == 0:                              # big posts with gilded finials
                 box('sc_post', x - 0.09, x + 0.09, y - 0.09, y + 0.09, zb, SC_Z_RAIL + 0.1, 'trim')
-                lathe('sc_finial', [(0.0, 0), (0.08, 0.02), (0.11, 0.12), (0.08, 0.22), (0.0, 0.3)], 'gilt',
+                lathe('sc_finial', [(0.09, 0), (0.06, 0.04), (0.11, 0.12), (0.08, 0.22), (0.0, 0.3)], 'gilt',
                       at=(x, y, SC_Z_RAIL + 0.1), segs=8)
             else:
                 lathe('sc_baluster', prof, 'trim', at=(x, y, zb), segs=6)
@@ -582,21 +605,26 @@ def build_sterncastle():
         lathe('sc_baluster', prof, 'trim', at=(x, SC_Y_AFT, zb), segs=6)
     sweep('sc_rail_aft', [(-w, SC_Y_AFT, SC_Z_RAIL - 0.05), (w, SC_Y_AFT, SC_Z_RAIL - 0.05)], 0.07, 'trim', square=True)
     # forward rail of the poop with a gap for the stairs
-    for x0, x1 in ((-sc_hw(SC_Y_FORE), -3.9), (-2.6, 2.6), (3.9, sc_hw(SC_Y_FORE))):
-        if x1 > x0:
-            sweep('sc_rail_fore', [(x0, SC_Y_FORE, SC_Z_RAIL - 0.05), (x1, SC_Y_FORE, SC_Z_RAIL - 0.05)], 0.07, 'trim', square=True)
-            for k in range(int((x1 - x0) / 0.32) + 1):
-                lathe('sc_baluster', prof, 'trim', at=(x0 + k * 0.32, SC_Y_FORE, zb), segs=6)
+    wf = sc_hw(SC_Y_FORE) + 0.02
+    for x0, x1 in ((-wf, -SC_STAIR_X - 0.5), (-SC_STAIR_X + 0.5, SC_STAIR_X - 0.5), (SC_STAIR_X + 0.5, wf)):
+        sweep('sc_rail_fore', [(x0, SC_Y_FORE, SC_Z_RAIL - 0.05), (x1, SC_Y_FORE, SC_Z_RAIL - 0.05)], 0.07, 'trim', square=True)
+        n = max(int((x1 - x0) / 0.32), 1)
+        for k in range(1, n):
+            lathe('sc_baluster', prof, 'trim', at=(x0 + (x1 - x0) * k / n, SC_Y_FORE, zb), segs=6)
+        for x in (x0, x1):
+            box('sc_post', x - 0.09, x + 0.09, SC_Y_FORE - 0.09, SC_Y_FORE + 0.09, zb, SC_Z_RAIL + 0.1, 'trim')
     # awning frame (tendalino) over the after part of the poop
     ya, yb = SC_AWNING_Y
+    aw = lambda y: sc_hw(y) + 0.02                     # on the balustrade line
     for y in (ya, (ya + yb) / 2, yb):
         for side in (-1, 1):
-            x = side * (sc_hw(y) - 0.25)
-            sweep('awning_post', [(x, y, SC_Z_RAIL), (x, y, SC_Z_AWNING)], 0.06, 'trim', segs=6)
-        arc = [(-(sc_hw(y) - 0.25) * math.cos(t), y, SC_Z_AWNING + 0.6 * math.sin(t)) for t in [math.pi * k / 12 for k in range(13)]]
+            x = side * aw(y)
+            sweep('awning_post', [(x, y, SC_Z_RAIL - 0.1), (x, y, SC_Z_AWNING + 0.05)], 0.06, 'trim', segs=6)
+            box('awning_post_cap', x - 0.08, x + 0.08, y - 0.08, y + 0.08, SC_Z_AWNING - 0.06, SC_Z_AWNING + 0.06, 'trim')
+        arc = [(-aw(y) * math.cos(t), y, SC_Z_AWNING + 0.6 * math.sin(t)) for t in [math.pi * k / 12 for k in range(13)]]
         sweep('awning_hoop', arc, 0.05, 'trim', segs=6, cap=False)
     for side in (-1, 1):
-        sweep('awning_rail', [(side * (sc_hw(y) - 0.25), y, SC_Z_AWNING) for y in (ya, (ya + yb) / 2, yb)], 0.05, 'trim', segs=6)
+        sweep('awning_rail', [(side * aw(y), y, SC_Z_AWNING) for y in (ya, (ya + yb) / 2, yb)], 0.05, 'trim', segs=6)
     sweep('awning_ridge', [(0, ya, SC_Z_AWNING + 0.6), (0, yb, SC_Z_AWNING + 0.6)], 0.05, 'trim', segs=6)
     # stern lantern on its post
     lathe('lantern_post', [(0.12, 0), (0.12, 3.6), (0.2, 3.7), (0.2, 3.8)], 'trim', at=(0, LANTERN_Y, SC_Z_FLOOR), segs=8)
@@ -608,7 +636,7 @@ def build_sterncastle():
     # stairs from the gun deck up to the poop, running aft along both sides of the cabin front
     run = (SC_Z_FLOOR - Z_GUN_DECK) / math.tan(math.radians(40))
     for side in (-1, 1):
-        x = side * 3.25
+        x = side * SC_STAIR_X
         stairs(f'sc_stairs_{side}', x - 0.5, x + 0.5, SC_Y_FORE + run, Z_GUN_DECK, SC_Y_FORE, SC_Z_FLOOR + 0.12)
 
 # ================================================================= stem, spur, stern post, rudder
@@ -618,18 +646,6 @@ def build_ends():
     sweep('stem', stem, 0.2, 'trim', square=True)
     # keel batten along the bottom
     sweep('keel', [(0, y, z_bottom(y) - 0.08) for y in [-23.5 + 47 * i / 40 for i in range(41)]], 0.12, 'trim', square=True)
-    # spur (beak): squared timber tapering to the tip, iron bands, supporting knee from the stem
-    (ya, za), (yb, zb) = SPUR_ROOT, SPUR_TIP
-    n = 12
-    pts = [(0, ya + (yb - ya) * i / n, za + (zb - za) * i / n) for i in range(n + 1)]
-    radii = [0.42 - 0.3 * (i / n) ** 1.3 for i in range(n + 1)]
-    sweep('spur', pts, radii, 'trim', square=True)
-    for yy in (27.0, 28.6, 30.0):
-        t = (yy - ya) / (yb - ya)
-        r = 0.42 - 0.3 * t ** 1.3 + 0.04
-        sweep('spur_band', [(0, yy - 0.12, za), (0, yy + 0.12, za)], r, 'iron', square=True)
-    sweep('spur_knee', [(0, 25.3, 0.5), (0, 26.2, 1.1), (0, 27.4, 1.65)], 0.16, 'trim', square=True)
-    sweep('spur_tip', [(0, yb - 0.6, zb), (0, yb + 0.5, zb)], [0.16, 0.01], 'gilt', square=True)
     # stern post rising and curling aft into a volute (the drawing's carved stern piece)
     sp = [(0, y, pchip(STERN_PROFILE, -y) + 0.05) for y in (-21.5, -23.0, -24.2, -24.9, -25.2)]
     sp += [(0, -25.35, 1.6), (0, -25.45, 3.3), (0, -25.6, 5.0), (0, -26.0, 6.2), (0, -26.6, 6.9)]
@@ -641,6 +657,41 @@ def build_ends():
         x = side * (sc_hw(SC_Y_AFT) - 0.2)
         q = spiral((x, SC_Y_AFT - 0.35, SC_Z_RAIL + 0.15), 0.3, 0.08, -math.pi / 2, -math.pi / 2 + 1.6 * math.pi, n=18)
         sweep('quarter_volute', [(x, SC_Y_AFT - 0.1, SC_Z_FLOOR)] + q, 0.06, 'gilt', segs=6)
+
+def build_ram_adaptor():
+    """Sheath over the lower bow that carries the vanilla rams (slot 'platform', like adaptor_meditheavy).
+    A shell 6 cm proud of the hull from ADAPTOR_Y0 to the stem, plus a chock in front of the stem where
+    the ram's rear end sits. Separate object: it is only visible while a ram is fitted."""
+    bm = bmesh.new()
+    z0, z1 = ADAPTOR_Z
+    ny, nz = 24, 14
+    rings = []
+    for i in range(ny + 1):
+        y = ADAPTOR_Y0 + (Y_STEM_WL + 0.2 - ADAPTOR_Y0) * i / ny
+        zlo = max(z0, z_bottom(y) + 0.02)
+        ring = []
+        for j in range(nz + 1):
+            z = zlo + (z1 - zlo) * j / nz
+            w = hull_x_at(y, z) + 0.06
+            ring.append((w, y, z))
+        rings.append(ring)
+    def strip(side):
+        vs = [[bm.verts.new((side * x, y, z)) for x, y, z in ring] for ring in rings]
+        for a, b in zip(vs, vs[1:]):
+            for j in range(nz):
+                f = (a[j], b[j], b[j + 1], a[j + 1]) if side > 0 else (a[j], a[j + 1], b[j + 1], b[j])
+                bm.faces.new(f)
+    strip(1); strip(-1)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.02)
+    o = obj_from_bm(bm, 'galleass_ram_adaptor', 'trim', 'final', smooth=True)
+    # chock: tapered block on the stem's fore face, waterline level, where the ram butts on
+    chock = sweep('ram_chock', [(0, Y_STEM_WL - 0.4, 0.4), (0, Y_STEM_WL + 0.7, 0.4)], [0.75, 0.6], 'trim', square=True)
+    band = sweep('ram_chock_band', [(0, Y_STEM_WL + 0.25, 0.4), (0, Y_STEM_WL + 0.45, 0.4)], 0.67, 'iron', square=True)
+    for part in (chock, band):                       # move them out of the merged hull into the adaptor group
+        PARTS[:] = [(p, r) for p, r in PARTS if p is not part]
+        for c in part.users_collection: c.objects.unlink(part)
+        coll('final').objects.link(part); part.name = 'galleass_ram_adaptor_' + part.name
+    return o
 
 def build_rudder():
     """Sternpost rudder, separate object with its origin on the hinge (rotates in game)."""
@@ -677,6 +728,7 @@ wale('wale_top', lambda y: z_top(y) - 0.05, -19.5, 19.5, height=0.2)
 build_rowing_level(); build_gun_deck(); build_outriggers()
 build_forecastle(); build_sterncastle(); build_ends(); build_markers()
 rudder = build_rudder()
+adaptor = build_ram_adaptor()
 coll('cutters').hide_render = True; coll('cutters').hide_viewport = True
 
 # apply booleans and merge parts into one object per material role
@@ -746,6 +798,35 @@ def shot(fname, loc, rot, ortho=None, xray=False, refs=(), res=(2000, 1000), len
     sc.render.filepath = os.path.join(RENDER_DIR, fname)
     bpy.ops.render.render(write_still=True)
 
+# preview only: vanilla rams in the bow slot with the planned transform (not exported)
+PREVIEW_RAMS = {}
+for rid in ('ram_01', 'ram_05', 'ram_06'):
+    bpy.ops.wm.obj_import(filepath=os.path.join(HERE, f'ref/meditheavy/{rid}.obj'), forward_axis='Y', up_axis='Z')
+    objs = []
+    for o in list(bpy.context.selected_objects):
+        for c in o.users_collection: c.objects.unlink(o)
+        if o.name.split('.')[-1] not in ('0', '1', '2'):
+            bpy.data.objects.remove(o); continue
+        coll('preview').objects.link(o); objs.append(o)
+        o.location = RAM_POS; o.scale = (RAM_SCALE,) * 3
+        o.data.materials.clear(); o.data.materials.append(MATS['iron'])
+    PREVIEW_RAMS[rid] = objs
+
+def show_ram(rid):
+    for k, objs in PREVIEW_RAMS.items():
+        for o in objs: o.hide_render = (k != rid)
+show_ram('ram_05')
+
+def look(fname, loc, target, lens=35, res=(1400, 1000)):
+    d = Vector(target) - Vector(loc)
+    cam.location = loc; cam.rotation_euler = d.to_track_quat('-Z', 'Y').to_euler()
+    cam.data.type = 'PERSP'; cam.data.lens = lens
+    shd.show_xray = False; shd.color_type = 'MATERIAL'
+    for r in (side_ref, front_ref): r.hide_render = True
+    sc.render.resolution_x, sc.render.resolution_y = res
+    sc.render.filepath = os.path.join(RENDER_DIR, fname)
+    bpy.ops.render.render(write_still=True)
+
 os.makedirs(RENDER_DIR, exist_ok=True)
 coll('markers').hide_render = True
 shot('mdl_side_overlay.png', (40, 3, 8), (90, 0, 90), ortho=72, xray=True, refs=(side_ref,))
@@ -757,5 +838,19 @@ shot('mdl_persp_aft.png', (-26, -44, 14), (75, 0, -32))
 shot('mdl_bow_close.png', (13, 38, 8.5), (78, 0, 150), lens=30)
 shot('mdl_stern_close.png', (-12, -34, 9.5), (78, 0, -25), lens=30)
 shot('mdl_deck.png', (0, -11, 8.5), (72, 0, 0), lens=24)
+# close-ups for checking joins
+for rid in ('ram_01', 'ram_05', 'ram_06', None):
+    show_ram(rid)
+    tag = rid or 'none'
+    look(f'chk_bow_{tag}.png', (14, 27, 1.2), (0, 26.5, 0.8), lens=30)
+look('chk_bow_ram_front.png', (9, 35, 3), (0, 26, 0.5), lens=28)
+show_ram('ram_05')
+look('chk_poop_corner.png', (-6.5, -27.5, 8.5), (-3.0, -23.5, 6.0), lens=30)
+look('chk_awning.png', (2.5, -16.5, 10.5), (0, -21.0, 8.4), lens=30)
+look('chk_sc_stairs.png', (5.5, -9.5, 7.5), (3.2, -14.3, 5.8), lens=30)
+look('chk_fc_stairs.png', (5.0, 13.0, 5.5), (2.4, 18.4, 4.0), lens=30)
+look('chk_scroll_fore.png', (10.5, 23.5, 3.2), (5.5, 20.6, 2.0), lens=30)
+look('chk_scroll_aft.png', (10.5, -20.5, 3.2), (5.5, -17.6, 2.0), lens=30)
+look('chk_stern_under.png', (-6, -28, 0.5), (-2.5, -22, 2.5), lens=28)
 bpy.ops.wm.save_as_mainfile(filepath=OUT_BLEND)
 print('model done')
