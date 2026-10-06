@@ -139,6 +139,44 @@ def cutter_cyl(cx, cy, cz, r, depth, axis_rot):
     o.location = (cx, cy, cz); o.rotation_euler = axis_rot
     return o
 
+def _basis(c, n):
+    """Matrix mapping local (X = along the wall, Y = outward normal n, Z = up) to world at point c."""
+    n = Vector(n).normalized(); z = Vector((0, 0, 1)); u = n.cross(z).normalized()
+    m = Matrix.Identity(4)
+    for i in range(3):
+        m[i][0], m[i][1], m[i][2], m[i][3] = u[i], n[i], z[i], c[i]
+    return m
+
+def lining(name, c, n, w, h, d, lip=0.02, t=0.04, sill_out=0.0, role='trim'):
+    """Timber lining of a rectangular opening: jambs, head and sill boards through the wall (depth d), with a
+    small lip proud of the outer face; sill_out makes the sill project as a ledge. c = opening centre on the
+    outer face, n = outward normal, w/h = cut width/height. Boards sit inside the cut (no overlap with wall)."""
+    M = _basis(c, n)
+    def lbox(x0, x1, y0, y1, z0, z1):
+        bm = bmesh.new()
+        bmesh.ops.create_cube(bm, size=1)
+        for v in bm.verts:
+            v.co = M @ Vector((x0 if v.co.x < 0 else x1, y0 if v.co.y < 0 else y1, z0 if v.co.z < 0 else z1))
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        obj_from_bm(bm, name, role)
+    y0, y1 = -d - 0.01, lip
+    lbox(-w / 2, -w / 2 + t, y0, y1, -h / 2 + t, h / 2 - t)             # jambs
+    lbox(w / 2 - t, w / 2, y0, y1, -h / 2 + t, h / 2 - t)
+    lbox(-w / 2, w / 2, y0, y1, h / 2 - t, h / 2)                       # head
+    e = 0.05 if sill_out else 0.0
+    lbox(-w / 2 - e, w / 2 + e, y0, y1 + sill_out, -h / 2, -h / 2 + t)  # sill
+
+def round_lining(name, c, n, r, d, lip=0.02, t=0.03, role='trim'):
+    """Round timber sleeve lining a round port through a wall of depth d."""
+    o = lathe(name, [(r, -d - 0.01), (r, lip), (r - t, lip), (r - t, -d - 0.01), (r, -d - 0.01)], role,
+              segs=32, cap=False)
+    nn = Vector(n).normalized(); z = Vector((0, 0, 1)); u = nn.cross(z).normalized()
+    m = Matrix.Identity(4)                                # lathe axis (local Z) -> n
+    for i in range(3):
+        m[i][0], m[i][1], m[i][2], m[i][3] = u[i], z[i], nn[i], c[i]
+    o.data.transform(m)
+    return o
+
 def subtract(target, cutters):
     for i, c in enumerate(cutters):
         m = target.modifiers.new(f'cut{i}', 'BOOLEAN'); m.object = c; m.operation = 'DIFFERENCE'
@@ -374,6 +412,8 @@ def build_sides():
         for i in range(OARS_PER_SIDE):
             y = oar_y(i)
             cuts.append(cutter_box(side * side_hw(y), y, (OARPORT_Z0 + OARPORT_Z1) / 2, 0.8, OARPORT_W, OARPORT_Z1 - OARPORT_Z0))
+            lining('oarport_lining', (side * side_hw(y), y, (OARPORT_Z0 + OARPORT_Z1) / 2), (side, 0, 0),
+                   OARPORT_W, OARPORT_Z1 - OARPORT_Z0, SIDE_T, t=0.03)
             # dark back so the port doesn't show the void inside
             xb = side * (side_hw(y) - 0.5)
             box('oarport_back', *sorted((xb, xb + side * 0.05)), y - OARPORT_W, y + OARPORT_W,
@@ -389,8 +429,8 @@ def build_sides():
                 yk = y + WREATH_RY * math.cos(2 * math.pi * k / 48)
                 ring.append((side * (side_hw(yk) + 0.06), yk, (GP_SILL + GP_TOP) / 2 + WREATH_RZ * math.sin(2 * math.pi * k / 48)))
             sweep('gunport_wreath', ring, 0.05, 'gilt', segs=8, closed=True)
-            box('gunport_sill', *sorted((side * (w - SIDE_T - 0.02), side * (w + 0.05))), y - GP_W / 2 + 0.005,
-                y + GP_W / 2 - 0.005, GP_SILL - 0.05, GP_SILL + 0.02, 'trim')
+            lining('gunport_lining', (side * w, y, (GP_SILL + GP_TOP) / 2), (side, 0, 0), GP_W, GP_TOP - GP_SILL,
+                   SIDE_T, sill_out=0.05)
         subtract(wall, cuts)
     # strakes along the oar-port row, rub rail at the deck line, gilded moulding, cap rail
     for name, (z0, z1, out, thick, role) in {**BANDS, **STRAKES}.items():
@@ -541,6 +581,7 @@ def build_forecastle():
         x, y = fc_point(deg, fc_radius(2.95))
         a = math.radians(90 - deg)
         cuts.append(cutter_cyl(x, y, 2.95, 0.22, 1.2, (math.pi / 2, 0, a - math.pi / 2)))
+        round_lining('fc_port_lining', (x, y, 2.95), (math.cos(a), math.sin(a), 0), 0.22, 0.35)
         R = fc_radius(2.95) + 0.07
         ring = []
         for t in [2 * math.pi * k / 48 for k in range(49)]:
@@ -556,6 +597,8 @@ def build_forecastle():
         x, y = fc_point(deg, fc_radius(FC_EMB_SILL), back=0.6)
         a = math.radians(90 - deg) if abs(deg) < 90 else (0.0 if deg > 0 else math.pi)
         cuts.append(cutter_box(x, y, (FC_EMB_SILL + FC_EMB_TOP) / 2, 1.6, FC_EMB_W, FC_EMB_TOP - FC_EMB_SILL, a))
+        lining('fc_embrasure_lining', (x, y, (FC_EMB_SILL + FC_EMB_TOP) / 2), (math.cos(a), math.sin(a), 0),
+               FC_EMB_W, FC_EMB_TOP - FC_EMB_SILL, 0.35, sill_out=0.05)
         # gun position marker (cannon goes here later)
         r_in = fc_radius(FC_Z_PLATFORM) - 1.8
         gx, gy = fc_point(deg, r_in, back=0.6)
@@ -632,16 +675,20 @@ def build_sterncastle():
     cuts.append(cutter_box(SC_DOOR_X, SC_Y_FORE, Z_GUN_DECK + 1.0, SC_DOOR_W, 0.6, 2.0))
     for x in (-SC_FWIN_X, SC_FWIN_X):
         cuts.append(cutter_box(x, SC_Y_FORE, SC_EWIN_Z, 0.5, 0.6, 0.5))
+        lining('sc_window_lining', (x, SC_Y_FORE, SC_EWIN_Z), (0, 1, 0), 0.5, 0.5, SC_WALL, sill_out=0.04)
     # stern door onto the balcony, with a window on each side
     cuts.append(cutter_box(0, SC_Y_AFT, Z_GUN_DECK + 1.0, SC_DOOR_W, 0.6, 2.0))
     for x in (-SC_AWIN_X, SC_AWIN_X):
         cuts.append(cutter_box(x, SC_Y_AFT, SC_EWIN_Z, 0.5, 0.6, 0.5))
+        lining('sc_window_lining', (x, SC_Y_AFT, SC_EWIN_Z), (0, -1, 0), 0.5, 0.5, SC_WALL, sill_out=0.04)
     # side windows (the drawing's band of small arched windows)
     nwin = 6
     for side in (-1, 1):
         for i in range(nwin):
             y = SC_Y_AFT + 1.0 + (SC_Y_FORE - SC_Y_AFT - 2.0) * (i + 0.5) / nwin
             cuts.append(cutter_box(side * sc_hw(y), y, (SCW_Z0 + SCW_Z1) / 2, 0.6, 0.5, SCW_Z1 - SCW_Z0))
+            lining('sc_window_lining', (side * sc_hw(y), y, (SCW_Z0 + SCW_Z1) / 2), (side, 0, 0), 0.5,
+                   SCW_Z1 - SCW_Z0, SC_WALL, sill_out=0.04)
             # arch over each window
             arch = [(side * (sc_hw(y + 0.3 * math.cos(t)) + 0.05), y + 0.3 * math.cos(t), SCW_Z1 + SCW_ARCH * math.sin(t))
                     for t in [math.pi * k / 10 for k in range(11)]]
