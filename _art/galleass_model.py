@@ -902,30 +902,82 @@ def build_ends():
     vol = spiral((0, -26.6, 6.45), 0.45, 0.12, math.pi / 2, math.pi / 2 - 1.7 * math.pi, n=24)
     sweep('stern_volute', vol, [0.17 - 0.1 * i / 24 for i in range(25)], 'gilt', segs=8)
 
+def catmull(pts, n=40):
+    """Smooth curve through points (Catmull-Rom, ends clamped), returned as n+1 evenly parametrised points."""
+    P = [Vector(p) for p in pts]
+    P = [P[0]] + P + [P[-1]]
+    out = []
+    segs = len(pts) - 1
+    for k in range(n + 1):
+        u = k / n * segs; i = min(int(u), segs - 1); t = u - i
+        p0, p1, p2, p3 = P[i], P[i + 1], P[i + 2], P[i + 3]
+        out.append(0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t
+                          + (-p0 + 3 * p1 - 3 * p2 + p3) * t ** 3))
+    return out
+
 def build_beak():
-    """Carved beak (knee of the head) from the stem forward under the forecastle; the figurehead sits on its end."""
+    """Carved beak (knee of the head) from the stem forward under the forecastle; the figurehead sits on its end.
+    Knee and rail are smooth timbers; the painted cheek is recessed between them; a gilded trail board with a
+    volute runs along the middle of the cheek, clear of both timbers."""
     fy, fz = FIG_POS[1], FIG_POS[2]
-    # main knee: rises from the stem at the waterline, sweeping forward to the figurehead seat
-    knee = [(0, Y_STEM_WL - 0.15, -0.9), (0, Y_STEM_WL + 0.2, 0.1), (0, Y_STEM_WL + 0.75, 0.85),
-            (0, fy - 0.6, fz - 0.3), (0, fy + 0.1, fz - 0.02)]
-    sweep('beak_knee', knee, [0.32, 0.32, 0.3, 0.28, 0.26], 'trim', square=True)
-    # upper rail from the forecastle base down to the seat, and the cheek between them
-    rail = [(0, Y_STEM_WL + 0.35, FC_Z_BASE - 0.05), (0, Y_STEM_WL + 1.0, FC_Z_BASE - 0.1), (0, fy - 0.15, fz + 0.28)]
+    knee = catmull([(0, Y_STEM_WL - 0.15, -0.9), (0, Y_STEM_WL + 0.2, 0.1), (0, Y_STEM_WL + 0.75, 0.85),
+                    (0, fy - 0.6, fz - 0.3), (0, fy + 0.1, fz - 0.02)], 40)
+    knee_r = [0.32 - 0.06 * k / 40 for k in range(41)]
+    sweep('beak_knee', knee, knee_r, 'trim', square=True)
+    rail = catmull([(0, Y_STEM_WL + 0.35, FC_Z_BASE - 0.05), (0, Y_STEM_WL + 1.0, FC_Z_BASE - 0.1),
+                    (0, fy - 0.15, fz + 0.28)], 30)
     sweep('beak_rail', rail, 0.17, 'trim', square=True)
+    KNEE_HALF = 0.32 * 0.7071; RAIL_HALF = 0.17 * 0.7071; CHEEK_X = 0.1; TRAIL_R = 0.035
+    # cheek: outline = rail (stem -> seat) + knee back (seat -> stem), only the part above the knee start
+    kpart = [p for p in knee if p.y >= Y_STEM_WL + 0.2]
+    outline = [(p.y, p.z) for p in rail] + [(p.y, p.z) for p in reversed(kpart)]
     bm = bmesh.new()
-    prof = [(Y_STEM_WL + 0.2, 0.2), (Y_STEM_WL + 0.75, 0.85), (fy - 0.6, fz - 0.3), (fy - 0.15, fz + 0.25),
-            (Y_STEM_WL + 1.0, FC_Z_BASE - 0.12), (Y_STEM_WL + 0.35, FC_Z_BASE - 0.08)]
     for side in (-1, 1):
-        vs = [bm.verts.new((side * 0.14, y, z)) for y, z in prof]
+        vs = [bm.verts.new((side * CHEEK_X, y, z)) for y, z in outline]
         bm.faces.new(vs if side > 0 else list(reversed(vs)))
     obj_from_bm(bm, 'beak_cheek', 'paint')
-    # gilded trail boards along both sides of the cheek, and a seat block under the figurehead
+    # trail board: parallel to the knee at a fixed offset above it, as far as it stays clear of the rail
+    def nearest(p, curve):
+        return min((p - q).length for q in curve)
+    OFF = KNEE_HALF + TRAIL_R + 0.1
+    cand = []
+    for i in range(1, len(kpart) - 1):
+        d = (kpart[i + 1] - kpart[i - 1]).normalized()
+        up = Vector((0, -d.z, d.y))
+        if up.z < 0: up = -up
+        P = kpart[i] + up * OFF
+        if P.y < Y_STEM_WL + 0.55:                        # only on the cheek, clear of the bow (and room for the volute)
+            continue
+        if nearest(P, rail) - RAIL_HALF - TRAIL_R > 0.06:
+            cand.append(P)
+        elif cand:
+            break
+    run = catmull(cand[::max(len(cand) // 6, 1)] + [cand[-1]], 24)
+    print('beak trail: %d pts, min knee %.3f, min rail %.3f' % (len(run),
+          min(nearest(p, knee) - KNEE_HALF for p in run), min(nearest(p, rail) - RAIL_HALF for p in run)))
+    # volute at the lower (stem) end, wound on the side away from the knee, leaving tangentially into the board
+    d = (run[1] - run[0]).normalized()
+    rv = 0.13
+    perp = Vector((0, -d.z, d.y))
+    best = None
+    for sgn in (1, -1):                                   # sgn=1: centre on +perp, CCW; sgn=-1: centre on -perp, CW
+        c = run[0] + sgn * rv * perp
+        a_end = math.atan2((run[0] - c).z, (run[0] - c).y)
+        pts = []
+        for k in range(21):
+            r = 0.035 + (rv - 0.035) * k / 20
+            a = a_end - sgn * 2.5 * math.pi * (1 - k / 20)
+            pts.append(Vector((0, c.y + r * math.cos(a), c.z + r * math.sin(a))))
+        clear = min(min(nearest(q, knee) - KNEE_HALF, nearest(q, rail) - RAIL_HALF, q.y - Y_STEM_WL - 0.2) for q in pts)
+        if best is None or clear > best[0]:
+            best = (clear, pts)
+    vol = best[1]
+    print('beak volute clearance %.3f centre y %.2f z %.2f, run0 y %.2f z %.2f, run_end y %.2f z %.2f' % (best[0], vol[0].y, vol[0].z, run[0].y, run[0].z, run[-1].y, run[-1].z))
+    path = vol + run[1:]
+    radii = [0.015 + 0.02 * min(k / 20, 1) for k in range(len(path))]
     for side in (-1, 1):
-        x = side * 0.17
-        trail = [(x, Y_STEM_WL + 0.45, FC_Z_BASE - 0.35), (x, Y_STEM_WL + 1.0, 1.5), (x, fy - 0.55, fz + 0.02)]
-        sweep('beak_trail', trail, 0.05, 'gilt', segs=6)
-        sc_ = spiral((x, Y_STEM_WL + 0.7, 1.15), 0.24, 0.06, math.pi, math.pi + 1.5 * math.pi, n=14)
-        sweep('beak_trail_volute', sc_, 0.035, 'gilt', segs=6)
+        x = side * (CHEEK_X + 0.02)
+        sweep('beak_trail', [(x, p.y, p.z) for p in path], radii, 'gilt', segs=8)
 
 def build_rudder():
     """Sternpost rudder, separate object with its origin on the hinge (rotates in game)."""
