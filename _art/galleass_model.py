@@ -529,6 +529,22 @@ def build_sides():
         bm.faces.new(list(reversed(rings[0]))); bm.faces.new(rings[-1])
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
         obj_from_bm(bm, 'cove', 'paint', smooth=True)             # painted: part of the topside extension
+        # hull-planked fillet under the flare's foot: where the bow/stern taper, the flare starts outside the hull
+        # (it has to clear the hull's bulge above), and this strip closes the underside from the hull to it
+        bm = bmesh.new(); rings = []
+        for i in range(91):
+            y = (Y0 + 0.002) + (Y1 - Y0 - 0.004) * i / 90
+            hx = cove_start_x(y)
+            xa, za = hull_x_at(y, WING_Z0 - 0.06) - 0.03, WING_Z0 - 0.06
+            xb, zb = hx + 0.03, WING_Z0 + 0.005
+            rings.append([bm.verts.new((side * x, y, z)) for x, z in
+                          ((xa, za), (xb, zb), (xb, zb + 0.03), (xa, za + 0.03))])
+        for a_, b_ in zip(rings, rings[1:]):
+            for j in range(4):
+                bm.faces.new((a_[j], a_[(j + 1) % 4], b_[(j + 1) % 4], b_[j]))
+        bm.faces.new(list(reversed(rings[0]))); bm.faces.new(rings[-1])
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        obj_from_bm(bm, 'flare_fillet', 'hull', smooth=True)
         # outer wall with oar ports and gunports
         x0, x1 = sorted((side * W, side * (W - SIDE_T)))
         wall = box(f'outer_wall', x0, x1, Y0 + 0.05, Y1 - 0.05, WING_Z_FACE - 0.01, Z_BULWARK_TOP, 'paint')
