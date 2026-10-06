@@ -494,23 +494,28 @@ def build_outriggers():
             y = OAR_Y_AFT + (OAR_Y_FORE - OAR_Y_AFT) * (i + 0.5) / OARS_PER_SIDE
             lathe('thole', [(0.04, 0), (0.04, 0.22), (0.0, 0.25)], 'trim', at=(X, y + 0.14, Z_OUTR_RAIL), segs=6)
         # carved scroll brackets closing the frame at both ends (front view of the drawing)
-        for yend in (Y_OUTR_FORE, Y_OUTR_AFT):
-            # outer face of what stands there: forecastle side forward, sterncastle side aft
+        for yend, d in ((Y_OUTR_FORE, -1), (Y_OUTR_AFT, 1)):
+            yp = yend + d * 0.08                              # centre of the end post (rail/stringer end flush on it)
+            box('outrigger_end_post', X - 0.09, X + 0.09, *sorted((yend, yend + d * 0.16)), Z_OUTR_LOW - 0.05,
+                Z_OUTR_RAIL, 'trim')
+            # carved bracket: a small volute standing on the end post (kept within the rail's width), then an
+            # S curve up and inboard into the castle side
             z_end = Z_GUN_DECK + 0.45
             xw = side * (fc_radius(z_end) if yend > 0 else sc_hw(yend))
-            # volute wound around a centre above the rail end, leaving it at the bottom heading inboard
-            cz, n = Z_OUTR_RAIL + 0.28, 20
+            rv, n = 0.085, 18
+            cz = Z_OUTR_RAIL + rv
             pts = []
             for i in range(n + 1):
                 t = i / n
-                a = math.radians(450 - 540 * t)               # 1.5 turns, ends at -90 deg (bottom)
-                r = 0.07 + 0.21 * t
-                pts.append((X + side * r * math.cos(a), yend, cz + r * math.sin(a)))
-            for t in (0.25, 0.5, 0.75, 1.0):                   # S curve up and inboard to the castle side
+                a = math.radians(450 - 540 * t)               # 1.5 turns, ends at the bottom heading inboard
+                r = 0.03 + (rv - 0.03) * t
+                pts.append((X + side * r * math.cos(a), yp, cz + r * math.sin(a)))
+            for t in (0.25, 0.5, 0.75, 1.0):
                 x = X + (xw - X) * t
-                z = Z_OUTR_RAIL + 0.07 + (z_end - Z_OUTR_RAIL - 0.07) * (3 * t * t - 2 * t ** 3)
-                pts.append((x, yend, z))
-            sweep('outrigger_scroll', pts, [0.045 + 0.05 * min(i / n, 1) for i in range(len(pts))], 'trim', segs=8)
+                z = Z_OUTR_RAIL + 0.03 + (z_end - Z_OUTR_RAIL - 0.03) * (3 * t * t - 2 * t ** 3)
+                pts.append((x, yp, z))
+            radii = [0.02 + 0.02 * min(i / n, 1) for i in range(n + 1)] + [0.045, 0.05, 0.055, 0.06]
+            sweep('outrigger_scroll', pts, radii, 'trim', segs=8)
 
 # ================================================================= forecastle
 def horseshoe(r, n=48):
@@ -739,22 +744,32 @@ def build_stern_lantern():
         return o
     # bowl and drop knob (round), collar on the post
     lathe('lantern_bowl', [(0.0, zl - 0.18), (0.07, zl - 0.14), (0.05, zl - 0.06), (0.14, zl), (0.32, zl + 0.16),
-                           (0.46, zl + 0.34), (0.48, zl + 0.42)], 'gilt', at=(x0, y0, 0), segs=24)
+                           (0.46, zl + 0.34), (0.48, zl + 0.42)], 'gilt', at=(x0, y0, 0), segs=48)
     # glass panes (flat, hard-edged) and the gilded frame
     octa('lantern_glass', [(R, zg0), (R, zg1)], 'glass')
+    # corner ribs: flat boards squared to each octagon corner, running between the bands (ends hidden in them)
     for k in range(8):
         a = 2 * math.pi * k / 8 + rot
-        cx, cy = x0 + (R + 0.015) * math.cos(a), y0 + (R + 0.015) * math.sin(a)
-        sweep('lantern_rib', [(cx, cy, zg0 - 0.02), (cx, cy, zg1 + 0.02)], 0.03, 'gilt', square=True)
+        n = Vector((math.cos(a), math.sin(a), 0))
+        M = _basis(Vector((x0, y0, 0)) + n * R, n)
+        bm = bmesh.new()
+        bmesh.ops.create_cube(bm, size=1)
+        for v in bm.verts:
+            v.co = M @ Vector((0.025 if v.co.x > 0 else -0.025, 0.025 if v.co.y > 0 else -0.02,
+                               zg1 if v.co.z > 0 else zg0))
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        obj_from_bm(bm, 'lantern_rib', 'gilt')
+    RB = R + 0.05                                         # band circumradius: encloses the rib corners
     for zb in (zg0, zg0 + H * 0.62, zg1):                 # lower/upper rails and the transom bar
-        octa('lantern_band', [(R + 0.045, zb - 0.025), (R + 0.045, zb + 0.025)], 'gilt')
+        octa('lantern_band', [(RB, zb - 0.025), (RB, zb + 0.025)], 'gilt')
     # cornice and ogee dome
-    lathe('lantern_cornice', [(R + 0.04, zg1), (R + 0.1, zg1 + 0.05), (R + 0.1, zg1 + 0.11), (R + 0.02, zg1 + 0.14)],
-          'gilt', at=(x0, y0, 0), segs=24)
-    zd = zg1 + 0.14
-    lathe('lantern_dome', [(R + 0.02, zd), (R - 0.02, zd + 0.1), (0.3, zd + 0.24), (0.17, zd + 0.34), (0.09, zd + 0.44),
+    # cornice: its underside covers the top band's corners
+    lathe('lantern_cornice', [(RB + 0.02, zg1 + 0.02), (R + 0.12, zg1 + 0.07), (R + 0.12, zg1 + 0.12),
+                              (R + 0.03, zg1 + 0.15)], 'gilt', at=(x0, y0, 0), segs=48)
+    zd = zg1 + 0.15
+    lathe('lantern_dome', [(R + 0.03, zd), (R - 0.02, zd + 0.1), (0.3, zd + 0.24), (0.17, zd + 0.34), (0.09, zd + 0.44),
                            (0.06, zd + 0.52), (0.1, zd + 0.58), (0.11, zd + 0.64), (0.07, zd + 0.7), (0.035, zd + 0.74)],
-          'gilt', at=(x0, y0, 0), segs=24)
+          'gilt', at=(x0, y0, 0), segs=48)
     zc = zd + 0.72
     sweep('lantern_cross_v', [(x0, y0, zc), (x0, y0, zc + 0.6)], 0.03, 'gilt', square=True)
     sweep('lantern_cross_h', [(x0 - 0.16, y0, zc + 0.4), (x0 + 0.16, y0, zc + 0.4)], 0.03, 'gilt', square=True)
