@@ -721,12 +721,29 @@ def build_sterncastle():
             lining('sc_window_lining', (side * sc_hw(y), y, (SCW_Z0 + SCW_Z1) / 2), nrm, 0.5,
                    SCW_Z1 - SCW_Z0, SC_WALL, sill_out=0.04)
             # arch over each window
-            # arch springs from the outer edges of the window frame, in the plane of the (tapered) wall
-            tan = nrm.cross(Vector((0, 0, 1)))
-            base = Vector((side * sc_hw(y), y, SCW_Z1)) + nrm * 0.04
-            arch = [base + tan * (0.27 * math.cos(t)) + Vector((0, 0, SCW_ARCH * math.sin(t)))
-                    for t in [math.pi * k / 20 for k in range(21)]]
-            sweep('sc_window_arch', arch, 0.04, 'gilt', segs=10, cap=False)
+            # wooden arched hood on top of the frame: a flat half-elliptical board in the wall plane whose inner
+            # edge continues the jambs' inner faces, resting on the frame's top
+            M = _basis(Vector((side * sc_hw(y), y, SCW_Z1)), nrm)
+            ai, ao = 0.25 - 0.04, 0.25 + 0.05               # inner = jamb inner face, outer = beyond the frame
+            bi, bo = SCW_ARCH, SCW_ARCH + 0.09
+            bm = bmesh.new()
+            K = 24
+            rings = []
+            for k in range(K + 1):
+                t = math.pi * k / K
+                ring = []
+                for (a, b) in ((ai, bi), (ao, bo)):
+                    for yy in (-0.01, 0.04):
+                        ring.append(bm.verts.new(M @ Vector((a * math.cos(t), yy, b * math.sin(t)))))
+                rings.append(ring)                           # [inner-back, inner-front, outer-back, outer-front]
+            for r0, r1 in zip(rings, rings[1:]):
+                for i0, i1 in ((0, 1), (1, 3), (3, 2), (2, 0)):
+                    bm.faces.new((r0[i0], r0[i1], r1[i1], r1[i0]))
+            for r, flip in ((rings[0], False), (rings[-1], True)):
+                f = (r[0], r[2], r[3], r[1])
+                bm.faces.new(tuple(reversed(f)) if flip else f)
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+            obj_from_bm(bm, 'sc_window_hood', 'trim')
     subtract(body, cuts)
     # cabin floor (planked, level with the gun deck) and door frames
     tapered_block('sc_floor', SC_Y_AFT + SC_WALL - 0.01, SC_Y_FORE - SC_WALL + 0.01, FC_Z_BASE, Z_GUN_DECK,
