@@ -952,8 +952,26 @@ def build_ends():
     path = catmull(stern_top + pts[2:-2] + stem_top, 420)
     radii = [0.17 + 0.03 * smoothstep(23.0, 25.0, abs(p.y)) for p in path]
     sweep('backbone', path, radii, 'trim', square=True)
-    vol = spiral((0, -26.6, 6.45), 0.45, 0.12, math.pi / 2, math.pi / 2 - 1.7 * math.pi, n=24)
-    sweep('stern_volute', vol, [0.17 - 0.1 * i / 24 for i in range(25)], 'gilt', segs=8)
+    # carved scroll: continues the stern post seamlessly (same square section, same direction at the joint),
+    # curling forward over the top and tapering to its eye
+    p0 = Vector((path[0].y, path[0].z))
+    t0 = (p0 - Vector((path[1].y, path[1].z))).normalized()      # leaving the post upward/aft
+    R0, turns = 0.4, 1.6
+    best = None
+    for nrm in (Vector((-t0.y, t0.x)), Vector((t0.y, -t0.x))):   # curl centre on either side; pick the forward one
+        if best is None or nrm.x > best.x:
+            best = nrm
+    c = p0 + best * R0
+    a0_ = math.atan2((p0 - c).y, (p0 - c).x)
+    # direction of travel so the start tangent equals t0
+    sgn = 1 if Vector((-math.sin(a0_), math.cos(a0_))).dot(t0) > 0 else -1
+    vol = []
+    for k in range(41):
+        f = k / 40
+        a = a0_ + sgn * 2 * math.pi * turns * f
+        r = R0 - (R0 - 0.1) * f
+        vol.append((0.0, c.x + r * math.cos(a), c.y + r * math.sin(a)))
+    sweep('stern_volute', vol, [radii[0] - (radii[0] - 0.07) * k / 40 for k in range(41)], 'gilt', square=True)
 
 def catmull(pts, n=40):
     """Smooth curve through points (Catmull-Rom, ends clamped), returned as n+1 evenly parametrised points."""
