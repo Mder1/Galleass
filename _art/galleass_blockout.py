@@ -44,6 +44,11 @@ FC_EMB_SILL, FC_EMB_TOP, FC_EMB_W = 4.3, 5.0, 0.8
 SC_Y_AFT, SC_Y_FORE = -24.0, -14.5
 SC_Z_FLOOR, SC_Z_RAIL = 4.7, 5.9
 
+# closed rowing level: oar ports in the side planking (oars rest on the outrigger rail)
+OARS_PER_SIDE = 16
+OAR_Y_AFT, OAR_Y_FORE = -16.5, 17.5
+OARPORT_W, OARPORT_Z0, OARPORT_Z1 = 0.32, 1.25, 1.6
+
 # broadside gunports in the gun-deck bulwark
 GUNPORTS_PER_SIDE = 5
 GP_SILL, GP_TOP, GP_W = 2.85, 3.45, 0.6
@@ -199,12 +204,23 @@ def build_decks():
             mod = b.modifiers.new('port', 'BOOLEAN'); mod.object = cut; mod.operation = 'DIFFERENCE'
             mark = box(f'gunport_{"stbd" if side > 0 else "port"}_{i}', side * HB_DECK - 0.05, side * HB_DECK + 0.05,
                        y - 0.05, y + 0.05, GP_SILL + 0.05, GP_SILL + 0.15, M_MARK, 'markers')
-        # stanchions between hull top and gun deck: rowers stay visible from outside
-        n = 18
-        for i in range(n + 1):
-            y = -16.5 + 33.5 * i / n
-            box(f'stanchion', side * HB_TOP - 0.1, side * HB_TOP + 0.1, y - 0.1, y + 0.1,
-                Z_HULL_TOP, Z_GUN_DECK - 0.15, M_FRAME)
+        # closed rowing level: planking from the hull top to the gun deck, one oar port per bay
+        # (rowers stay hidden, as in the drawing). Each bay is built from 4 pieces around the port.
+        bays = OARS_PER_SIDE
+        for i in range(bays):
+            ya = OAR_Y_AFT + (OAR_Y_FORE - OAR_Y_AFT) * i / bays
+            yb = OAR_Y_AFT + (OAR_Y_FORE - OAR_Y_AFT) * (i + 1) / bays
+            yc = (ya + yb) / 2
+            w = half_beam(yc, True)
+            x0, x1 = sorted((side * w, side * (w - 0.15)))
+            z0, z1 = Z_HULL_TOP - 0.1, Z_GUN_DECK - 0.15
+            pa, pb = yc - OARPORT_W / 2, yc + OARPORT_W / 2
+            box('row_wall', x0, x1, ya, yb, z0, OARPORT_Z0, M_WORK)
+            box('row_wall', x0, x1, ya, yb, OARPORT_Z1, z1, M_WORK)
+            box('row_wall', x0, x1, ya, pa, OARPORT_Z0, OARPORT_Z1, M_WORK)
+            box('row_wall', x0, x1, pb, yb, OARPORT_Z0, OARPORT_Z1, M_WORK)
+            box(f'oarport_{"stbd" if side > 0 else "port"}_{i}', side * w - 0.05, side * w + 0.05,
+                yc - 0.05, yc + 0.05, OARPORT_Z0, OARPORT_Z0 + 0.1, M_MARK, 'markers')
 
 def build_outriggers():
     for side in (-1, 1):
