@@ -9,7 +9,7 @@ One FBX per Kit mesh, each with its LODs ('<name>.lodN' objects). Material names
 (create those materials in the Kit BEFORE importing - binding happens at import). The rudder is exported in its
 own frame (pivot = hinge); its placement in the prefab is printed.
 """
-import bpy, sys, os, math
+import bpy, bmesh, sys, os, math
 
 out = sys.argv[sys.argv.index('--') + 1]
 os.makedirs(out, exist_ok=True)
@@ -57,6 +57,38 @@ for name, pm in (('bo_composite_conv_galleass', 'wood_ship'), ('bo_galleass', 'w
     me = bpy.data.objects[name].data
     me.materials.clear(); me.materials.append(bpy.data.materials.get(pm) or bpy.data.materials.new(pm))
 
+# the Kit builds a 'bo_composite_*' shape from the plain 'bo_' bodies parented to it and ignores the composite
+# object's own geometry (a single mesh imports as an empty shape; tested 2026-10-07, test_composite_fbx.py): split the
+# convex pieces into children of an empty
+def split_composite(name, child_fmt):
+    src = bpy.data.objects[name]
+    bm = bmesh.new(); bm.from_mesh(src.data); bm.verts.ensure_lookup_table()
+    parts, seen = [], set()
+    for v in bm.verts:
+        if v.index in seen: continue
+        stack, comp = [v], set()
+        while stack:
+            x = stack.pop()
+            if x.index in comp: continue
+            comp.add(x.index); stack.extend(e.other_vert(x) for e in x.link_edges)
+        seen |= comp; parts.append(comp)
+    mats = list(src.data.materials)
+    src.name = name + '_src'
+    root = bpy.data.objects.new(name, None); root.matrix_world = src.matrix_world
+    bpy.context.scene.collection.objects.link(root)
+    out = [root]
+    for i, comp in enumerate(parts):
+        b2 = bm.copy()
+        bmesh.ops.delete(b2, geom=[v for v in b2.verts if v.index not in comp], context='VERTS')
+        me = bpy.data.meshes.new(child_fmt % i); b2.to_mesh(me); b2.free()
+        for m in mats: me.materials.append(m)
+        o = bpy.data.objects.new(child_fmt % i, me); o.parent = root
+        bpy.context.scene.collection.objects.link(o); out.append(o)
+    bm.free()
+    return out
+
+GROUPS['bo_composite_conv_galleass'] = split_composite('bo_composite_conv_galleass', 'bo_galleass_conv_part%d')
+
 # the painted planking is plain wood under the faction overlay: same material as the hull planking
 for n in ['galleass_paint'] + [f'galleass_paint_lod{i}' for i in (1, 2, 3)]:
     if n in bpy.data.objects:
@@ -78,12 +110,12 @@ for fbx, group in GROUPS.items():
         o.select_set(True)
     bpy.context.view_layer.objects.active = group[0]
     path = os.path.join(out, fbx + '.fbx')
-    bpy.ops.export_scene.fbx(filepath=path, use_selection=True, object_types={'MESH'}, use_mesh_modifiers=True,
+    bpy.ops.export_scene.fbx(filepath=path, use_selection=True, object_types={'MESH', 'EMPTY'}, use_mesh_modifiers=True,
                              mesh_smooth_type='FACE', use_tspace=False, axis_forward='Y', axis_up='Z',
                              apply_unit_scale=True, global_scale=1.0, bake_anim=False, path_mode='STRIP',
                              add_leaf_bones=False)
-    tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in group if '_lod' not in o.name)
-    mats = sorted({m.name for o in group for m in o.data.materials if m})
+    tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in group if o.type == 'MESH' and '_lod' not in o.name)
+    mats = sorted({m.name for o in group if o.type == 'MESH' for m in o.data.materials if m})
     report.append('%-30s objects %2d  LOD0 tris %6d  materials %s' % (fbx + '.fbx', len(group), tris, mats))
 
 for o in rud:
