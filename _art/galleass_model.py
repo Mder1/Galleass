@@ -233,7 +233,8 @@ def flat_ribbon(name, path, width, d0, d1, fn, role):
     n = len(path)
     for i, (u, v) in enumerate(path):
         a = Vector(path[max(i - 1, 0)]); b = Vector(path[min(i + 1, n - 1)])
-        t = (b - a).normalized(); nrm = Vector((-t.y, t.x)) * (width / 2)
+        wi = width[i] if isinstance(width, (list, tuple)) else width
+        t = (b - a).normalized(); nrm = Vector((-t.y, t.x)) * (wi / 2)
         pts = [(u - nrm.x, v - nrm.y), (u + nrm.x, v + nrm.y)]
         rings.append([bm.verts.new(fn(pu, pv, dd)) for (pu, pv), dd in
                       ((pts[0], d0), (pts[1], d0), (pts[1], d1), (pts[0], d1))])
@@ -1042,23 +1043,36 @@ def build_stern_balcony():
         toward = -1: the band lies at x < x_end... i.e. the door is at +x when toward == -1."""
         dirx = -toward                                     # direction from the band end toward the door
         zc, wdt = (z0 + z1) / 2, z1 - z0
-        R, Rv, drop = 0.1, 0.1, 0.31
+        sc_ = max(wdt / 0.1, 0.75)                         # narrower band -> slightly smaller curl
+        R, Rv, r_end, turns = 0.1 * sc_, 0.17 * sc_, 0.05 * sc_, 1.15
         path = [(x_end - dirx * 0.05, zc), (x_end, zc)]
+        widths = [wdt, wdt]
         cx, cz = x_end, zc - R                             # quarter arc turning down toward the door
         for k in range(1, 13):
             a = math.pi / 2 * (1 - k / 12)
-            path.append((cx + dirx * R * math.cos(a), cz + R * math.sin(a)))
+            path.append((cx + dirx * R * math.cos(a), cz + R * math.sin(a))); widths.append(wdt)
         xs = x_end + dirx * R
-        vb = zc - drop
-        path.append((xs, vb))
-        vcx = xs - dirx * Rv                               # volute curls away from the door
-        for k in range(1, 61):
-            f = k / 60
-            a = 1.9 * math.pi * f
-            r = Rv - (Rv - (wdt * 0.55 + 0.01)) * f        # eye stays open (no self-overlap of the band)
+        vb = zc - 0.21 * sc_                               # volute stays clear of the cap rail below
+        path.append((xs, vb)); widths.append(wdt)
+        vcx = xs - dirx * Rv                               # volute curls away from the door, OPEN: the coil
+        n0 = len(path)                                     # shrinks faster than band width + gap per turn
+        for k in range(1, 81):
+            f = k / 80
+            a = 2 * math.pi * turns * f
+            r = Rv - (Rv - r_end) * f
             path.append((vcx + dirx * r * math.cos(a), vb - r * math.sin(a)))
+            widths.append(wdt * (1 - 0.6 * f))             # carved scroll thins toward its eye
+        # check: no part of the curl comes within 2 cm of another part of itself (excluding neighbours)
+        worst = 9
+        for i in range(n0, len(path)):
+            for j in range(0, i - 25):
+                dd = math.dist(path[i], path[j]) - (widths[i] + widths[j]) / 2
+                worst = min(worst, dd)
+        cap0 = BANDS['cap_rail'][1]
+        low = min(v - w / 2 for (u, v), w in zip(path, widths))
+        print(f'door curl {name}: self clearance {worst:.3f}, lowest {low:.3f} (cap rail top {cap0:.2f})')
         fn = lambda u, v, dd: (u, SC_Y_AFT - dd, v)
-        flat_ribbon(f'sc_{name}_curl', path, wdt, o - t, o, fn, 'gilt')
+        flat_ribbon(f'sc_{name}_curl', path, widths, o - t, o, fn, 'gilt')
     # bands run right up to the door frame (end flush with the opening, against the lining)
     door_f = [(-9, SC_DOOR_X - SC_DOOR_W / 2), (SC_DOOR_X + SC_DOOR_W / 2, 9)]
     door_a = [(-9, -SC_DOOR_W / 2), (SC_DOOR_W / 2, 9)]
