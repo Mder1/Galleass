@@ -901,7 +901,8 @@ def build_sterncastle():
                   lambda y: sc_hw(y) - SC_WALL + 0.01, 'deck', n=16)
     # door linings (posts, lintel, low threshold) inside the openings, like the windows: no coplanar faces
     for dx, dy, out in ((SC_DOOR_X, SC_Y_FORE, 1), (0.0, SC_Y_AFT, -1)):
-        lining('sc_door_lining', (dx, dy, Z_GUN_DECK + 1.0), (0, out, 0), SC_DOOR_W, 2.0, SC_WALL, t=0.07)
+        # frame stands as proud as the bands (8 cm), so the bands butt into it
+        lining('sc_door_lining', (dx, dy, Z_GUN_DECK + 1.0), (0, out, 0), SC_DOOR_W, 2.0, SC_WALL, t=0.07, lip=0.08)
     # a little furniture: table with benches, a chest against the forward bulkhead
     ty = (SC_Y_AFT + SC_Y_FORE) / 2 - 1.0
     box('cabin_table_top', -0.55, 0.55, ty - 1.0, ty + 1.0, Z_GUN_DECK + 0.72, Z_GUN_DECK + 0.78, 'trim')
@@ -1029,8 +1030,9 @@ def build_stern_balcony():
             for xa, xb in segs:
                 xa, xb = max(xa, -w), min(xb, w)
                 box(f'sc_{name}_face', xa, xb, *sorted((face_y + sgn * o, face_y + sgn * (o - t))), z0, z1, role)
-    door_f = [(-9, SC_DOOR_X - SC_DOOR_W / 2 - 0.12), (SC_DOOR_X + SC_DOOR_W / 2 + 0.12, 9)]
-    door_a = [(-9, -SC_DOOR_W / 2 - 0.12), (SC_DOOR_W / 2 + 0.12, 9)]
+    # bands run right up to the door frame (end flush with the opening, against the lining)
+    door_f = [(-9, SC_DOOR_X - SC_DOOR_W / 2), (SC_DOOR_X + SC_DOOR_W / 2, 9)]
+    door_a = [(-9, -SC_DOOR_W / 2), (SC_DOOR_W / 2, 9)]
     stairs_f = [(-9, -SC_STAIR_X - 0.55), (-SC_STAIR_X + 0.55, SC_STAIR_X - 0.55), (SC_STAIR_X + 0.55, 9)]
     for name, (z0, z1, out, thick, role) in BANDS.items():
         # rub rail: the balcony plate covers the stern face at its height
