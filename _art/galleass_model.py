@@ -503,17 +503,10 @@ def build_forecastle():
         gx, gy = fc_point(deg, r_in, back=0.6)
         box(f'fc_gun_{deg:+d}', gx - 0.1, gx + 0.1, gy - 0.1, gy + 0.1, FC_Z_PLATFORM, FC_Z_PLATFORM + 0.3, 'dark', 'markers')
     subtract(par, cuts)
-    # mouldings: band at the platform level and cap of the parapet, top rail on posts
+    # mouldings: band at the platform level and cap of the parapet (no railing on top, user 2026-10-06)
     horseshoe_wall('fc_band_low', FC_Z_BASE - 0.12, FC_Z_BASE + 0.05, -0.08, 'trim')
     horseshoe_wall('fc_band_mid', FC_Z_PLATFORM - 0.1, FC_Z_PLATFORM + 0.06, -0.06, 'gilt')
     horseshoe_wall('fc_cap', FC_Z_PARAPET, FC_Z_PARAPET + 0.1, 0.45, 'trim')
-    pts = horseshoe(fc_radius(FC_Z_RAIL) - 0.2, n=30)
-    for x, y in pts[1:-1]:
-        lathe('fc_rail_baluster', [(0.06, 0), (0.09, 0.15), (0.05, 0.35), (0.08, 0.55), (0.06, 0.7)], 'trim',
-              at=(x, y, FC_Z_PARAPET + 0.1), segs=6)
-    for i in range(len(pts) - 1):
-        (xa, ya), (xb, yb) = pts[i], pts[i + 1]
-        sweep('fc_top_rail', [(xa, ya, FC_Z_RAIL - 0.05), (xb, yb, FC_Z_RAIL - 0.05)], 0.06, 'trim', square=True)
     # rail along the open back edge of the platform, gaps where the stairs arrive
     r = fc_radius(FC_Z_PLATFORM) - 0.35
     yb = FC_Y_BACK + 0.05
