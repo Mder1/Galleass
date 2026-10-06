@@ -34,6 +34,12 @@ for name, pm in (('bo_composite_conv_galleass', 'wood_ship'), ('bo_galleass', 'w
     me = bpy.data.objects[name].data
     me.materials.clear(); me.materials.append(bpy.data.materials.get(pm) or bpy.data.materials.new(pm))
 
+# the painted planking is plain wood under the faction overlay: same material as the hull planking
+for n in ['galleass_paint'] + [f'galleass_paint.lod{i}' for i in (1, 2, 3)]:
+    if n in bpy.data.objects:
+        me = bpy.data.objects[n].data
+        me.materials.clear(); me.materials.append(bpy.data.materials['galleass_hull'])
+
 # rudder: export in its own frame (mesh data is already local to the hinge)
 rud = [o for o in GROUPS['galleass_rudder']]
 rud_frames = {o.name: o.matrix_world.copy() for o in rud}
