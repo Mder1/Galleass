@@ -105,6 +105,7 @@ ROLES = {                                 # role -> blockout colour (real materi
     'iron':  (0.20, 0.20, 0.22),
     'dark':  (0.03, 0.03, 0.03),          # port/window interiors
     'glass': (0.95, 0.80, 0.45),          # lantern panes (emissive in game)
+    'faction': (0.45, 0.15, 0.40),        # faction-colour paint overlay (preview: an Empire-like purple)
 }
 
 # ================================================================= scene helpers
@@ -1502,6 +1503,20 @@ if interior:
     mi.set_sharp_from_angle(angle=math.radians(65))
     coll('final').objects.link(bpy.data.objects.new('galleass_interior', mi))
 coll('parts').hide_render = True; coll('parts').hide_viewport = True
+# faction paint: like vanilla's pattern stripes, a thin overlay 3 mm outside the painted planking. Its mesh gets the
+# 'faction_color' tag in the Kit, so the game sets mesh.Color to the owner's colours; the material (alpha-blended,
+# modulate, like ship_liburna_pattern_a) multiplies the wood underneath. V samples the brushed strip of that texture.
+src = bpy.data.objects['galleass_paint'].data
+fm = src.copy(); fm.name = 'galleass_faction_paint'
+fm.materials.clear(); fm.materials.append(MATS['faction'])
+for v in fm.vertices:
+    v.co = v.co + v.normal * 0.003
+uvl = fm.uv_layers[0]
+for li, loop in enumerate(fm.loops):
+    z = fm.vertices[loop.vertex_index].co.z
+    u = uvl.data[li].uv[0]
+    uvl.data[li].uv = (u, 0.84 + 0.12 * min(max((z + 0.6) / 7.0, 0.0), 1.0))
+coll('final').objects.link(bpy.data.objects.new('galleass_faction_paint', fm))
 tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in coll('final').objects)
 print('triangles (final):', tris)
 
@@ -1625,7 +1640,7 @@ look('chk_fc_port.png', (2.5, 28.5, 3.0), (1.6, 25.2, 2.95), lens=35)
 look('chk_sc_window.png', (6.5, -19.0, 5.0), (4.3, -20.5, 4.8), lens=35)
 look('chk_side_wall_fore.png', (9.5, 13.0, 2.9), (4.2, 17.5, 1.8), lens=28)
 # textured preview: vanilla textures (paint/gilt/trim are tinted previews, real tints are set in the Kit)
-TEX = {'hull': 'ship_meditheavy_plank_a_d.png', 'paint': 'preview_paint.png', 'trim': 'preview_trim.png',
+TEX = {'hull': 'ship_meditheavy_plank_a_d.png', 'paint': 'ship_meditheavy_plank_a_d.png', 'faction': 'preview_faction.png', 'trim': 'preview_trim.png',
        'deck': 'ship_meditheavy_deck_a_d.png', 'gilt': 'preview_gilt.png', 'iron': 'ram_adapter_iron_d.png'}
 for role, fn in TEX.items():
     m = MATS[role]; m.use_nodes = True
