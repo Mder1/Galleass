@@ -906,8 +906,8 @@ def build_stern_balcony():
             x = side * (sc_hw(y) - POOP_INSET)
             if i % 6 == 0:                              # big posts with gilded finials
                 box('sc_post', x - 0.09, x + 0.09, y - 0.09, y + 0.09, zb, SC_Z_RAIL + 0.1, 'trim')
-                lathe('sc_finial', [(0.09, 0), (0.06, 0.04), (0.11, 0.12), (0.08, 0.22), (0.0, 0.3)], 'gilt',
-                      at=(x, y, SC_Z_RAIL + 0.1), segs=8)
+                box('sc_post_cap', x - 0.105, x + 0.105, y - 0.105, y + 0.105, SC_Z_RAIL + 0.1, SC_Z_RAIL + 0.13, 'trim')
+                lathe('sc_finial', FINIAL, 'gilt', at=(x, y, SC_Z_RAIL + 0.13), segs=16)
             else:
                 lathe('sc_baluster', prof, 'trim', at=(x, y, zb), segs=10)
         rail = [(side * (sc_hw(SC_Y_AFT + (SC_Y_FORE - SC_Y_AFT) * k / 16) - POOP_INSET),
@@ -995,6 +995,9 @@ def build_ends():
         vol.append((0.0, c.x + r * math.cos(a), c.y + r * math.sin(a)))
     sweep('stern_volute', vol, [radii[0] - (radii[0] - 0.07) * k / 40 for k in range(41)], 'gilt', square=True)
 
+# turned acorn finial (r, z): collar, neck with a bead, egg-shaped body, fine tip (foot stays inside the post)
+FINIAL = None   # set after smooth_profile is defined
+
 # classical turned baluster (r, z) over a 0.9 height: base block, swelling belly, neck, collar, top block
 BALUSTER = [(0.058, 0.0), (0.07, 0.03), (0.07, 0.07), (0.05, 0.11), (0.055, 0.17), (0.072, 0.27), (0.083, 0.38),
             (0.082, 0.47), (0.068, 0.57), (0.05, 0.66), (0.042, 0.73), (0.05, 0.78), (0.066, 0.82), (0.066, 0.86),
@@ -1003,6 +1006,11 @@ BALUSTER = [(0.058, 0.0), (0.07, 0.03), (0.07, 0.07), (0.05, 0.11), (0.055, 0.17
 def smooth_profile(prof, n=22):
     """Turned profile (r, z) through a smooth curve: rounder silhouettes for lathe parts."""
     return [(v.x, v.y) for v in catmull([(r, z, 0) for r, z in prof], n)]
+
+def _finial():
+    return smooth_profile([(0.075, 0.0), (0.078, 0.02), (0.05, 0.045), (0.045, 0.06), (0.062, 0.075), (0.045, 0.095),
+                           (0.05, 0.12), (0.078, 0.16), (0.092, 0.21), (0.088, 0.26), (0.068, 0.31), (0.038, 0.35),
+                           (0.016, 0.38), (0.0, 0.395)], 26)
 
 def catmull(pts, n=40):
     """Smooth curve through points (Catmull-Rom, ends clamped), returned as n+1 evenly parametrised points."""
@@ -1169,6 +1177,7 @@ def build_markers():
         obj_from_bm(bm, f'mast_{name}', 'dark', 'markers', smooth=True)
 
 # ================================================================= build
+FINIAL = _finial()
 build_hull()
 wale('wale_low', lambda y: 0.35, -21.0, 21.0, height=0.16)
 wale('wale_top', lambda y: z_top(y) - 0.05, -19.5, 19.5, height=0.2)
