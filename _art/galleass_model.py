@@ -589,7 +589,9 @@ def build_sides():
     for name, (z0, z1, out, thick, role) in STRAKES.items():
         zc, hh = (z0 + z1) / 2, (z1 - z0) / 2
         reach = 4.4 if name == 'strake_low' else 3.2       # how far beyond the box end the strake runs
-        for yend, d, z_top_end in ((Y1, 1, BANDS['rub_rail'][0] + 0.02), (Y0, -1, BALC_Z_BOT - 0.03)):
+        rr0, rr1 = BANDS['rub_rail'][0], BANDS['rub_rail'][1]
+        z_join = (rr0 + rr1) / 2 + hh                       # strake centre ends inside the rub rail: they join
+        for yend, d, z_top_end in ((Y1, 1, z_join), (Y0, -1, z_join)):
             pts = []
             for k in range(41):
                 t = k / 40
