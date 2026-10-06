@@ -199,6 +199,33 @@ def wall_normal(hw_fn, y, side):
     d = (hw_fn(y + 0.01) - hw_fn(y - 0.01)) / 0.02
     return Vector((side, -d, 0)).normalized()
 
+def flat_annulus(name, fn, ry_i, rz_i, ry_o, rz_o, d0, d1, role, K=64, collection='parts'):
+    """Flat elliptical ring band (like a moulding bent into a ring). fn(u, v, d) maps the wall's local coords
+    (u along the wall, v up, d out of the wall) to a world point; the band spans d0..d1 out of the wall."""
+    bm = bmesh.new(); rings = []
+    for k in range(K):
+        t = 2 * math.pi * k / K
+        c, s_ = math.cos(t), math.sin(t)
+        rings.append([bm.verts.new(fn(ry * c, rz * s_, d)) for (ry, rz, d) in
+                      ((ry_i, rz_i, d0), (ry_o, rz_o, d0), (ry_o, rz_o, d1), (ry_i, rz_i, d1))])
+    for k in range(K):
+        a, b = rings[k], rings[(k + 1) % K]
+        for j in range(4):
+            bm.faces.new((a[j], a[(j + 1) % 4], b[(j + 1) % 4], b[j]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return obj_from_bm(bm, name, role, collection)
+
+def flat_disc(name, fn, ry, rz, d0, d1, K=64):
+    """Solid elliptical prism (cutter) in a wall's local frame, see flat_annulus."""
+    bm = bmesh.new()
+    lo = [bm.verts.new(fn(ry * math.cos(2 * math.pi * k / K), rz * math.sin(2 * math.pi * k / K), d0)) for k in range(K)]
+    hi = [bm.verts.new(fn(ry * math.cos(2 * math.pi * k / K), rz * math.sin(2 * math.pi * k / K), d1)) for k in range(K)]
+    bm.faces.new(lo); bm.faces.new(list(reversed(hi)))
+    for k in range(K):
+        bm.faces.new((lo[k], hi[k], hi[(k + 1) % K], lo[(k + 1) % K]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return obj_from_bm(bm, name, 'dark', 'cutters')
+
 def subtract(target, cutters):
     for i, c in enumerate(cutters):
         m = target.modifiers.new(f'cut{i}', 'BOOLEAN'); m.object = c; m.operation = 'DIFFERENCE'
@@ -497,9 +524,6 @@ def build_sides():
         for i in range(GUNPORTS_PER_SIDE):
             y = gunport_y(i); zc = (GP_SILL + GP_TOP) / 2
             cuts.append(cutter_box(side * W, y, zc, 0.8, GP_W, GP_TOP - GP_SILL))
-            ring = [(side * (W + 0.06), y + WREATH_RY * math.cos(2 * math.pi * k / 48),
-                     zc + WREATH_RZ * math.sin(2 * math.pi * k / 48)) for k in range(49)]
-            sweep('gunport_wreath', ring, 0.05, 'gilt', segs=8, closed=True)
             lining('gunport_lining', (side * W, y, zc), (side, 0, 0), GP_W, GP_TOP - GP_SILL, SIDE_T, sill_out=0.05)
         subtract(wall, cuts)
         # end walls against the castles, lower edge on the cove
@@ -539,13 +563,21 @@ def build_sides():
     # bands along the outer wall, wrapped round the end walls to the castles
     for name, (z0, z1, out, thick, role) in {**BANDS, **STRAKES}.items():
         segs = [(Y0 - out, Y1 + out)]
-        if name == 'moulding':                                     # breaks round the gunport wreaths
-            gap = WREATH_RY + 0.12
-            edges = [Y0 - out] + [e for i in range(GUNPORTS_PER_SIDE) for e in (gunport_y(i) - gap, gunport_y(i) + gap)] + [Y1 + out]
-            segs = list(zip(edges[::2], edges[1::2]))
         for side in (-1, 1):
             for a, b in segs:
-                box(name, *sorted((side * (W + out), side * (W + out - thick))), a, b, z0, z1, role)
+                m = box(name, *sorted((side * (W + out), side * (W + out - thick))), a, b, z0, z1, role)
+                if name != 'moulding':
+                    continue
+                # the gilded moulding and the gunport rings are ONE flat band: rings unioned in, ring openings cut
+                hw = (z1 - z0) / 2
+                for i in range(GUNPORTS_PER_SIDE):
+                    gy, gz = gunport_y(i), (GP_SILL + GP_TOP) / 2
+                    fn = lambda u, v, dd, gy=gy, gz=gz: (side * (W + dd), gy + u, gz + v)
+                    ring = flat_annulus('gunport_ring', fn, WREATH_RY - hw, WREATH_RZ - hw, WREATH_RY + hw, WREATH_RZ + hw,
+                                        out - thick, out, role, collection='cutters')
+                    md = m.modifiers.new(f'ring{i}', 'BOOLEAN'); md.object = ring; md.operation = 'UNION'; md.solver = 'EXACT'
+                    hole = flat_disc('ring_hole', fn, WREATH_RY - hw, WREATH_RZ - hw, out - thick - 0.05, out + 0.05)
+                    md = m.modifiers.new(f'hole{i}', 'BOOLEAN'); md.object = hole; md.operation = 'DIFFERENCE'; md.solver = 'EXACT'
             for yend, d in ((Y1, 1), (Y0, -1)):                    # across the end walls (outer face at yend)
                 xi = min(box_inner_x(yend) + 0.1, end_surface_x(yend, (z0 + z1) / 2) + 0.05)
                 box(name + '_end', *sorted((side * xi, side * (W + out - thick))),
@@ -666,12 +698,9 @@ def build_forecastle():
         a = math.radians(90 - deg)
         cuts.append(cutter_cyl(x, y, 2.95, 0.22, 1.2, (math.pi / 2, 0, a - math.pi / 2)))
         round_lining('fc_port_lining', (x, y, 2.95), (math.cos(a), math.sin(a), 0), 0.22, 0.35)
-        R = fc_radius(2.95) + 0.07
-        ring = []
-        for t in [2 * math.pi * k / 48 for k in range(49)]:
-            b = a + 0.32 * math.cos(t) / R               # walk along the curved wall
-            ring.append((R * math.cos(b), FC_CY + R * math.sin(b), 2.95 + 0.32 * math.sin(t)))
-        sweep('fc_port_wreath', ring, 0.05, 'gilt', segs=8, closed=True)
+        R = fc_radius(2.95)
+        fn = lambda u, v, dd, a=a: ((R + dd) * math.cos(a + u / R), FC_CY + (R + dd) * math.sin(a + u / R), 2.95 + v)
+        flat_annulus('fc_port_ring', fn, 0.29, 0.29, 0.35, 0.35, -0.01, 0.05, 'gilt')
     subtract(lower, cuts)
     horseshoe_slab('fc_floor_low', fc_radius(FC_Z_BASE) - 0.35, FC_Z_BASE + 0.01, Z_GUN_DECK, 'deck')   # inside the wall, 1 cm up: no shared plane
     horseshoe_slab('fc_platform', fc_radius(FC_Z_PLATFORM) - 0.05, FC_Z_PLATFORM - 0.15, FC_Z_PLATFORM, 'deck')
