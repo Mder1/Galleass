@@ -574,7 +574,7 @@ def stairs(name, x0, x1, y_bottom, z_bottom, y_top, z_top, role='trim', step=0.2
         box(f'{name}_tread', x0, x1, *sorted((y - abs(dy) * 0.55, y + abs(dy) * 0.55)), z - 0.06, z, 'deck')
     for x in (x0, x1):
         sweep(f'{name}_stringer', [(x, y_bottom, z_bottom + 0.05), (x, y_top, z_top - 0.05)], 0.08, role, square=True)
-        sweep(f'{name}_handrail', [(x, y_bottom, z_bottom + 0.95), (x, y_top, z_top + 0.95)], 0.04, role, segs=6)
+        sweep(f'{name}_handrail', [(x, y_bottom, z_bottom + 0.95), (x, y_top, z_top + 0.95)], 0.04, role, segs=12)
         for t in (0.0, 0.5, 1.0):
             y = y_bottom + (y_top - y_bottom) * t; z = z_bottom + (z_top - z_bottom) * t
             box(f'{name}_post', x - 0.04, x + 0.04, y - 0.04, y + 0.04, z, z + 0.95, role)
@@ -696,8 +696,8 @@ def build_sterncastle():
                    SCW_Z1 - SCW_Z0, SC_WALL, sill_out=0.04)
             # arch over each window
             arch = [(side * (sc_hw(y + 0.3 * math.cos(t)) + 0.05), y + 0.3 * math.cos(t), SCW_Z1 + SCW_ARCH * math.sin(t))
-                    for t in [math.pi * k / 10 for k in range(11)]]
-            sweep('sc_window_arch', arch, 0.04, 'gilt', segs=6, cap=False)
+                    for t in [math.pi * k / 20 for k in range(21)]]
+            sweep('sc_window_arch', arch, 0.04, 'gilt', segs=10, cap=False)
     subtract(body, cuts)
     # cabin floor (planked, level with the gun deck) and door frames
     tapered_block('sc_floor', SC_Y_AFT + SC_WALL - 0.01, SC_Y_FORE - SC_WALL + 0.01, FC_Z_BASE, Z_GUN_DECK,
@@ -812,7 +812,7 @@ def build_stern_balcony():
         rail = pts + [tip] if sgn < 0 else [tip] + pts
         sweep('balcony_rail', [(x, y, zr - 0.04) for x, y in rail], 0.06, 'trim', square=True)
         for x, y in pts[1:]:
-            lathe('balcony_baluster', prof, 'trim', at=(x, y, zb), segs=6)
+            lathe('balcony_baluster', prof, 'trim', at=(x, y, zb), segs=10)
     for side in (-1, 1):                                  # square end posts set against the stern wall
         x, y = edge_in(t_wall if side < 0 else math.pi - t_wall)
         box('balcony_end_post', x - 0.08, x + 0.08, SC_Y_AFT - 0.16, SC_Y_AFT, zb, zr + 0.06, 'trim')
@@ -831,7 +831,7 @@ def build_stern_balcony():
         for face_y, sgn, segs in ((SC_Y_FORE, 1, fore), (SC_Y_AFT, -1, aft)):
             if not segs:
                 continue
-            w = sc_hw(face_y) + o
+            w = sc_hw(face_y) + o - t                     # stop at the side strip's inner face (no overlap)
             for xa, xb in segs:
                 xa, xb = max(xa, -w), min(xb, w)
                 box(f'sc_{name}_face', xa, xb, *sorted((face_y + sgn * o, face_y + sgn * (o - t))), z0, z1, role)
@@ -850,7 +850,8 @@ def build_stern_balcony():
     wrap('window_band', SCW_Z0 - 0.2, SCW_Z0 - 0.1, 0.06 + sc_out, 0.12, 'gilt', fore=door_f, aft=door_a)
     wrap('deck_line', SC_Z_FLOOR - 0.12, SC_Z_FLOOR, 0.06 + sc_out, 0.12, 'trim', fore=stairs_f, aft=[(-9, 9)])
     # poop deck and turned balustrade
-    tapered_block('poop_deck', SC_Y_AFT - 0.3, SC_Y_FORE + 0.25, SC_Z_FLOOR, SC_Z_FLOOR + 0.12, sc_hw, 'deck', grow=0.12)
+    # even overhang: 2 cm past the deck-line band at the sides and front; longer aft, where the lantern stands
+    tapered_block('poop_deck', SC_Y_AFT - 0.3, SC_Y_FORE + 0.08, SC_Z_FLOOR, SC_Z_FLOOR + 0.12, sc_hw, 'deck', grow=0.08, n=48)
     baluster = [(0.05, 0), (0.07, 0.08), (0.045, 0.25), (0.085, 0.5), (0.05, 0.75), (0.07, 0.85), (0.05, 0.9)]
     zb = SC_Z_FLOOR + 0.12
     hb = SC_Z_RAIL - zb - 0.1
@@ -865,14 +866,14 @@ def build_stern_balcony():
                 lathe('sc_finial', [(0.09, 0), (0.06, 0.04), (0.11, 0.12), (0.08, 0.22), (0.0, 0.3)], 'gilt',
                       at=(x, y, SC_Z_RAIL + 0.1), segs=8)
             else:
-                lathe('sc_baluster', prof, 'trim', at=(x, y, zb), segs=6)
+                lathe('sc_baluster', prof, 'trim', at=(x, y, zb), segs=10)
         rail = [(side * (sc_hw(SC_Y_AFT + (SC_Y_FORE - SC_Y_AFT) * k / 16) + 0.02),
                  SC_Y_AFT + (SC_Y_FORE - SC_Y_AFT) * k / 16, SC_Z_RAIL - 0.05) for k in range(17)]
         sweep('sc_rail', rail, 0.07, 'trim', square=True)
     w = sc_hw(SC_Y_AFT)
     for i in range(int(2 * w / 0.32) + 1):
         x = -w + i * 0.32
-        lathe('sc_baluster', prof, 'trim', at=(x, SC_Y_AFT, zb), segs=6)
+        lathe('sc_baluster', prof, 'trim', at=(x, SC_Y_AFT, zb), segs=10)
     sweep('sc_rail_aft', [(-w, SC_Y_AFT, SC_Z_RAIL - 0.05), (w, SC_Y_AFT, SC_Z_RAIL - 0.05)], 0.07, 'trim', square=True)
     # forward rail of the poop with a gap for the stairs
     wf = sc_hw(SC_Y_FORE) + 0.02
@@ -880,7 +881,7 @@ def build_stern_balcony():
         sweep('sc_rail_fore', [(x0, SC_Y_FORE, SC_Z_RAIL - 0.05), (x1, SC_Y_FORE, SC_Z_RAIL - 0.05)], 0.07, 'trim', square=True)
         n = max(int((x1 - x0) / 0.32), 1)
         for k in range(1, n):
-            lathe('sc_baluster', prof, 'trim', at=(x0 + (x1 - x0) * k / n, SC_Y_FORE, zb), segs=6)
+            lathe('sc_baluster', prof, 'trim', at=(x0 + (x1 - x0) * k / n, SC_Y_FORE, zb), segs=10)
         for x in (x0, x1):
             box('sc_post', x - 0.09, x + 0.09, SC_Y_FORE - 0.09, SC_Y_FORE + 0.09, zb, SC_Z_RAIL + 0.1, 'trim')
     # awning frame (tendalino) over the after part of the poop
@@ -889,13 +890,13 @@ def build_stern_balcony():
     for y in (ya, (ya + yb) / 2, yb):
         for side in (-1, 1):
             x = side * aw(y)
-            sweep('awning_post', [(x, y, SC_Z_RAIL - 0.1), (x, y, SC_Z_AWNING + 0.05)], 0.06, 'trim', segs=6)
+            sweep('awning_post', [(x, y, SC_Z_RAIL - 0.1), (x, y, SC_Z_AWNING + 0.05)], 0.06, 'trim', segs=12)
             box('awning_post_cap', x - 0.08, x + 0.08, y - 0.08, y + 0.08, SC_Z_AWNING - 0.06, SC_Z_AWNING + 0.06, 'trim')
-        arc = [(-aw(y) * math.cos(t), y, SC_Z_AWNING + 0.6 * math.sin(t)) for t in [math.pi * k / 12 for k in range(13)]]
-        sweep('awning_hoop', arc, 0.05, 'trim', segs=6, cap=False)
+        arc = [(-aw(y) * math.cos(t), y, SC_Z_AWNING + 0.6 * math.sin(t)) for t in [math.pi * k / 24 for k in range(25)]]
+        sweep('awning_hoop', arc, 0.05, 'trim', segs=12, cap=False)
     for side in (-1, 1):
-        sweep('awning_rail', [(side * aw(y), y, SC_Z_AWNING) for y in (ya, (ya + yb) / 2, yb)], 0.05, 'trim', segs=6)
-    sweep('awning_ridge', [(0, ya, SC_Z_AWNING + 0.6), (0, yb, SC_Z_AWNING + 0.6)], 0.05, 'trim', segs=6)
+        sweep('awning_rail', [(side * aw(y), y, SC_Z_AWNING) for y in (ya, (ya + yb) / 2, yb)], 0.05, 'trim', segs=12)
+    sweep('awning_ridge', [(0, ya, SC_Z_AWNING + 0.6), (0, yb, SC_Z_AWNING + 0.6)], 0.05, 'trim', segs=12)
     build_stern_lantern()
     # stairs from the gun deck up to the poop, running aft along both sides of the cabin front
     run = (SC_Z_FLOOR - Z_GUN_DECK) / math.tan(math.radians(40))
