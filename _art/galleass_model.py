@@ -1506,30 +1506,175 @@ coll('parts').hide_render = True; coll('parts').hide_viewport = True
 # faction paint: like vanilla's pattern stripes, a thin overlay 3 mm outside the painted planking. Its mesh gets the
 # 'faction_color' tag in the Kit, so the game sets mesh.Color to the owner's colours; the material (alpha-blended,
 # modulate, like ship_liburna_pattern_a) multiplies the wood underneath. V samples the brushed strip of that texture.
-src = bpy.data.objects['galleass_paint'].data
-fm = src.copy(); fm.name = 'galleass_faction_paint'
-fm.materials.clear(); fm.materials.append(MATS['faction'])
-# shell offset: every face plane moves out by D (vertex moved along the mean face normal, lengthened at corners)
-D = 0.006
-bmf = bmesh.new(); bmf.from_mesh(fm)
-moves = {}
-for v in bmf.verts:
-    fns = [f.normal for f in v.link_faces]
-    if not fns: continue
-    n = Vector((0, 0, 0))
-    for fn_ in fns: n += fn_
-    if n.length < 1e-6: continue
-    n.normalize()
-    c = min(n.dot(fn_) for fn_ in fns)
-    moves[v] = n * (D / max(c, 0.35))
-for v, m in moves.items(): v.co += m
-bmf.to_mesh(fm); bmf.free()
-uvl = fm.uv_layers[0]
-for li, loop in enumerate(fm.loops):
-    z = fm.vertices[loop.vertex_index].co.z
-    u = uvl.data[li].uv[0]
-    uvl.data[li].uv = (u, 0.84 + 0.12 * min(max((z + 0.6) / 7.0, 0.0), 1.0))
-coll('final').objects.link(bpy.data.objects.new('galleass_faction_paint', fm))
+def faction_overlay(src, name, D=0.006):
+    """Copy of the painted planking as a shell D outside it (every face plane moves out by D), V remapped into the
+    brushed strip of the pattern texture."""
+    fm = src.copy(); fm.name = name
+    fm.materials.clear(); fm.materials.append(MATS['faction'])
+    bmf = bmesh.new(); bmf.from_mesh(fm)
+    moves = {}
+    for v in bmf.verts:
+        fns = [f.normal for f in v.link_faces]
+        if not fns: continue
+        n = Vector((0, 0, 0))
+        for fn_ in fns: n += fn_
+        if n.length < 1e-6: continue
+        n.normalize()
+        c = min(n.dot(fn_) for fn_ in fns)
+        moves[v] = n * (D / max(c, 0.35))
+    for v, m in moves.items(): v.co += m
+    bmf.to_mesh(fm); bmf.free()
+    uvl = fm.uv_layers[0]
+    for li, loop in enumerate(fm.loops):
+        z = fm.vertices[loop.vertex_index].co.z
+        uvl.data[li].uv = (uvl.data[li].uv[0], 0.84 + 0.12 * min(max((z + 0.6) / 7.0, 0.0), 1.0))
+    return fm
+coll('final').objects.link(bpy.data.objects.new('galleass_faction_paint',
+                                                faction_overlay(bpy.data.objects['galleass_paint'].data, 'galleass_faction_paint')))
+
+# ================================================================= export prep: LODs, physics, deck water
+# LODs: '<mesh>.lodN' objects (vanilla meshes carry '.lod3/.lod4/.lod5' sub-mesh names; the Kit's LOD naming is
+# checked at import). Decimate (collapse) per mesh; the interior and small fittings drop out early; the faction
+# overlay is rebuilt from each decimated paint LOD so it always sits exactly on its base.
+LOD_RATIO = {1: 0.45, 2: 0.18, 3: 0.06}
+LOD_DROP = {'galleass_interior': 2, 'galleass_glass': 2, 'galleass_gilt': 3, 'galleass_iron': 3, 'galleass_dark': 3}
+for o in list(coll('final').objects):
+    if o.name in ('galleass_faction_paint',) or o.type != 'MESH':
+        continue
+    for lvl, ratio in LOD_RATIO.items():
+        if lvl >= LOD_DROP.get(o.name, 99):
+            continue
+        me = o.data.copy(); me.name = f'{o.name}.lod{lvl}'
+        lo = bpy.data.objects.new(me.name, me); coll('lods').objects.link(lo)
+        lo.matrix_world = o.matrix_world
+        # flat areas first (limited dissolve keeps the shape exactly), then collapse to the target count
+        n0 = sum(len(p.vertices) - 2 for p in o.data.polygons)
+        d1 = lo.modifiers.new('flat', 'DECIMATE'); d1.decimate_type = 'DISSOLVE'; d1.angle_limit = math.radians(2 + 3 * lvl)
+        d1.delimit = {'UV'} if lvl == 1 else set()
+        dg2 = bpy.context.evaluated_depsgraph_get()
+        tmpm = bpy.data.meshes.new_from_object(lo.evaluated_get(dg2))
+        n1 = sum(len(p.vertices) - 2 for p in tmpm.polygons); bpy.data.meshes.remove(tmpm)
+        # big structural surfaces keep their silhouette: never collapse them below 70% of the dissolved mesh
+        floor_r = 0.7 if o.name in ('galleass_hull', 'galleass_paint', 'galleass_deck', 'galleass_rudder', 'galleass_dark') else 0.0
+        md = lo.modifiers.new('dec', 'DECIMATE'); md.ratio = min(1.0, max(ratio * n0 / max(n1, 1), floor_r)); md.use_collapse_triangulate = True
+        dg2 = bpy.context.evaluated_depsgraph_get()
+        nm = bpy.data.meshes.new_from_object(lo.evaluated_get(dg2))
+        lo.modifiers.clear(); old = lo.data; lo.data = nm; nm.name = me.name; bpy.data.meshes.remove(old)
+        if o.name == 'galleass_paint':
+            fo = bpy.data.objects.new(f'galleass_faction_paint.lod{lvl}', faction_overlay(nm, f'galleass_faction_paint.lod{lvl}'))
+            coll('lods').objects.link(fo)
+coll('lods').hide_render = True; coll('lods').hide_viewport = True
+lod_tris = {}
+for o in coll('lods').objects:
+    lvl = o.name.rsplit('.lod', 1)[1]
+    lod_tris[lvl] = lod_tris.get(lvl, 0) + sum(len(p.vertices) - 2 for p in o.data.polygons)
+print('LOD triangles:', dict(sorted(lod_tris.items())))
+
+def convex_piece(bm_out, pts):
+    """Add the convex hull of pts to bm_out (one closed convex piece), kept under PhysX's 255-vertex convex limit
+    by snapping the input to a coarser grid until the hull has <= 120 vertices."""
+    grid = 0.0
+    while True:
+        if grid > 0:
+            seen = {}
+            for p in pts:
+                k = (round(p[0] / grid), round(p[1] / grid), round(p[2] / grid))
+                seen.setdefault(k, p)
+            use = list(seen.values())
+        else:
+            use = pts
+        tmp = bmesh.new()
+        vs = [tmp.verts.new(p) for p in use]
+        res = bmesh.ops.convex_hull(tmp, input=vs)
+        for v in res.get('geom_interior', []) + res.get('geom_unused', []):
+            if isinstance(v, bmesh.types.BMVert) and v.is_valid: tmp.verts.remove(v)
+        if len(tmp.verts) <= 120 or grid > 2.0:
+            break
+        tmp.free(); grid = 0.25 if grid == 0 else grid * 1.5
+    res = {}
+    me = bpy.data.meshes.new('tmp'); tmp.to_mesh(me); tmp.free()
+    bm_out.from_mesh(me); bpy.data.meshes.remove(me)
+
+def verts_of(names, test):
+    out = []
+    for n in names:
+        o = bpy.data.objects[n]
+        out += [o.matrix_world @ v.co for v in o.data.vertices if test(o.matrix_world @ v.co)]
+    return out
+
+BODY = ['galleass_hull', 'galleass_paint', 'galleass_deck', 'galleass_trim']
+# 1) ship body for ship physics (root entity, dynamic convex hulls): hull slices up to the bulwark + both castles
+bmc = bmesh.new()
+for y0, y1 in ((-27.0, -17.6), (-17.6, -6.0), (-6.0, 6.0), (6.0, 20.6), (20.6, 26.5)):
+    pts = verts_of(BODY, lambda p, y0=y0, y1=y1: y0 - 0.05 <= p.y <= y1 + 0.05 and p.z <= Z_BULWARK_TOP + 0.1)
+    if len(pts) > 4: convex_piece(bmc, pts)
+pts = verts_of(BODY, lambda p: p.y >= FC_Y_BACK - 0.05 and p.z >= FC_Z_BASE - 0.1 and p.z <= FC_Z_PARAPET + 0.1)
+convex_piece(bmc, pts)
+pts = verts_of(BODY, lambda p: SC_Y_AFT - 0.3 <= p.y <= SC_Y_FORE + 0.1 and p.z >= FC_Z_BASE - 0.1 and p.z <= SC_Z_FLOOR + 0.15)
+convex_piece(bmc, pts)
+mc = bpy.data.meshes.new('bo_composite_conv_galleass'); bmc.to_mesh(mc); bmc.free()
+coll('physics').objects.link(bpy.data.objects.new('bo_composite_conv_galleass', mc))
+
+# 2) hull body for raycasts / missiles / agents (on the hull mesh entity): solid lower hull up to the gun deck,
+# thin walls, castles, decks, stairs as ramps - all convex pieces in one mesh
+bmb = bmesh.new()
+for y0, y1 in ((-27.0, -20.0), (-20.0, -12.0), (-12.0, -4.0), (-4.0, 4.0), (4.0, 12.0), (12.0, 20.6), (20.6, 26.5)):
+    pts = verts_of(BODY, lambda p, y0=y0, y1=y1: y0 - 0.05 <= p.y <= y1 + 0.05 and p.z <= Z_GUN_DECK + 0.01)
+    if len(pts) > 4: convex_piece(bmb, pts)
+def bx(x0, x1, y0, y1, z0, z1):
+    convex_piece(bmb, [(x, y, z) for x in (x0, x1) for y in (y0, y1) for z in (z0, z1)])
+W = WING_HW
+for sd in (-1, 1):
+    bx(*sorted((sd * W, sd * (W - SIDE_T))), WING_Y0, WING_Y1, Z_GUN_DECK, Z_BULWARK_TOP + 0.1)          # outer walls
+    for ye in (WING_Y0, WING_Y1):                                                                         # end walls
+        bx(*sorted((sd * (box_inner_x(ye) - 0.05), sd * W)), ye - 0.1, ye + 0.1, Z_GUN_DECK, Z_BULWARK_TOP + 0.1)
+# forecastle: solid tower to the platform, parapet as a ring of thin pieces
+convex_piece(bmb, [(x, y, z) for (x, y) in horseshoe(fc_radius(FC_Z_BASE), n=24) for z in (Z_GUN_DECK, FC_Z_PLATFORM)])
+ring_o, ring_i = horseshoe(fc_radius(FC_Z_PLATFORM), n=24), horseshoe(fc_radius(FC_Z_PLATFORM) - 0.35, n=24)
+for k in range(len(ring_o) - 1):
+    convex_piece(bmb, [(x, y, z) for (x, y) in (ring_o[k], ring_o[k + 1], ring_i[k], ring_i[k + 1])
+                       for z in (FC_Z_PLATFORM, FC_Z_PARAPET + 0.1)])
+# cabin: walls with door gaps, poop deck slab, balustrade line, balcony slab
+def sc_wall_x(y0, y1, sd, z0, z1):
+    convex_piece(bmb, [(sd * (sc_hw(y) + dx), y, z) for y in (y0, y1) for dx in (0.0, -SC_WALL) for z in (z0, z1)])
+for sd in (-1, 1):
+    sc_wall_x(SC_Y_AFT, SC_Y_FORE, sd, Z_GUN_DECK, SC_Z_FLOOR)
+    sc_wall_x(SC_Y_AFT - 0.3, SC_Y_FORE + 0.08, sd, SC_Z_FLOOR + 0.12, SC_Z_RAIL)                         # poop rail
+for yf, d, dx in ((SC_Y_FORE, -1, SC_DOOR_X), (SC_Y_AFT, 1, 0.0)):
+    wf = sc_hw(yf)
+    for xa, xb in ((-wf, dx - SC_DOOR_W / 2), (dx + SC_DOOR_W / 2, wf)):
+        bx(xa, xb, *sorted((yf, yf + d * SC_WALL)), Z_GUN_DECK, SC_Z_FLOOR)
+    bx(dx - SC_DOOR_W / 2, dx + SC_DOOR_W / 2, *sorted((yf, yf + d * SC_WALL)), Z_GUN_DECK + 2.1, SC_Z_FLOOR)
+convex_piece(bmb, [(sd * (sc_hw(y) + 0.08), y, z) for y in (SC_Y_AFT - 0.3, SC_Y_FORE + 0.08) for sd in (-1, 1)
+                   for z in (SC_Z_FLOOR, SC_Z_FLOOR + 0.12)])
+convex_piece(bmb, [(x, y, z) for x, y in [(-sc_hw(SC_Y_AFT) - 0.1, SC_Y_AFT), (sc_hw(SC_Y_AFT) + 0.1, SC_Y_AFT),
+                                          (-1.0, SC_Y_AFT - BALC_RY), (1.0, SC_Y_AFT - BALC_RY)]
+                   for z in (Z_GUN_DECK - 0.16, Z_GUN_DECK)])
+# stairs as ramps (agents' feet and missiles)
+run = (SC_Z_FLOOR - Z_GUN_DECK) / math.tan(math.radians(40))
+for sd in (-1, 1):
+    x = sd * SC_STAIR_X
+    convex_piece(bmb, [(x + dx, y, z) for dx in (-0.5, 0.5) for (y, z) in
+                       ((SC_Y_FORE + run, Z_GUN_DECK), (SC_Y_FORE, SC_Z_FLOOR + 0.12), (SC_Y_FORE, Z_GUN_DECK))])
+    x = sd * FC_STAIR_X
+    convex_piece(bmb, [(x + dx, y, z) for dx in (-0.5, 0.5) for (y, z) in
+                       ((FC_Y_BACK - 3.0, Z_GUN_DECK), (FC_Y_BACK, FC_Z_PLATFORM), (FC_Y_BACK, Z_GUN_DECK))])
+mb = bpy.data.meshes.new('bo_galleass'); bmb.to_mesh(mb); bmb.free()
+coll('physics').objects.link(bpy.data.objects.new('bo_galleass', mb))
+coll('physics').hide_render = True; coll('physics').hide_viewport = True
+print('physics: composite verts %d / faces %d, hull body verts %d / faces %d' % (
+    len(mc.vertices), len(mc.polygons), len(mb.vertices), len(mb.polygons)))
+
+# 3) deck water ('render_to_depth' mask, invisible): every upward deck surface of the deck mesh
+dsrc = bpy.data.objects['galleass_deck'].data
+bmw = bmesh.new()
+bmw.from_mesh(dsrc)
+kill = [f for f in bmw.faces if f.normal.z < 0.9 or f.calc_area() < 0.3]
+bmesh.ops.delete(bmw, geom=kill, context='FACES')
+mw = bpy.data.meshes.new('galleass_deckwater'); bmw.to_mesh(mw); bmw.free()
+mw.materials.clear(); mw.materials.append(bpy.data.materials.get('grey') or bpy.data.materials.new('grey'))
+coll('physics').objects.link(bpy.data.objects.new('galleass_deckwater', mw))
+print('deckwater faces:', len(mw.polygons))
 tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in coll('final').objects)
 print('triangles (final):', tris)
 
