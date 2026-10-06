@@ -1174,7 +1174,8 @@ def build_beak():
     KNEE_HALF = 0.32 * 0.7071; RAIL_HALF = 0.17 * 0.7071; CHEEK_X = 0.1; TRAIL_R = 0.035
     # cheek: outline = rail (stem -> seat) + knee back (seat -> stem), only the part above the knee start
     kpart = [p for p in knee if p.y >= Y_STEM_WL + 0.2]
-    outline = [(p.y, p.z) for p in rail] + [(p.y, p.z) for p in reversed(kpart)]
+    # whole knee (down to where it starts inside the hull): no open gap between knee, stem and rail
+    outline = [(p.y, p.z) for p in rail] + [(p.y, p.z) for p in reversed(knee)]
     bm = bmesh.new()
     for side in (-1, 1):
         vs = [bm.verts.new((side * CHEEK_X, y, z)) for y, z in outline]
