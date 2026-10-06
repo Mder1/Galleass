@@ -1267,13 +1267,19 @@ FINIAL = _finial()
 build_hull()
 # lower wale: covers the seam where the flare leaves the hull, and runs on along the hull to the stem and stern post
 WALE_Z = WING_Z0 + 0.05
-_ys = [y / 10 for y in range(-260, 261)]
-_hull_ys = [y for y in _ys if z_bottom(y) < WALE_Z - 0.12]
+def _crossing(sign):
+    lo, hi = 0.0, 26.0 * sign
+    for _ in range(50):                      # where the stem/sternpost line reaches the wale height
+        mid = (lo + hi) / 2
+        if z_bottom(mid) < WALE_Z: lo = mid
+        else: hi = mid
+    return lo
+_hull_ys = [_crossing(-1), _crossing(1)]     # wales run into the stem and the sternpost (rabbet), as on real ships
 def _wale_x(y):
     hx = hull_x_at(y, WALE_Z)
     f = smoothstep(WING_Y0 - 1.5, WING_Y0, y) * (1 - smoothstep(WING_Y1, WING_Y1 + 1.5, y))   # full under the flare
-    return hx + (max(cove_start_x(y), hx) - hx) * f
-wale('wale_low', lambda y: WALE_Z, min(_hull_ys), max(_hull_ys), height=0.22, n=240, x_fn=_wale_x)
+    return max(hx + (max(cove_start_x(y), hx) - hx) * f, 0.1)   # never thinner than the backbone's face
+wale('wale_low', lambda y: WALE_Z, min(_hull_ys), max(_hull_ys), height=0.22, n=400, x_fn=_wale_x)
 wale('wale_top', lambda y: z_top(y) - 0.05, -19.5, 19.5, height=0.2)
 build_sides(); build_deck_fittings()
 build_forecastle(); build_sterncastle(); build_ends(); build_markers()
