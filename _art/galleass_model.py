@@ -670,6 +670,48 @@ def build_sterncastle():
     box('cabin_chest_band', -1.92, -0.88, SC_Y_FORE - SC_WALL - 0.67, SC_Y_FORE - SC_WALL - 0.03, Z_GUN_DECK + 0.42, Z_GUN_DECK + 0.48, 'iron')
     build_stern_balcony()
 
+def build_stern_lantern():
+    """Venetian stern lantern on a turned post: bowl with drop knob, eight flat glass panes between gilded
+    corner ribs and bands, moulded cornice, ogee dome, ball finial and cross."""
+    x0, y0 = 0.0, LANTERN_Y
+    lathe('lantern_post', [(0.11, 0), (0.13, 0.08), (0.1, 0.3), (0.1, 3.2), (0.13, 3.3), (0.1, 3.42), (0.1, 3.55)],
+          'trim', at=(x0, y0, SC_Z_FLOOR + 0.12), segs=12)
+    zl = SC_Z_FLOOR + 0.12 + 3.5                        # bottom of the lantern
+    R, H = 0.42, 0.95                                     # pane circumradius, pane height
+    zg0 = zl + 0.42; zg1 = zg0 + H
+    rot = math.pi / 8                                     # octagon faces/ribs: ribs on the corners
+    def octa(name, prof, role):
+        o = lathe(name, prof, role, at=(x0, y0, 0), segs=8)
+        o.rotation_euler = (0, 0, rot)                    # lathe is around the origin: rotate in place below
+        o.location = (0, 0, 0)
+        me = o.data
+        me.transform(Matrix.Translation((-x0, -y0, 0)))
+        me.transform(Matrix.Rotation(rot, 4, 'Z'))
+        me.transform(Matrix.Translation((x0, y0, 0)))
+        o.rotation_euler = (0, 0, 0)
+        return o
+    # bowl and drop knob (round), collar on the post
+    lathe('lantern_bowl', [(0.0, zl - 0.18), (0.07, zl - 0.14), (0.05, zl - 0.06), (0.14, zl), (0.32, zl + 0.16),
+                           (0.46, zl + 0.34), (0.48, zl + 0.42)], 'gilt', at=(x0, y0, 0), segs=24)
+    # glass panes (flat, hard-edged) and the gilded frame
+    octa('lantern_glass', [(R, zg0), (R, zg1)], 'glass')
+    for k in range(8):
+        a = 2 * math.pi * k / 8 + rot
+        cx, cy = x0 + (R + 0.015) * math.cos(a), y0 + (R + 0.015) * math.sin(a)
+        sweep('lantern_rib', [(cx, cy, zg0 - 0.02), (cx, cy, zg1 + 0.02)], 0.03, 'gilt', square=True)
+    for zb in (zg0, zg0 + H * 0.62, zg1):                 # lower/upper rails and the transom bar
+        octa('lantern_band', [(R + 0.045, zb - 0.025), (R + 0.045, zb + 0.025)], 'gilt')
+    # cornice and ogee dome
+    lathe('lantern_cornice', [(R + 0.04, zg1), (R + 0.1, zg1 + 0.05), (R + 0.1, zg1 + 0.11), (R + 0.02, zg1 + 0.14)],
+          'gilt', at=(x0, y0, 0), segs=24)
+    zd = zg1 + 0.14
+    lathe('lantern_dome', [(R + 0.02, zd), (R - 0.02, zd + 0.1), (0.3, zd + 0.24), (0.17, zd + 0.34), (0.09, zd + 0.44),
+                           (0.06, zd + 0.52), (0.1, zd + 0.58), (0.11, zd + 0.64), (0.07, zd + 0.7), (0.035, zd + 0.74)],
+          'gilt', at=(x0, y0, 0), segs=24)
+    zc = zd + 0.72
+    sweep('lantern_cross_v', [(x0, y0, zc), (x0, y0, zc + 0.6)], 0.03, 'gilt', square=True)
+    sweep('lantern_cross_h', [(x0 - 0.16, y0, zc + 0.4), (x0 + 0.16, y0, zc + 0.4)], 0.03, 'gilt', square=True)
+
 def build_stern_balcony():
     """Half-oval balcony behind the stern door, at cabin-floor level, with a turned balustrade ending on the
     stern post, carried by two carved knees."""
@@ -792,13 +834,7 @@ def build_stern_balcony():
     for side in (-1, 1):
         sweep('awning_rail', [(side * aw(y), y, SC_Z_AWNING) for y in (ya, (ya + yb) / 2, yb)], 0.05, 'trim', segs=6)
     sweep('awning_ridge', [(0, ya, SC_Z_AWNING + 0.6), (0, yb, SC_Z_AWNING + 0.6)], 0.05, 'trim', segs=6)
-    # stern lantern on its post
-    lathe('lantern_post', [(0.12, 0), (0.12, 3.6), (0.2, 3.7), (0.2, 3.8)], 'trim', at=(0, LANTERN_Y, SC_Z_FLOOR), segs=8)
-    zl = SC_Z_FLOOR + 3.8
-    lathe('lantern_body', [(0.25, 0), (0.45, 0.25), (0.45, 1.55), (0.3, 1.75), (0.0, 1.8)], 'gilt', at=(0, LANTERN_Y, zl), segs=8)
-    lathe('lantern_glass', [(0.47, 0.35), (0.47, 1.45)], 'glass', at=(0, LANTERN_Y, zl), segs=8, cap=False)
-    sweep('lantern_cross_v', [(0, LANTERN_Y, zl + 1.8), (0, LANTERN_Y, zl + 2.6)], 0.04, 'gilt', segs=6)
-    sweep('lantern_cross_h', [(-0.18, LANTERN_Y, zl + 2.35), (0.18, LANTERN_Y, zl + 2.35)], 0.04, 'gilt', segs=6)
+    build_stern_lantern()
     # stairs from the gun deck up to the poop, running aft along both sides of the cabin front
     run = (SC_Z_FLOOR - Z_GUN_DECK) / math.tan(math.radians(40))
     for side in (-1, 1):
@@ -895,7 +931,8 @@ for role, meshes in by_role.items():
         bm.from_mesh(me); bpy.data.meshes.remove(me)
     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
     o = obj_from_bm(bm, f'galleass_{role}', role, 'final', smooth=True)
-    o.data.set_sharp_from_angle(angle=math.radians(65))   # smooth along planks and turned parts (6-sided = 60 deg), hard at box corners
+    # smooth along planks and turned parts (6-sided = 60 deg), hard at box corners; glass panes stay flat
+    o.data.set_sharp_from_angle(angle=math.radians(30 if role == 'glass' else 65))
 coll('parts').hide_render = True; coll('parts').hide_viewport = True
 tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in coll('final').objects)
 print('triangles (final):', tris)
@@ -999,6 +1036,7 @@ show_preview('figurehead_lion')
 look('chk_poop_corner.png', (-6.5, -27.5, 8.5), (-3.0, -23.5, 6.0), lens=30)
 look('chk_awning.png', (2.5, -16.5, 10.5), (0, -21.0, 8.4), lens=30)
 look('chk_sc_stairs.png', (5.5, -9.5, 7.5), (3.2, -14.3, 5.8), lens=30)
+look('chk_lantern.png', (1.6, -21.6, 10.4), (0.0, -24.15, 9.8), lens=45)
 look('chk_balcony.png', (4.5, -29.5, 4.2), (0.0, -24.6, 2.8), lens=30)
 look('chk_balcony_top.png', (0.0, -27.0, 6.5), (0.0, -24.3, 2.3), lens=26)
 look('chk_cabin_in.png', (-1.5, -15.4, 3.9), (1.0, -23.0, 2.9), lens=20)
