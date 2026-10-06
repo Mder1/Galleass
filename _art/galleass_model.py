@@ -47,7 +47,7 @@ OARPORT_W, OARPORT_Z0, OARPORT_Z1 = 0.3, 1.12, 1.42      # in the wings' outer f
 # narrower and stand at its ends
 WING_HW = 6.2 * K_WID                     # outer wall half width
 WING_Y0, WING_Y1 = -17.6, 20.6            # extent along the ship (side view's band)
-WING_Z0, WING_Z_FACE = 0.5, 0.95          # cove starts on the hull / outer wall bottom
+WING_Z0, WING_Z_FACE = -0.5, 0.95         # flare leaves the hull (just below the waterline) / outer wall foot
 
 # broadside gunports in the gun-deck bulwark (cannons)
 GUNPORTS_PER_SIDE = 5
@@ -434,9 +434,26 @@ def box_inner_x(y):
     """Inner edge of the box's end walls: just inside the castle wall there (forecastle side / cabin side)."""
     return (fc_radius(Z_GUN_DECK) if y > 0 else sc_hw(y)) - 0.1
 
-def cove_xz(y, th):
-    hx = hull_x_at(y, WING_Z0)
-    return hx + (WING_HW - hx) * (1 - math.cos(th)), WING_Z0 + (WING_Z_FACE - WING_Z0) * math.sin(th)
+def cove_start_x(y):
+    """Where the flare leaves the hull: the hull's widest point between the flare's start and the wall foot."""
+    return max(hull_x_at(y, WING_Z0 + (WING_Z_FACE - WING_Z0) * k / 8) for k in range(9)) + 0.01
+
+def cove_xz(y, t):
+    """Hull flare (front section): a cubic curve leaving the hull side vertically at WING_Z0 and sweeping out,
+    arriving almost horizontally at the outer wall's foot. t in [0, 1]."""
+    hx, W, z0, zf = cove_start_x(y), WING_HW, WING_Z0, WING_Z_FACE
+    P = [(hx, z0), (hx, z0 + 0.6 * (zf - z0)), (hx + 0.45 * (W - hx), zf - 0.06), (W, zf)]
+    u = 1 - t
+    b = (u ** 3, 3 * u * u * t, 3 * u * t * t, t ** 3)
+    return sum(b[i] * P[i][0] for i in range(4)), sum(b[i] * P[i][1] for i in range(4))
+
+def cove_t_at_x(y, x):
+    lo, hi = 0.0, 1.0
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        if cove_xz(y, mid)[0] < x: lo = mid
+        else: hi = mid
+    return lo
 
 def build_sides():
     """Wide upper hull: cove from the hull out to the outer wall at WING_HW, outer wall up to the bulwark cap with
@@ -447,9 +464,9 @@ def build_sides():
         bm = bmesh.new(); rings = []
         for i in range(91):                                        # ends tucked inside the end walls
             y = (Y0 + 0.05) + (Y1 - Y0 - 0.1) * i / 90
-            hx = hull_x_at(y, WING_Z0)
-            pts = [(hx - 0.15, WING_Z0 - 0.05)] + [cove_xz(y, math.pi / 2 * k / 12) for k in range(13)]
-            pts += [(W - SIDE_T, WING_Z_FACE), (hx - 0.15, WING_Z_FACE)]
+            hx = cove_start_x(y)
+            pts = [(hx - 0.25, WING_Z0 - 0.05)] + [cove_xz(y, k / 20) for k in range(21)]
+            pts += [(W - SIDE_T, WING_Z_FACE), (hx - 0.25, WING_Z_FACE)]
             rings.append([bm.verts.new((side * x, y, z)) for x, z in pts])
         k = len(rings[0])
         for a, b in zip(rings, rings[1:]):
@@ -457,7 +474,7 @@ def build_sides():
                 bm.faces.new((a[j], a[(j + 1) % k], b[(j + 1) % k], b[j]))
         bm.faces.new(list(reversed(rings[0]))); bm.faces.new(rings[-1])
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-        obj_from_bm(bm, 'cove', 'paint', smooth=True)
+        obj_from_bm(bm, 'cove', 'hull', smooth=True)              # the hull itself flaring out (planking)
         # outer wall with oar ports and gunports
         x0, x1 = sorted((side * W, side * (W - SIDE_T)))
         wall = box(f'outer_wall', x0, x1, Y0 + 0.05, Y1 - 0.05, WING_Z_FACE - 0.01, Z_BULWARK_TOP, 'paint')
@@ -480,21 +497,24 @@ def build_sides():
         # end walls against the castles, lower edge on the cove
         for yend, d in ((Y1, -1), (Y0, 1)):
             xi = box_inner_x(yend)
-            hx = hull_x_at(yend, WING_Z0)
-            th_in = math.acos(max(min(1 - (xi - hx) / (W - hx), 1), -1)) if xi > hx else 0.0
-            prof = [cove_xz(yend, th_in + (math.pi / 2 - th_in) * k / 10) for k in range(11)]
+            hx = cove_start_x(yend)
+            t_in = cove_t_at_x(yend, xi) if xi > hx else 0.0
+            prof = [cove_xz(yend, t_in + (1 - t_in) * k / 16) for k in range(17)]
             if xi < prof[0][0]:
                 prof = [(xi, prof[0][1])] + prof
-            prof += [(W, Z_BULWARK_TOP), (xi, Z_BULWARK_TOP)]
-            bm = bmesh.new()
-            front = [bm.verts.new((side * x, yend, z)) for x, z in prof]
-            back = [bm.verts.new((side * x, yend + d * SIDE_T, z)) for x, z in prof]
-            bm.faces.new(front); bm.faces.new(list(reversed(back)))
-            for j in range(len(prof)):
-                jj = (j + 1) % len(prof)
-                bm.faces.new((front[j], back[j], back[jj], front[jj]))
-            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-            obj_from_bm(bm, 'end_wall', 'paint')
+            # lower part (on the flare, up to the wall foot) is hull planking, the rest painted like the wall
+            for poly, role in ((prof + [(xi, WING_Z_FACE)], 'hull'),
+                               ([(xi, WING_Z_FACE), (W, WING_Z_FACE), (W, Z_BULWARK_TOP), (xi, Z_BULWARK_TOP)], 'paint')):
+                bm = bmesh.new()
+                front = [bm.verts.new((side * x, yend, z)) for x, z in poly]
+                back = [bm.verts.new((side * x, yend + d * SIDE_T, z)) for x, z in poly]
+                bm.faces.new(front); bm.faces.new(list(reversed(back)))
+                for j in range(len(poly)):
+                    jj = (j + 1) % len(poly)
+                    bm.faces.new((front[j], back[j], back[jj], front[jj]))
+                bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
+                bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+                obj_from_bm(bm, 'end_wall', role)
             # gilded scroll on the end wall's outer upper corner (drawing's front section)
             c = (side * (W - 0.35), yend - d * 0.03, Z_BULWARK_TOP - 0.55)
             vol = [(c[0] + side * r * math.cos(a), c[1], c[2] + r * math.sin(a))
@@ -1192,7 +1212,7 @@ def build_markers():
 # ================================================================= build
 FINIAL = _finial()
 build_hull()
-wale('wale_low', lambda y: WING_Z0 + 0.03, -21.0, 21.0, height=0.18)   # covers the seam where the cove leaves the hull
+wale('wale_low', lambda y: WING_Z0 + 0.05, -21.0, 21.0, height=0.18)   # covers the seam where the flare leaves the hull
 wale('wale_top', lambda y: z_top(y) - 0.05, -19.5, 19.5, height=0.2)
 build_sides(); build_deck_fittings()
 build_forecastle(); build_sterncastle(); build_ends(); build_markers()
