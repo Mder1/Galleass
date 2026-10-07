@@ -1505,10 +1505,12 @@ if interior:
 coll('parts').hide_render = True; coll('parts').hide_viewport = True
 # faction paint: like vanilla's pattern stripes, a thin overlay 3 mm outside the painted planking. Its mesh gets the
 # 'faction_color' tag in the Kit, so the game sets mesh.Color to the owner's colours; the material (alpha-blended,
-# modulate, like ship_liburna_pattern_a) multiplies the wood underneath. V samples the brushed strip of that texture.
+# modulate, like ship_liburna_pattern_a) multiplies the wood underneath. It keeps the planking's UVs: the texture is our
+# own seamless, nearly solid paint (make_paint_texture.py, galleass_faction_paint) and the material's normal map is the
+# plank normal, so the planks show through the paint as relief. (Squeezing V into liburna_pattern_a's worn brush strip
+# looked blotchy over whole walls, user 2026-10-07.)
 def faction_overlay(src, name, D=0.006):
-    """Copy of the painted planking as a shell D outside it (every face plane moves out by D), V remapped into the
-    brushed strip of the pattern texture."""
+    """Copy of the painted planking as a shell D outside it (every face plane moves out by D), same UVs."""
     fm = src.copy(); fm.name = name
     fm.materials.clear(); fm.materials.append(MATS['faction'])
     bmf = bmesh.new(); bmf.from_mesh(fm)
@@ -1524,10 +1526,6 @@ def faction_overlay(src, name, D=0.006):
         moves[v] = n * (D / max(c, 0.35))
     for v, m in moves.items(): v.co += m
     bmf.to_mesh(fm); bmf.free()
-    uvl = fm.uv_layers[0]
-    for li, loop in enumerate(fm.loops):
-        z = fm.vertices[loop.vertex_index].co.z
-        uvl.data[li].uv = (uvl.data[li].uv[0], 0.84 + 0.12 * min(max((z + 0.6) / 7.0, 0.0), 1.0))
     return fm
 coll('final').objects.link(bpy.data.objects.new('galleass_faction_paint',
                                                 faction_overlay(bpy.data.objects['galleass_paint'].data, 'galleass_faction_paint')))
