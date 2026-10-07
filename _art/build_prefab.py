@@ -878,6 +878,30 @@ for e in kids(files['hull_group']):
     n += 1
 report.append('hull plating: %d upgrades -> galleass_hull_plate with %s' % (n, {k: v[1] for k, v in PLATE.items()}))
 
+# --- lanterns hang on the masts on vanilla's iron arms (nord_lantern_nested: hook 0.75 m from the mast's centre,
+# arm pointing out along the entity's +y): pairs either side of the main and mizzen masts, one on the fore mast
+# looking aft over the forecastle platform; LANTERN_H above each mast's deck (vanilla: 2.7 .. 3.5 m)
+LANTERN_H, LANTERN_ARM = 2.8, 0.75
+RAKES = {m: rk for _, m, _, rk, _ in RIGS}
+def mast_y(mast, z):
+    deck = Z_FC if mast == 'fore' else Z_DECK
+    return MASTS[mast] + (z - deck) * math.tan(-RAKES[mast])
+lan = kids(files['torch_holder'])
+side = [e for e in lan if abs(tf(e)[1][2]) > 1.0 and abs(abs(tf(e)[1][2]) - math.pi) > 0.5]
+single = [e for e in lan if e not in side]
+assert len(side) == 4 and len(single) == 1, (len(side), len(single))
+spots = []
+for mast, pair in (('main', side[:2]), ('mizzen', side[2:])):
+    z = Z_DECK + LANTERN_H
+    for e in pair:
+        sgn = 1 if tf(e)[0][0] > 0 else -1
+        write_tf(e, pos=(sgn * LANTERN_ARM, mast_y(mast, z), z), rot=(0.0, 0.0, sgn * -math.pi / 2))
+        spots.append((mast, round(sgn * LANTERN_ARM, 2), round(mast_y(mast, z), 2), round(z, 2)))
+z = Z_FC + LANTERN_H
+write_tf(single[0], pos=(0.0, mast_y('fore', z) - LANTERN_ARM, z), rot=(0.0, 0.0, math.pi))     # arm points aft
+spots.append(('fore', 0.0, round(mast_y('fore', z) - LANTERN_ARM, 2), round(z, 2)))
+report.append('lanterns on the masts: %s' % spots)
+
 # --- write --------------------------------------------------------------------------------------------------------
 ET.indent(folder, '\t', level=1)
 body = ET.tostring(folder, encoding='unicode').replace(' />', '/>')   # the editor's style
