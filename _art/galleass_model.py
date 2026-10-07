@@ -1687,6 +1687,10 @@ for y0, y1 in ((-27.0, -20.0), (-20.0, -12.0), (-12.0, -4.0), (-4.0, 4.0), (4.0,
 def bx(x0, x1, y0, y1, z0, z1):
     convex_piece(bmb, [(x, y, z) for x in (x0, x1) for y in (y0, y1) for z in (z0, z1)])
 W = WING_HW
+# the gun deck itself as a slab: the hull slices above only reach deck height where the (long, flat) deck mesh has
+# vertices, which left full-width holes between the slices (user 2026-10-07: player/agents fell through the deck)
+for y0, y1 in ((WING_Y0, -6.0), (-6.0, 6.0), (6.0, WING_Y1)):
+    bx(-(W - SIDE_T), W - SIDE_T, y0, y1, (Z_GUN_DECK + Z_LIFT) - 0.15, (Z_GUN_DECK + Z_LIFT))
 for sd in (-1, 1):
     bx(*sorted((sd * W, sd * (W - SIDE_T))), WING_Y0, WING_Y1, (Z_GUN_DECK + Z_LIFT), (Z_BULWARK_TOP + Z_LIFT) + 0.1)          # outer walls
     for ye in (WING_Y0, WING_Y1):                                                                         # end walls
