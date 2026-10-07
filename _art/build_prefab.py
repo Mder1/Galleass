@@ -219,6 +219,289 @@ for name in ('shields_holder', 'battlements_holder_fore', 'battlements_holder_af
     drop(sh, 'children')
     report.append('%s: %d shield groups removed (holder kept, empty)' % (name, n))
 
+# ==================================================================================================================
+# Stage 2: relayout onto the galleass (oars, masts + rigging, fittings). Deck heights and widths come from the model.
+# ==================================================================================================================
+import math, os, uuid
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import model_geom
+G = model_geom.load()
+Z_DECK, Z_POOP, Z_FC = G['Z_GUN_DECK'], G['SC_Z_FLOOR'], G['FC_Z_PLATFORM']
+W_OUT, SIDE_T = G['WING_HW'], G['SIDE_T']
+W_IN = W_OUT - SIDE_T                                    # inner face of the bulwark
+X_CAP, Z_CAP = W_OUT - 0.11, G['Z_BULWARK_TOP'] + 0.1   # middle / top of the cap rail
+BOX_Y0, BOX_Y1 = G['WING_Y0'], G['WING_Y1']
+SC_Y0, SC_Y1 = G['SC_Y_AFT'], G['SC_Y_FORE']
+FC_YB, FC_CY, FC_R = G['FC_Y_BACK'], G['FC_CY'], G['fc_radius'](G['FC_Z_PLATFORM'])
+sc_hw = G['sc_hw']
+
+def fc_half(y):
+    """Half width of the forecastle platform at y (straight sides, round front)."""
+    d = max(y - FC_CY, 0.0)
+    return math.sqrt(max(FC_R * FC_R - d * d, 0.0))
+
+def deck_z(x, y):
+    if SC_Y0 <= y <= SC_Y1 and abs(x) < sc_hw(y):
+        return Z_POOP
+    if y >= FC_YB and abs(x) < fc_half(y):
+        return Z_FC
+    return Z_DECK
+
+SHIP_Y0, SHIP_Y1 = SC_Y0 + 0.3, FC_CY + FC_R - 0.3          # rope anchors stay between cabin end and bow
+
+def rail_point(y, side):
+    """Where a rope from aloft is made fast on the ship's side: the box's cap rail, else the poop balustrade
+    or the forecastle parapet."""
+    y = min(max(y, SHIP_Y0), SHIP_Y1)
+    if BOX_Y0 + 0.2 <= y <= BOX_Y1 - 0.2:
+        return (side * X_CAP, y, Z_CAP)
+    if y < BOX_Y0:
+        return (side * (sc_hw(y) - 0.06), y, G['SC_Z_RAIL'])
+    return (side * max(fc_half(y) - 0.15, 0.3), y, G['FC_Z_PARAPET'])
+
+# transforms (TaleWorlds Mat3.ApplyEulerAngles: z, then x, then y; as prefab_layout.py)
+I3 = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+def mmul(a, b): return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+def mvec(a, v): return [sum(a[i][k] * v[k] for k in range(3)) for i in range(3)]
+def minv(m):
+    (a, b, c), (d, e, f), (g, h, i) = m
+    det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+    return [[(e * i - f * h) / det, (c * h - b * i) / det, (b * f - c * e) / det],
+            [(f * g - d * i) / det, (a * i - c * g) / det, (c * d - a * f) / det],
+            [(d * h - e * g) / det, (b * g - a * h) / det, (a * e - b * d) / det]]
+def rot_m(eu):
+    x, y, z = eu
+    cz, sz, cx, sx, cy, sy = math.cos(z), math.sin(z), math.cos(x), math.sin(x), math.cos(y), math.sin(y)
+    return mmul(mmul([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]], [[1, 0, 0], [0, cx, -sx], [0, sx, cx]]),
+                [[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]])
+
+def inh(e, path):
+    d = 0
+    while e is not None and d < 20:
+        x = e.find(path)
+        if x is not None:
+            return x
+        e, d = base(e), d + 1
+    return None
+
+def vec(x, default):
+    return [float(v) for v in x.get('value').split(',')] if x is not None else list(default)
+
+def tf(e):
+    return (vec(inh(e, 'transform/position'), (0, 0, 0)), vec(inh(e, 'transform/rotation_euler'), (0, 0, 0)),
+            vec(inh(e, 'transform/scale'), (1, 1, 1)))
+
+def local_m(e):
+    p, r, s = tf(e)
+    m = rot_m(r)
+    return [[m[i][j] * s[j] for j in range(3)] for i in range(3)], p
+
+def walk(e, pm=I3, pp=(0, 0, 0), own_only=True):
+    """[(entity, world matrix, world pos, parent matrix, parent pos)] for e and its descendants."""
+    m, p = local_m(e)
+    wm = mmul(pm, m); wp = [pp[i] + mvec(pm, p)[i] for i in range(3)]
+    out = [(e, wm, wp, pm, pp)]
+    ks = kids(e)
+    if not ks and not own_only:
+        b = base(e)
+        while b is not None and not kids(b):
+            b = base(b)
+        ks = kids(b) if b is not None else []
+    for c in ks:
+        out += walk(c, wm, wp, own_only)
+    return out
+
+def write_tf(e, pos=None, rot=None):
+    """Own transform with position, rotation and scale written out (nothing left to inherit)."""
+    p, r, s = tf(e)
+    p = list(pos) if pos is not None else p
+    r = list(rot) if rot is not None else r
+    drop(e, 'transform')
+    t = ET.Element('transform')
+    ET.SubElement(t, 'position', type_name='vec3', value='%.3f, %.3f, %.3f' % tuple(p))
+    ET.SubElement(t, 'rotation_euler', type_name='vec3', value='%.3f, %.3f, %.3f' % tuple(r))
+    if any(abs(v - 1) > 1e-6 for v in s):
+        ET.SubElement(t, 'scale', type_name='vec3', value='%.3f, %.3f, %.3f' % tuple(s))
+    e.insert(1, t)
+
+def set_world_pos(e, pm, pp, target):
+    write_tf(e, pos=mvec(minv(pm), [target[i] - pp[i] for i in range(3)]))
+
+NS = uuid.UUID('6a1e7c52-9c1f-4f0e-9b5a-3d1a2f5e0c11')
+def copy_regen(e, seed):
+    """Deep copy of a NavalDLC instance tree with fresh instance GUIDs (entities, scripts, components)."""
+    e = copy.deepcopy(e)
+    for x in e.iter('instance'):
+        x.set('guid', '{%s}' % str(uuid.uuid5(NS, seed + x.get('guid'))).upper())
+    return e
+
+def nav_folder(name):
+    return next(f for f in nav.find('prefab_folders') if f.get('name') == name)
+
+def nav_file(folder_name, file_name):
+    return next(pf for pf in nav_folder(folder_name).findall('prefab_file') if pf.get('name') == file_name).find('entity')
+
+def deck_profile(spawn_holder):
+    """Vanilla deck height along the ship: lowest spawn point within 1 m of y."""
+    pts = [wp for e, _, wp, _, _ in walk(spawn_holder, own_only=False)[1:]]
+    def z_at(y):
+        near = [p[2] for p in pts if abs(p[1] - y) < 1.0] or [min(pts, key=lambda p: abs(p[1] - y))[2]]
+        return min(near)
+    return z_at
+
+DECK_MEDITHEAVY = deck_profile(files['spawn_point_holder'])          # still the meditheavy's (stage 2 later)
+DECK_MEDITLIGHT = deck_profile(nav_file('meditlight_ship_nested', 'spawn_point_holder'))
+
+# --- oars: ONE bank of unmanned oars (the dromon's lower 8 m oars) at the model's 20 ports per side ------------
+oh = files['oars_holder']
+decks = {d.get('name'): d for d in kids(oh)}
+oh.find('children').remove(decks['oar_deck_upper'])                 # the meditheavy's manned upper bank
+dromon_oars = nav_file('dromon_ship_nested', 'oars_holder')
+tmpl = {}
+for s, n in ((-1, 'oar_left_lower_8m'), (1, 'oar_right_lower_8m')):
+    tmpl[s] = next(e for e in dromon_oars.iter('entity') if re.fullmatch(n + r'_\d+', e.get('name') or ''))
+OAR_X = W_OUT - SIDE_T / 2                                           # pivot in the middle of the wall
+OAR_Z = (G['OARPORT_Z0'] + G['OARPORT_Z1']) / 2 - 0.7               # the oar pivots 0.7 above its entity
+n_oars = 0
+for grp_name, s in (('left_oar_machines', -1), ('right_oar_machines', 1)):
+    grp = next(c for c in kids(decks['oar_deck_lower']) if c.get('name') == grp_name)
+    assert base(grp) is None and grp.find('children') is not None
+    ch = grp.find('children'); ch[:] = []
+    for i in range(G['OARS_PER_SIDE']):
+        o = copy_regen(tmpl[s], 'galleass-oar/%d/%d/' % (s, i))
+        o.set('name', '%s_%d' % (tmpl[s].get('name').rsplit('_', 1)[0], i))
+        write_tf(o, pos=(s * OAR_X, G['oar_y'](i), OAR_Z), rot=(0, 0, 0))
+        ch.append(o); n_oars += 1
+report.append('oars: upper (manned) bank removed; %d unmanned 8 m oars at x +-%.2f, pivot z %.2f, y %.1f..%.1f'
+              % (n_oars, OAR_X, OAR_Z + 0.7, G['oar_y'](0), G['oar_y'](G['OARS_PER_SIDE'] - 1)))
+
+# --- masts: small (mizzen), large (main), medium (fore) lateen rigs through the model's mast partners ----------
+# sail_center_i <-> i-th <sail> in galleass_mission_ships.xml. Rake: gentler than vanilla so the fore yard
+# clears the main mast; the main yard's lower end still crosses the fore mast when it lies fore and aft.
+sh = files['sail_holder']
+rigs = {c.get('name'): c for c in kids(sh)}
+small = copy_regen(next(e for e in nav_file('meditlight_ship_nested', 'sail_holder').iter('entity')
+                        if e.get('name') == 'lateen_sail_small_nested'), 'galleass-rig/mizzen/')
+for t in small.iter('tag'):
+    if t.get('name', '').startswith('sail_center_'):
+        t.set('name', 'sail_center_2')
+sh.find('children').append(small)
+MASTS = G['MASTS']
+RIGS = [  # (rig entity, mast, deck crossing z, rake, vanilla deck profile of the ship it came from)
+    (rigs['lateen_sail_large_nested'], 'main', Z_DECK, -0.10, DECK_MEDITHEAVY),
+    (rigs['lateen_sail_medium_nested'], 'fore', Z_FC, -0.157, DECK_MEDITHEAVY),
+    (small, 'mizzen', Z_DECK, -0.157, DECK_MEDITLIGHT),
+]
+for rig, mast, zd, rake, vdeck in RIGS:
+    P0, R0, _ = tf(rig)
+    a0 = (0.0, -math.sin(R0[0]), math.cos(R0[0]))
+    t = 0.0
+    for _ in range(30):                     # where the vanilla mast passes through its deck
+        t = (vdeck(P0[1] + t * a0[1]) - P0[2]) / a0[2]
+    old = walk(rig)
+    a = (0.0, -math.sin(rake), math.cos(rake))
+    P = (0.0, MASTS[mast] - t * a[1], zd - t * a[2])
+    write_tf(rig, pos=P, rot=(rake, 0.0, 0.0))
+    new = {id(e): (wm, wp, pm, pp) for e, wm, wp, pm, pp in walk(rig)}
+    moved = []
+    done = set()
+    # sail furling (fold) pulley blocks: block + belay target (+ the rope ends meeting there) come down onto our
+    # deck together, 0.6 m above it
+    old_pos = {id(e): wp0 for e, _, wp0, _, _ in old}
+    for fold in (e for e in rig.iter('entity') if e.get('name') == 'sail_fold_pulleys'):
+        for system in kids(fold):
+            parts = {k.get('name'): k for k in kids(system)}
+            tgt = parts.get('end_target_point')
+            if tgt is None:
+                continue
+            t0, t1 = old_pos[id(tgt)], new[id(tgt)][1]
+            y = min(max(t1[1], SHIP_Y0), SHIP_Y1)
+            goal = (t1[0], y, deck_z(t1[0], y) + 0.6)
+            if abs(t1[2] - goal[2]) < 0.3 and abs(y - t1[1]) < 0.01:
+                continue
+            d = [goal[i] - t1[i] for i in range(3)]
+            group = [parts[n] for n in ('end_target_point', 'end_point_rope', 'pulley') if n in parts]
+            group += [e for e, _, wp0, _, _ in old if e.get('name') in ('rope_start', 'rope_end')
+                      and math.dist(wp0, t0) < 0.05]
+            for e in group:
+                _, wp, pm, pp = new[id(e)]
+                set_world_pos(e, pm, pp, [wp[i] + d[i] for i in range(3)])
+                done.add(id(e)); moved.append(e.get('name'))
+    # rope ends made fast low on the vanilla ship (not at the mast, not on the yard) go to our rails / decks
+    for e, _, wp0, _, _ in old[1:]:
+        if id(e) in done or kids(e) or not re.fullmatch(r'rope_start|rope_end|free_rope\d+|fixed_rope\d+', e.get('name') or '') \
+                or 'attached_to_yard' in [x.get('name') for x in e.iter('tag')]:
+            continue
+        h = wp0[2] - vdeck(wp0[1])
+        y_axis = P0[1] + (wp0[2] - P0[2]) * a0[1] / a0[2]
+        wm, wp, pm, pp = new[id(e)]
+        side = abs(wp0[0]) > 1.2
+        outside = not (SHIP_Y0 - 0.5 <= wp[1] <= SHIP_Y1 + 0.5) and wp[2] < 12.0     # beyond our bow / stern
+        # stays to the vanilla ship's stern post / other mast: low and far from this mast
+        far = e.get('name') in ('rope_start', 'rope_end') and wp[2] < 12.0 and math.hypot(wp0[0], wp0[1] - y_axis) > 6.0
+        # side ropes end on the vanilla rail (up to ~3.5 m above its main deck where it has castles)
+        if not (outside or far) and (h > (3.5 if side else 2.5) or math.hypot(wp0[0], wp0[1] - y_axis) < 1.0):
+            continue
+        if side:
+            target = rail_point(wp[1], 1 if wp0[0] > 0 else -1)
+        else:
+            y = min(max(wp[1], SHIP_Y0), SHIP_Y1)
+            target = (wp[0], y, deck_z(wp[0], y) + min(max(h, 0.1), 0.6))
+        set_world_pos(e, pm, pp, target)
+        moved.append(e.get('name'))
+    report.append('%s mast: %s through (0, %.1f, %.2f), rake %.3f, rig origin (0, %.2f, %.2f); %d rope ends re-anchored %s'
+                  % (mast, rig.get('name'), MASTS[mast], zd, rake, P[1], P[2], len(moved),
+                     dict(sorted({m: moved.count(m) for m in moved}.items()))))
+
+# --- cleats (knot points) onto the cap rail; the meditheavy's hull-side cosmetic ropes go --------------------
+kh = files['knobs_holder']
+n = 0
+for e, wm, wp, pm, pp in walk(kh)[1:]:
+    if e.get('name') != 'cleat_a':
+        continue
+    side = 1 if wp[0] > 0 else -1
+    y = min(max(wp[1], BOX_Y0 + 0.4), BOX_Y1 - 0.4)
+    set_world_pos(e, pm, pp, (side * X_CAP, y, Z_CAP))
+    write_tf(e, rot=(0.0, 0.0, tf(e)[1][2]))
+    n += 1
+report.append('knobs_holder: %d cleats on the cap rail (x +-%.2f, z %.2f)' % (n, X_CAP, Z_CAP))
+rc = files['rope_cosmetics_holder']
+assert base(rc) is None
+n = len(kids(rc)); drop(rc, 'children')
+report.append('rope_cosmetics_holder: %d meditheavy hull-side ropes/cleats removed (CosmeticRopeManager kept)' % n)
+
+# --- arrow braziers: clamped to the bulwark (box) / poop balustrade, standing on the deck --------------------
+# ship_brazier_b reaches 0.65 m outboard of its origin, foot 0.69 m below it (mesh bounds)
+BRAZIER_Y = [-16.3, -13.0, -11.0, -6.1, -0.65, 4.75, 10.2, 15.0, 17.3, 19.6]          # clear of the gunports
+BRAZIER_POOP_Y = [-20.0]
+bh = files['brazier_holder']
+by_side = {-1: [], 1: []}
+for c in kids(bh):
+    by_side[1 if tf(c)[0][0] > 0 else -1].append(c)
+for s, lst in by_side.items():
+    spots = [(s * (W_IN - 0.65), y, Z_DECK + 0.69) for y in BRAZIER_Y] + \
+            [(s * (sc_hw(y) - 0.06 - 0.65), y, Z_POOP + 0.69) for y in BRAZIER_POOP_Y]
+    assert len(lst) == len(spots), (s, len(lst), len(spots))
+    for c, p in zip(lst, spots):
+        write_tf(c, pos=p, rot=(0.0, 0.0, s * math.pi / 2))
+        for k in kids(c):
+            write_tf(k, pos=(0, 0, 0), rot=(0, 0, 0))
+report.append('brazier_holder: %d braziers on the bulwark (deck z %.2f) and the poop (z %.2f)'
+              % (sum(map(len, by_side.values())), Z_DECK, Z_POOP))
+
+# --- deck upgrades (ammo / arrow crates, boarding weapons): base mesh 0.095 below the entity -----------------
+du = files['deck_upgrade_holder']
+for c in kids(du):
+    (x, y, z), _, _ = tf(c)
+    if y < SC_Y1:
+        p = (x, y, Z_POOP + 0.095)                # on the poop
+    elif y > 10.0:
+        p = (x, 9.0, Z_DECK + 0.095)              # was over the fore hatch (y 11.25..12.75)
+    else:
+        p = (x, y, Z_DECK + 0.095)
+    write_tf(c, pos=p)
+    report.append('deck upgrade %.1f -> (%.2f, %.2f, %.3f)' % (y, *p))
+
 # --- write --------------------------------------------------------------------------------------------------------
 ET.indent(folder, '\t', level=1)
 body = ET.tostring(folder, encoding='unicode').replace(' />', '/>')   # the editor's style

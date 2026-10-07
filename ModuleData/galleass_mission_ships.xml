@@ -32,6 +32,7 @@
 		<deployment_area
 			width="12.10"
 			length="59.93" />
+		<!-- sail i = prefab rig tagged sail_center_i: 0 main (large lateen), 1 fore (medium), 2 mizzen (small) -->
 		<sails>
 			<sail
 				type="lateen"
@@ -41,10 +42,16 @@
 				rotation_rate="10" />
 			<sail
 				type="lateen"
-				force_multiplier="6"
+				force_multiplier="5"
 				left_rotation_limit="170"
 				right_rotation_limit="5"
 				rotation_rate="12" />
+			<sail
+				type="lateen"
+				force_multiplier="3"
+				left_rotation_limit="170"
+				right_rotation_limit="5"
+				rotation_rate="16" />
 		</sails>
 		<linear_friction_multiplier
 			side="1.0"
