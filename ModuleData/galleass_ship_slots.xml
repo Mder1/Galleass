@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Galleass side slot: the arrow brazier only. No shield upgrades: a 16th-century galleass has high
-     bulwarks instead of shield rows (vanilla 'side' offers northern/southern shields lvl1-3 + brazier). -->
+<!-- No shield upgrades on the galleass: a 16th-century galleass has high bulwarks instead of shield rows.
+     galleass_side = vanilla 'side' minus the northern/southern shields (arrow brazier only);
+     galleass_fore = vanilla 'fore' minus the battlements (ballistas only; GreekFire adds its siphon to every
+     fore-type slot). No aft slot: vanilla 'aft' holds only battlements. -->
 <ShipSlots>
 	<ShipSlot
 		id="galleass_side"
@@ -9,6 +11,27 @@
 		<ShipUpgradePieces>
 			<ShipUpgradePiece
 				id="side_brazier" />
+		</ShipUpgradePieces>
+	</ShipSlot>
+	<ShipSlot
+		id="galleass_fore"
+		type_id="fore"
+		prefab_id="wood">
+		<ShipUpgradePieces>
+			<ShipUpgradePiece
+				id="fore_ballista" />
+			<ShipUpgradePiece
+				id="fore_ballista_fire" />
+			<ShipUpgradePiece
+				id="fore_heavy_ballista_stone" />
+			<ShipUpgradePiece
+				id="fore_heavy_ballista_pot" />
+			<ShipUpgradePiece
+				id="fore_heavy_ballista_iron" />
+			<ShipUpgradePiece
+				id="fore_multi_ballista_stone" />
+			<ShipUpgradePiece
+				id="fore_multi_ballista_fire" />
 		</ShipUpgradePieces>
 	</ShipSlot>
 </ShipSlots>

@@ -211,11 +211,13 @@ for c in kids(rh):
 report.append('rudder: galleass_rudder_a at %s rot %s, stock %s' % (RUDDER_POS, RUDDER_ROT, STOCK))
 
 # --- no shield upgrades: high bulwarks instead (ModuleData galleass_side slot offers only the brazier) --------------
-sh = files['shields_holder']
-assert sh.find('prefab_link/prefab').get('guid') == ZERO     # unlinked root: nothing to inherit back
-n = len(kids(sh))
-drop(sh, 'children')
-report.append('shields_holder: %d side shield groups removed (holder kept, empty)' % n)
+# and no battlements (shield rows) fore and aft: galleass_fore offers only the ballistas, the hull has no aft slot
+for name in ('shields_holder', 'battlements_holder_fore', 'battlements_holder_aft'):
+    sh = files[name]
+    assert sh.find('prefab_link/prefab').get('guid') == ZERO     # unlinked root: nothing to inherit back
+    n = len(kids(sh))
+    drop(sh, 'children')
+    report.append('%s: %d shield groups removed (holder kept, empty)' % (name, n))
 
 # --- write --------------------------------------------------------------------------------------------------------
 ET.indent(folder, '\t', level=1)
