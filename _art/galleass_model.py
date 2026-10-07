@@ -1221,7 +1221,7 @@ def build_ends():
         pts.append((0.0, q.x, q.y))
     # stern post above the hull end (fixed: the balcony notch and rails fit these), stem up the hull's end cap
     stern_top = [(0, -26.6, 6.9), (0, -26.0, 6.2), (0, -25.6, 5.0), (0, -25.45, 3.3)]
-    stem_top = [(0, 25.3, 1.7), (0, 25.32, 2.3)]
+    stem_top = [(0, 25.3, 1.7), (0, 25.32, 2.12)]       # ends inside the forecastle rub rail (no stub above it without a beak)
     # hull outline only below the post's joint (z < 2.3): no zig-zag where the fixed post points meet it
     # stern: the straight raked sternpost explicitly (offset OFF aft of its line), rounded into the keel at the heel
     (hy, hz), (ty, tz) = STERN_HEEL, STERN_POST_TOP
@@ -1525,8 +1525,11 @@ coll('cutters').hide_render = True; coll('cutters').hide_viewport = True
 # apply booleans and merge parts into one object per material role; the cabin interior (furniture, cabin floor)
 # goes into its own multi-material object so distant LODs can drop it
 INTERIOR = ('cabin_', 'sc_floor')
+# the beak is its own mesh: the prefab hangs it on the figurehead slot's 'platform' child, which the game keeps only
+# while a figurehead is fitted (no figurehead -> no beak, the bow ends at the stem; user 2026-10-07)
+BEAK = ('beak_',)
 dg = bpy.context.evaluated_depsgraph_get()
-by_role, interior = {}, []
+by_role, interior, beak = {}, [], []
 for o, role in PARTS:
     me = bpy.data.meshes.new_from_object(o.evaluated_get(dg))
     me.transform(o.matrix_world)
@@ -1538,6 +1541,8 @@ for o, role in PARTS:
     add_uvs(me, role)
     if o.name.startswith(INTERIOR):
         interior.append((me, role))
+    elif o.name.startswith(BEAK):
+        beak.append((me, role))
     else:
         by_role.setdefault(role, []).append(me)
 for role, meshes in by_role.items():
@@ -1548,17 +1553,19 @@ for role, meshes in by_role.items():
     o = obj_from_bm(bm, f'galleass_{role}', role, 'final', smooth=True)
     # smooth along planks and turned parts (6-sided = 60 deg), hard at box corners; glass panes stay flat
     o.data.set_sharp_from_angle(angle=math.radians(30 if role == 'glass' else 65))
-if interior:
-    roles = sorted(set(r for _, r in interior))
+for name, group in (('galleass_interior', interior), ('galleass_beak', beak)):
+    if not group:
+        continue
+    roles = sorted(set(r for _, r in group))
     bm = bmesh.new()
-    for me, role in interior:
+    for me, role in group:
         for poly in me.polygons: poly.material_index = roles.index(role)
         bm.from_mesh(me); bpy.data.meshes.remove(me)
-    mi = bpy.data.meshes.new('galleass_interior'); bm.to_mesh(mi); bm.free()
+    mi = bpy.data.meshes.new(name); bm.to_mesh(mi); bm.free()
     for r in roles: mi.materials.append(MATS[r])
     for poly in mi.polygons: poly.use_smooth = True
     mi.set_sharp_from_angle(angle=math.radians(65))
-    coll('final').objects.link(bpy.data.objects.new('galleass_interior', mi))
+    coll('final').objects.link(bpy.data.objects.new(name, mi))
 coll('parts').hide_render = True; coll('parts').hide_viewport = True
 # faction paint: like vanilla's pattern stripes, a thin overlay 3 mm outside the painted planking. Its mesh gets the
 # 'faction_color' tag in the Kit, so the game sets mesh.Color to the owner's colours; the material (alpha-blended,

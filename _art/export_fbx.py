@@ -47,6 +47,7 @@ GROUPS = {
     'galleass_hull': [o for r in ROLES for o in objs(f'galleass_{r}')],
     'galleass_faction_paint': objs('galleass_faction_paint'),
     'galleass_interior': objs('galleass_interior'),
+    'galleass_beak': objs('galleass_beak'),
     'galleass_rudder_a': objs('galleass_rudder_a'),
     'galleass_deckwater': objs('galleass_deckwater', False),
     'bo_composite_conv_galleass': objs('bo_composite_conv_galleass', False),
@@ -90,10 +91,12 @@ def split_composite(name, child_fmt):
 GROUPS['bo_composite_conv_galleass'] = split_composite('bo_composite_conv_galleass', 'bo_galleass_conv_part%d')
 
 # the painted planking is plain wood under the faction overlay: same material as the hull planking
-for n in ['galleass_paint'] + [f'galleass_paint_lod{i}' for i in (1, 2, 3)]:
-    if n in bpy.data.objects:
-        me = bpy.data.objects[n].data
-        me.materials.clear(); me.materials.append(bpy.data.materials['galleass_hull'])
+# (every mesh, also multi-material ones such as the beak)
+for o in bpy.data.objects:
+    if o.type == 'MESH':
+        for i, m in enumerate(o.data.materials):
+            if m is not None and m.name == 'galleass_paint':
+                o.data.materials[i] = bpy.data.materials['galleass_hull']
 
 # rudder: export in its own frame (mesh data is already local to the hinge)
 rud = [o for o in GROUPS['galleass_rudder_a']]
