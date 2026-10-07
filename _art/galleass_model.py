@@ -1618,6 +1618,54 @@ def faction_overlay(src, name, D=0.006):
 coll('final').objects.link(bpy.data.objects.new('galleass_faction_paint',
                                                 faction_overlay(bpy.data.objects['galleass_paint'].data, 'galleass_faction_paint')))
 
+# hull plating (the 'hull' upgrade slot: lead / bronze / copper; user 2026-10-07): like vanilla's hull_plate_<ship>, a
+# two-layer shell over the outer hull - layer 0 the oxidised overlay, layer 1 the metal - in NavalDLC's own
+# hull_plate_* materials (the prefab picks them per upgrade). Sheathing up to PLATE_Z above the waterline (a metal band
+# shows at the water), UVs at vanilla's density (~3.8 m per tile along the hull, ~4.1 m up).
+PLATE_Z = 0.4
+PLATE_MATS = ('hull_plate_lead_oxidize', 'hull_plate_lead')
+def hull_plate():
+    bm = bmesh.new()
+    for src in ('galleass_hull', 'galleass_paint'):
+        bm.from_mesh(bpy.data.objects[src].data)
+    bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], plane_co=(0, 0, PLATE_Z),
+                           plane_no=(0, 0, 1), clear_outer=True)
+    # outer hull only: no upward faces (decks, tops), nothing facing inboard (the hull's outside faces away from the
+    # centreline below the flare), nothing inside the hull
+    kill = [f for f in bm.faces if f.normal.z > 0.6 or f.calc_area() < 1e-6
+            or (abs(f.calc_center_median().x) > 0.3 and f.normal.x * f.calc_center_median().x < -0.05)]
+    bmesh.ops.delete(bm, geom=kill, context='FACES')
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
+    out = bmesh.new()
+    for layer, D in ((0, 0.009), (1, 0.006)):
+        cp = bm.copy()
+        for v in cp.verts:
+            fns = [f.normal for f in v.link_faces]
+            n = Vector((0, 0, 0))
+            for fn_ in fns: n += fn_
+            if n.length > 1e-6:
+                n.normalize(); c = min(n.dot(fn_) for fn_ in fns)
+                v.co += n * (D / max(c, 0.35))
+        for f in cp.faces: f.material_index = layer
+        me = bpy.data.meshes.new('tmp'); cp.to_mesh(me); cp.free()
+        out.from_mesh(me); bpy.data.meshes.remove(me)
+    bm.free()
+    me = bpy.data.meshes.new('galleass_hull_plate'); out.to_mesh(me); out.free()
+    for name in PLATE_MATS:
+        m = bpy.data.materials.get(name) or bpy.data.materials.new(name)
+        m.diffuse_color = (0.55, 0.5, 0.45, 1); me.materials.append(m)
+    uv = me.uv_layers[0] if me.uv_layers else me.uv_layers.new(name='UVMap')
+    for li, loop in enumerate(me.loops):
+        p = me.vertices[loop.vertex_index].co
+        uv.data[li].uv = (0.26 * p.y, 0.243 * p.z)
+    for poly in me.polygons: poly.use_smooth = True
+    me.set_sharp_from_angle(angle=math.radians(65))
+    coll('final').objects.link(bpy.data.objects.new('galleass_hull_plate', me))
+    return me
+_pm = hull_plate()
+print('hull plate: %d faces per layer, z %.2f..%.2f' % (len(_pm.polygons) // 2, min(v.co.z for v in _pm.vertices),
+                                                          max(v.co.z for v in _pm.vertices)))
+
 # ================================================================= export prep: LODs, physics, deck water
 # LODs: '<mesh>.lodN' objects (vanilla meshes carry '.lod3/.lod4/.lod5' sub-mesh names; the Kit's LOD naming is
 # checked at import). Decimate (collapse) per mesh; the interior and small fittings drop out early; the faction

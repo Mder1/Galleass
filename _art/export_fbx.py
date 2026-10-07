@@ -48,6 +48,7 @@ GROUPS = {
     'galleass_faction_paint': objs('galleass_faction_paint'),
     'galleass_interior': objs('galleass_interior'),
     'galleass_beak': objs('galleass_beak'),
+    'galleass_hull_plate': objs('galleass_hull_plate'),
     'galleass_rudder_a': objs('galleass_rudder_a'),
     'galleass_deckwater': objs('galleass_deckwater', False),
     'bo_composite_conv_galleass': objs('bo_composite_conv_galleass', False),

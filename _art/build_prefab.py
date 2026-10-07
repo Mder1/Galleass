@@ -854,6 +854,30 @@ for vis in (e for e in kids(files['roof_group']) if e.get('name') == 'visuals'):
         n += 1
 report.append('roof upgrades: %d roofs on the awning frame at %s, scale %.2f/%.2f/%.2f' % (n, tuple(round(v, 2) for v in R_ORIGIN), RSX, RSY, RSZ))
 
+# --- hull plating upgrades: our galleass_hull_plate (layer 0 oxidised overlay, layer 1 metal) with NavalDLC's
+# hull_plate_* materials per upgrade, as vanilla's hull_group does (both layers set explicitly)
+PLATE = {'hull_lead_lvl1': ('hull_plate_lead_oxidize', 'hull_plate_lead'),
+         'hull_bronze_lvl2': ('hull_plate_bronze_oxidize', 'hull_plate_bronze'),
+         'hull_bronze_lvl3': ('hull_plate_bronze_oxidize', 'hull_plate_bronze_reinforced'),
+         'hull_copper_lvl2': ('hull_plate_copper_oxidize', 'hull_plate_copper'),
+         'hull_copper_lvl3': ('hull_plate_copper_oxidize', 'hull_plate_copper_polished')}
+n = 0
+for e in kids(files['hull_group']):
+    if e.get('name') not in PLATE:
+        continue
+    drop(e, 'components')
+    write_tf(e, pos=(0, 0, 0), rot=(0, 0, 0))                # the mesh is in ship coordinates (vanilla's was turned)
+    comp = mesh_component('plate/' + e.get('name'), 'galleass_hull_plate')
+    ch = ET.SubElement(comp.find('meta_mesh_component'), 'children')
+    for lod in [''] + ['.lod%d' % k for k in (1, 2, 3)]:
+        for i, mat in enumerate(PLATE[e.get('name')]):
+            m = ET.SubElement(ch, 'mesh', name='galleass_hull_plate%s.%d' % (lod, i))
+            ET.SubElement(ET.SubElement(m, 'misc'), 'material', type_name='string', value=mat)
+    e.append(comp)
+    e[:] = sorted(e, key=lambda c: ORDER.index(c.tag) if c.tag in ORDER else len(ORDER))
+    n += 1
+report.append('hull plating: %d upgrades -> galleass_hull_plate with %s' % (n, {k: v[1] for k, v in PLATE.items()}))
+
 # --- write --------------------------------------------------------------------------------------------------------
 ET.indent(folder, '\t', level=1)
 body = ET.tostring(folder, encoding='unicode').replace(' />', '/>')   # the editor's style
