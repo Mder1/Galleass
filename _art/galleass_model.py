@@ -97,20 +97,37 @@ Z_LIFT = 1.5
 LIFT_RIGID = ('beak_',)
 LIFT_DONE = ('hull_shell',)                 # built at the lifted shape already
 
+OAR_DROP = 0.75                            # oar ports + strakes sit this much lower than the full lift (user 2026-10-07)
+LIFT_B0, LIFT_B1 = 1.70, 1.98              # 2nd band: plain wall between the upper strake and the rub rail
+
 def lift_band(y):
     """(start, width) of the z band across which parts are stretched by Z_LIFT."""
     t = smoothstep(-22.0, -23.5, y)
     return 0.951 + t * (1.62 - 0.951), 0.006 + t * (0.22 - 0.006)
 
-def lift_z(y, z):
+def lift_knots(y):
+    """Piecewise-linear map unlifted z -> lifted z: unchanged below the cut, + Z_LIFT - drop for the oar-port row,
+    + Z_LIFT from the rub rail up. The drop fades out aft (no ports there)."""
     a, w = lift_band(y)
-    return z + Z_LIFT * min(max((z - a) / w, 0.0), 1.0)
+    d = OAR_DROP * (1 - smoothstep(-21.0, -22.5, y))
+    k = [(a, a), (a + w, a + w + Z_LIFT - d)]
+    if d > 0:
+        k += [(LIFT_B0, LIFT_B0 + Z_LIFT - d), (LIFT_B1, LIFT_B1 + Z_LIFT)]
+    return k
+
+def _pl(k, z, inv):
+    k = [(b, a) for a, b in k] if inv else k
+    if z <= k[0][0]: return z
+    for (a0, b0), (a1, b1) in zip(k, k[1:]):
+        if z <= a1:
+            return b0 + (b1 - b0) * (z - a0) / max(a1 - a0, 1e-9)
+    return z + (k[-1][1] - k[-1][0])
+
+def lift_z(y, z):
+    return _pl(lift_knots(y), z, False)
 
 def unlift_z(y, z):
-    a, w = lift_band(y)
-    if z <= a: return z
-    if z >= a + w + Z_LIFT: return z - Z_LIFT
-    return a + (z - a) * w / (w + Z_LIFT)
+    return _pl(lift_knots(y), z, True)
 
 # masts (vanilla lateen rigs go here later): mizzen, main, fore
 MASTS = {'mizzen': -13.7, 'main': 5.5, 'fore': 22.5}

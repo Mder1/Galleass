@@ -361,7 +361,7 @@ tmpl = {}
 for s, n in ((-1, 'oar_left_lower_8m'), (1, 'oar_right_lower_8m')):
     tmpl[s] = next(e for e in dromon_oars.iter('entity') if re.fullmatch(n + r'_\d+', e.get('name') or ''))
 OAR_X = W_OUT - SIDE_T / 2                                           # pivot in the middle of the wall
-OAR_Z = (G['OARPORT_Z0'] + G['OARPORT_Z1']) / 2 + LIFT - 0.7               # the oar pivots 0.7 above its entity
+OAR_Z = G['lift_z'](0.0, (G['OARPORT_Z0'] + G['OARPORT_Z1']) / 2) - 0.7              # the oar pivots 0.7 above its entity
 n_oars = 0
 for grp_name, s in (('left_oar_machines', -1), ('right_oar_machines', 1)):
     grp = next(c for c in kids(decks['oar_deck_lower']) if c.get('name') == grp_name)
