@@ -95,7 +95,7 @@ LANTERN_Y = -24.15                       # on the poop deck, just inside the aft
 # above are the UNLIFTED design values: real heights = lift_z(y, z) (model_geom users: build_prefab.py).
 Z_LIFT = 1.5
 LIFT_RIGID = ('beak_',)
-LIFT_DONE = ('hull_shell',)                 # built at the lifted shape already
+LIFT_DONE = ('hull_shell', 'strake_low_run', 'strake_high_run')     # built at the lifted shape already
 
 OAR_DROP = 0.75                            # oar ports + strakes sit this much lower than the full lift (user 2026-10-07)
 LIFT_B0, LIFT_B1 = 1.70, 1.98              # 2nd band: plain wall between the upper strake and the rub rail
@@ -688,14 +688,17 @@ def build_sides():
         rr0, rr1 = BANDS['rub_rail'][0], BANDS['rub_rail'][1]
         z_join = (rr0 + rr1) / 2 + hh                       # strake centre ends inside the rub rail: they join
         for yend, d, z_top_end in ((Y1, 1, z_join), (Y0, -1, z_join)):
+            # built at the LIFTED heights (excluded from the lift): warping the finished sweep kinked it and made its
+            # thickness uneven where it climbed through the lift bands (user 2026-10-07). A gentle S from the box
+            # end, running into the rub rail horizontally; the section stays square to the path.
+            za, zb = lift_z(yend, zc), lift_z(yend, z_top_end - hh)
             pts = []
-            for k in range(41):
-                t = k / 40
+            for k in range(81):
+                t = k / 80
                 y = yend + d * (out - 0.06 + reach * t)               # starts inside the end wall's band piece
-                z = zc + (z_top_end - hh - zc) * smoothstep(0.15, 1.0, t)
-                pts.append((y, z))
+                pts.append((y, za + (zb - za) * smoothstep(0.0, 1.0, t)))
             for side in (-1, 1):
-                path = [(side * (outer_x(y, z) + out - thick / 2), y, z) for y, z in pts]
+                path = [(side * (outer_x(y, unlift_z(y, z)) + out - thick / 2), y, z) for y, z in pts]
                 sweep(f'{name}_run', path, max(thick, z1 - z0) / 2 * 1.414, role, square=True)
     # full-width gun deck; side decks beside the forecastle and the cabin
     WD = W - SIDE_T + 0.01
