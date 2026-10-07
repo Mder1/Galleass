@@ -140,7 +140,8 @@ def unlift_z(y, z):
     return _pl(lift_knots(y), z, True)
 
 # masts (vanilla lateen rigs go here later): mizzen, main, fore
-MASTS = {'mizzen': -13.7, 'main': 5.5, 'fore': 22.5}
+# fore mast at 20.9 (was 22.5): behind the forecastle's ring of five guns (user 2026-10-07)
+MASTS = {'mizzen': -13.7, 'main': 5.5, 'fore': 20.9}
 # bow: no ram slot (user 2026-10-06). A carved beak under the forecastle front carries the vanilla figureheads
 # (figurehead slot). Figurehead pivot/tilt/scale as on the meditheavy (rotation x -0.85 rad, scale 0.85/0.92/0.92).
 FIG_POS = (0.0, 26.7, 1.75)
