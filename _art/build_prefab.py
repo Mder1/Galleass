@@ -506,7 +506,7 @@ for c in kids(du):
 # bottom face, scale = size; buoyancy = submerged height x footprint x 1020 x g x hull floating_force_multiplier;
 # the ship settles where that equals mass x g). The meditheavy's columns were the wrong shape (roll/pitch/damage).
 FLOAT_DX, FLOAT_DY = 2 * W_OUT / 7, 2.1                 # 7 columns across the full width; ~vanilla floater count (max 140)
-WL_TARGET = 0.0                                         # design waterline (model z 0) at the hull XML's mass
+WL_TARGET = -0.8                                        # LOOK TEST (user 2026-10-07): 0.8 m above the design waterline (model z 0)
 WING_Z0, WING_ZF = G['WING_Z0'], G['WING_Z_FACE']
 
 def cove_x_at_z(y, z):
