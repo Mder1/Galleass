@@ -266,15 +266,78 @@ def deck_z(x, y):
 
 SHIP_Y0, SHIP_Y1 = SC_Y0 + 0.3, FC_CY + FC_R - 0.3          # rope anchors stay between cabin end and bow
 
+# decks, stairs (also used by the navmesh below)
+Z_POOP_TOP = G['SC_Z_FLOOR'] + 0.12 + LIFT           # poop deck surface (the stairs land on it)
+FC_R_IN = FC_R - 0.35 - 0.15                           # inside the forecastle parapet, clear of it
+DECK_X = W_IN - 0.25                                   # walkable half width between the bulwarks
+DECK_Y0, DECK_Y1 = BOX_Y0 + SIDE_T + 0.1, BOX_Y1 - SIDE_T - 0.1
+SC_STAIR_X, FC_STAIR_X = G['SC_STAIR_X'], G['FC_STAIR_X']
+SC_STAIR_Y = (round(SC_Y1 + (G['SC_Z_FLOOR'] - G['Z_GUN_DECK']) / math.tan(math.radians(40)), 4), SC_Y1)   # foot, head
+FC_STAIR_Y = (FC_YB - 3.0, FC_YB)
+STAIRS = [(s * SC_STAIR_X - 0.5, s * SC_STAIR_X + 0.5, SC_STAIR_Y[0], SC_STAIR_Y[1], 'poop') for s in (-1, 1)] + \
+         [(s * FC_STAIR_X - 0.5, s * FC_STAIR_X + 0.5, FC_STAIR_Y[0], FC_STAIR_Y[1], 'fc') for s in (-1, 1)]
+LEVEL_Z = {'deck': Z_DECK, 'poop': Z_POOP_TOP, 'fc': Z_FC}
+
 def rail_point(y, side):
-    """Where a rope from aloft is made fast on the ship's side: the box's cap rail, else the poop balustrade
-    or the forecastle parapet."""
+    """Top surface where a rope from aloft is made fast on the ship's side (a cleat goes there): the box's cap
+    rail, else the poop balustrade's rail or the forecastle parapet's cap."""
     y = min(max(y, SHIP_Y0), SHIP_Y1)
     if BOX_Y0 + 0.2 <= y <= BOX_Y1 - 0.2:
         return (side * X_CAP, y, Z_CAP)
     if y < BOX_Y0:
+        y = max(y, SC_Y0 + 0.4)
         return (side * (sc_hw(y) - 0.06), y, G['SC_Z_RAIL'] + LIFT)
-    return (side * max(fc_half(y) - 0.15, 0.3), y, G['FC_Z_PARAPET'] + LIFT)
+    return (side * max(fc_half(y) - 0.2, 0.3), y, G['FC_Z_PARAPET'] + LIFT + 0.1)
+
+MASTS_AT = []                                                 # (y, deck z) of the mast steps, filled with the rigs
+HATCHES = [(-6.5, 0.75, 0.9), (12.0, 0.75, 0.9)]              # (y, half length, half width): the model's gratings
+
+def deck_spot(x, y):
+    """Open deck surface near (x, y) for a cleat: on the poop / forecastle platform / gun deck, clear of walls,
+    stairs, mast steps and hatches."""
+    y = min(max(y, SHIP_Y0), SHIP_Y1)
+    if SC_Y0 <= y <= SC_Y1 and abs(x) < sc_hw(y):                                  # poop
+        y = min(max(y, SC_Y0 + 0.5), SC_Y1 - 0.4)
+        x = max(min(x, sc_hw(y) - 0.35), -(sc_hw(y) - 0.35))
+        return (x, y, Z_POOP_TOP)
+    if y >= FC_YB and abs(x) < fc_half(y):                                         # forecastle platform
+        r = math.hypot(x, max(y - FC_CY, 0.0))
+        if r > FC_R_IN - 0.2:
+            k = (FC_R_IN - 0.2) / r
+            x, y = x * k, (FC_CY + (y - FC_CY) * k) if y > FC_CY else y
+        y = max(y, FC_YB + 0.4)
+        z = Z_FC
+    else:                                                                          # gun deck
+        if y < SC_Y1 + 0.5 and abs(x) < sc_hw(SC_Y1) + 0.3:
+            y = SC_Y1 + 0.6
+        if y > FC_YB - 0.5 and abs(x) < FC_R + 0.3:
+            y = FC_YB - 0.6
+        for sx0, sx1, ya, yb, _ in STAIRS:
+            if sx0 - 0.3 < x < sx1 + 0.3 and min(ya, yb) - 0.3 < y < max(ya, yb) + 0.3:
+                x = sx1 + 0.45 if x > 0 else sx0 - 0.45
+        for hy, hl, hw in HATCHES:
+            if abs(y - hy) < hl + 0.25 and abs(x) < hw + 0.25:
+                x = math.copysign(hw + 0.4, x if x else 1.0)
+        x = max(min(x, DECK_X - 0.2), -(DECK_X - 0.2))
+        z = Z_DECK
+    for my, mz in MASTS_AT:
+        if abs(z - mz) < 0.01 and math.hypot(x, y - my) < 0.9:
+            x = math.copysign(0.9, x if x else 1.0)
+    return (x, y, z)
+
+KNOT_H = 0.13                                                 # cleat_a's knot_point above its base
+FASTENERS = []                                                # [(x, y, z)] cleat bases
+
+def fasten(surface):
+    """A cleat at this surface point (or a close existing one); returns the rope's end (the knot point)."""
+    x, y, z = surface
+    for f in FASTENERS:
+        if abs(f[2] - z) < 0.05 and math.hypot(f[0] - x, f[1] - y) < 0.25:
+            return (f[0], f[1], f[2] + KNOT_H)
+    while any(abs(f[2] - z) < 0.05 and math.hypot(f[0] - x, f[1] - y) < 0.45 for f in FASTENERS):
+        y += 0.45                                             # neighbours along a rail: spread out
+    FASTENERS.append((x, y, z))
+    return (x, y, z + KNOT_H)
 
 # transforms (TaleWorlds Mat3.ApplyEulerAngles: z, then x, then y; as prefab_layout.py)
 I3 = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
@@ -392,6 +455,22 @@ for grp_name, s in (('left_oar_machines', -1), ('right_oar_machines', 1)):
 report.append('oars: upper (manned) bank removed; %d unmanned 8 m oars at x +-%.2f, pivot z %.2f, y %.1f..%.1f'
               % (n_oars, OAR_X, OAR_Z + 0.7, G['oar_y'](0), G['oar_y'](G['OARS_PER_SIDE'] - 1)))
 
+# --- cleats (knot points) onto the cap rail; the meditheavy's hull-side cosmetic ropes go --------------------
+kh = files['knobs_holder']
+n = 0
+for e, wm, wp, pm, pp in walk(kh)[1:]:
+    if e.get('name') != 'cleat_a':
+        continue
+    side = 1 if wp[0] > 0 else -1
+    y = min(max(wp[1], BOX_Y0 + 0.4), BOX_Y1 - 0.4)
+    set_world_pos(e, pm, pp, (side * X_CAP, y, Z_CAP))
+    write_tf(e, rot=(0.0, 0.0, tf(e)[1][2]))
+    FASTENERS.append((side * X_CAP, y, Z_CAP))
+    n += 1
+CLEAT_TMPL = next(c for c in kids(kh) if c.get('name') == 'cleat_a')
+N_RAIL_CLEATS = len(FASTENERS)
+report.append('knobs_holder: %d cleats on the cap rail (x +-%.2f, z %.2f)' % (n, X_CAP, Z_CAP))
+
 # --- masts: small (mizzen), large (main), medium (fore) lateen rigs through the model's mast partners ----------
 # sail_center_i <-> i-th <sail> in galleass_mission_ships.xml. Rake: gentler than vanilla so the fore yard
 # clears the main mast; the main yard's lower end still crosses the fore mast when it lies fore and aft.
@@ -418,6 +497,7 @@ for rig, mast, zd, rake, vdeck in RIGS:
     old = walk(rig)
     a = (0.0, -math.sin(rake), math.cos(rake))
     P = (0.0, MASTS[mast] - t * a[1], zd - t * a[2])
+    MASTS_AT.append((MASTS[mast], zd))
     write_tf(rig, pos=P, rot=(rake, 0.0, 0.0))
     new = {id(e): (wm, wp, pm, pp) for e, wm, wp, pm, pp in walk(rig)}
     moved = []
@@ -432,10 +512,7 @@ for rig, mast, zd, rake, vdeck in RIGS:
             if tgt is None:
                 continue
             t0, t1 = old_pos[id(tgt)], new[id(tgt)][1]
-            y = min(max(t1[1], SHIP_Y0), SHIP_Y1)
-            goal = (t1[0], y, deck_z(t1[0], y) + 0.6)
-            if abs(t1[2] - goal[2]) < 0.3 and abs(y - t1[1]) < 0.01:
-                continue
+            goal = fasten(deck_spot(t1[0], t1[1]))
             d = [goal[i] - t1[i] for i in range(3)]
             group = [parts[n] for n in ('end_target_point', 'end_point_rope', 'pulley') if n in parts]
             group += [e for e, _, wp0, _, _ in old if e.get('name') in ('rope_start', 'rope_end')
@@ -460,28 +537,21 @@ for rig, mast, zd, rake, vdeck in RIGS:
         if not (outside or far) and (h > (3.5 if side else 2.5) or math.hypot(wp0[0], wp0[1] - y_axis) < 1.0):
             continue
         if side:
-            target = rail_point(wp[1], 1 if wp0[0] > 0 else -1)
+            target = fasten(rail_point(wp[1], 1 if wp0[0] > 0 else -1))
         else:
-            y = min(max(wp[1], SHIP_Y0), SHIP_Y1)
-            target = (wp[0], y, deck_z(wp[0], y) + min(max(h, 0.1), 0.6))
+            target = fasten(deck_spot(wp[0], wp[1]))
         set_world_pos(e, pm, pp, target)
         moved.append(e.get('name'))
     report.append('%s mast: %s through (0, %.1f, %.2f), rake %.3f, rig origin (0, %.2f, %.2f); %d rope ends re-anchored %s'
                   % (mast, rig.get('name'), MASTS[mast], zd, rake, P[1], P[2], len(moved),
                      dict(sorted({m: moved.count(m) for m in moved}.items()))))
 
-# --- cleats (knot points) onto the cap rail; the meditheavy's hull-side cosmetic ropes go --------------------
-kh = files['knobs_holder']
-n = 0
-for e, wm, wp, pm, pp in walk(kh)[1:]:
-    if e.get('name') != 'cleat_a':
-        continue
-    side = 1 if wp[0] > 0 else -1
-    y = min(max(wp[1], BOX_Y0 + 0.4), BOX_Y1 - 0.4)
-    set_world_pos(e, pm, pp, (side * X_CAP, y, Z_CAP))
-    write_tf(e, rot=(0.0, 0.0, tf(e)[1][2]))
-    n += 1
-report.append('knobs_holder: %d cleats on the cap rail (x +-%.2f, z %.2f)' % (n, X_CAP, Z_CAP))
+# new cleats where the rigs' rope ends are made fast (rails and decks)
+for i, (x, y, z) in enumerate(FASTENERS[N_RAIL_CLEATS:]):
+    c = copy_regen(CLEAT_TMPL, 'galleass-cleat/%d/' % i)
+    write_tf(c, pos=(x, y, z), rot=(0.0, 0.0, 0.0))
+    kh.find('children').append(c)
+report.append('rope fasteners: %d new cleats (%d rail cleats reused)' % (len(FASTENERS) - N_RAIL_CLEATS, N_RAIL_CLEATS))
 rc = files['rope_cosmetics_holder']
 assert base(rc) is None
 n = len(kids(rc)); drop(rc, 'children')
@@ -601,16 +671,6 @@ report.append('floaters: %d columns (%.2f x %.2f m), volume %.0f m3, %.0f m3 bel
 import navmesh
 NAVMESH = 'galleass_ship_navmesh'
 NAV_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'NavMeshPrefabs')
-Z_POOP_TOP = G['SC_Z_FLOOR'] + 0.12 + LIFT           # poop deck surface (the stairs land on it)
-FC_R_IN = FC_R - 0.35 - 0.15                           # inside the forecastle parapet, clear of it
-DECK_X = W_IN - 0.25                                   # walkable half width between the bulwarks
-DECK_Y0, DECK_Y1 = BOX_Y0 + SIDE_T + 0.1, BOX_Y1 - SIDE_T - 0.1
-SC_STAIR_X, FC_STAIR_X = G['SC_STAIR_X'], G['FC_STAIR_X']
-SC_STAIR_Y = (round(SC_Y1 + (G['SC_Z_FLOOR'] - G['Z_GUN_DECK']) / math.tan(math.radians(40)), 4), SC_Y1)   # foot, head
-FC_STAIR_Y = (FC_YB - 3.0, FC_YB)
-STAIRS = [(s * SC_STAIR_X - 0.5, s * SC_STAIR_X + 0.5, SC_STAIR_Y[0], SC_STAIR_Y[1], 'poop') for s in (-1, 1)] + \
-         [(s * FC_STAIR_X - 0.5, s * FC_STAIR_X + 0.5, FC_STAIR_Y[0], FC_STAIR_Y[1], 'fc') for s in (-1, 1)]
-LEVEL_Z = {'deck': Z_DECK, 'poop': Z_POOP_TOP, 'fc': Z_FC}
 
 def lines(lo, hi, step, keep=()):
     """Grid lines from lo to hi about step apart, with the 'keep' lines exactly (others too close to them dropped)."""
