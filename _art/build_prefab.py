@@ -902,6 +902,32 @@ write_tf(single[0], pos=(0.0, mast_y('fore', z) - LANTERN_ARM, z), rot=(0.0, 0.0
 spots.append(('fore', 0.0, round(mast_y('fore', z) - LANTERN_ARM, 2), round(z, 2)))
 report.append('lanterns on the masts: %s' % spots)
 
+# --- no fore weapon slot on the galleass (user 2026-10-07: cannons only, they come from their own project): the
+# vanilla ballistas/siphon go; the hull XML has no fore slot any more
+bh = files['ship_ballista_holder']
+flatten(bh)                                   # linked root: cut the base link first, or the weapons come back
+n = len(kids(bh)); drop(bh, 'children')
+report.append('ship_ballista_holder: %d vanilla fore weapons removed' % n)
+
+# --- the stern lantern lights up: vanilla's lantern light (LightCycle: on at night; light, flame, ember) copied into
+# the model's lantern glass, a little stronger than the mast lanterns'
+th = files['torch_holder']
+LANTERN_Z0 = G['SC_Z_FLOOR'] + 0.12 + 3.5 + LIFT + 0.42          # bottom of the lantern's glass (model)
+src = next(e for e in th.iter('entity') if e.get('name') == 'light')
+light = copy_regen(src, 'galleass-stern-lantern/')
+write_tf(light, pos=(0.0, G['LANTERN_Y'], LANTERN_Z0 + 0.12), rot=(0, 0, 0))
+for lc in light.iter('light_component'):
+    misc = lc.find('misc')
+    if misc is None:
+        misc = ET.SubElement(lc, 'misc')
+    for k, t, v in (('light_radius', 'float', '6.000'), ('light_intensity', 'float', '160.000')):
+        x = misc.find(k)
+        if x is None:
+            x = ET.SubElement(misc, k, type_name=t)
+        x.set('value', v)
+th.find('children').append(light)
+report.append('stern lantern light at (0, %.2f, %.2f)' % (G['LANTERN_Y'], LANTERN_Z0 + 0.12))
+
 # --- write --------------------------------------------------------------------------------------------------------
 ET.indent(folder, '\t', level=1)
 body = ET.tostring(folder, encoding='unicode').replace(' />', '/>')   # the editor's style

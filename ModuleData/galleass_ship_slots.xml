@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- No shield upgrades on the galleass: a 16th-century galleass has high bulwarks instead of shield rows.
      galleass_side = vanilla 'side' minus the northern/southern shields (arrow brazier only);
-     galleass_fore = vanilla 'fore' minus the battlements (ballistas only; GreekFire adds its siphon to every
-     fore-type slot). No aft slot: vanilla 'aft' holds only battlements. -->
+     No fore slot (ballistas/siphon) and no aft slot (battlements): the galleass's guns come from the separate
+     cannon project (three batteries, user 2026-10-07). -->
 <ShipSlots>
 	<ShipSlot
 		id="galleass_side"
@@ -11,27 +11,6 @@
 		<ShipUpgradePieces>
 			<ShipUpgradePiece
 				id="side_brazier" />
-		</ShipUpgradePieces>
-	</ShipSlot>
-	<ShipSlot
-		id="galleass_fore"
-		type_id="fore"
-		prefab_id="wood">
-		<ShipUpgradePieces>
-			<ShipUpgradePiece
-				id="fore_ballista" />
-			<ShipUpgradePiece
-				id="fore_ballista_fire" />
-			<ShipUpgradePiece
-				id="fore_heavy_ballista_stone" />
-			<ShipUpgradePiece
-				id="fore_heavy_ballista_pot" />
-			<ShipUpgradePiece
-				id="fore_heavy_ballista_iron" />
-			<ShipUpgradePiece
-				id="fore_multi_ballista_stone" />
-			<ShipUpgradePiece
-				id="fore_multi_ballista_fire" />
 		</ShipUpgradePieces>
 	</ShipSlot>
 </ShipSlots>

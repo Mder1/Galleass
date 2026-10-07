@@ -25,9 +25,6 @@
 		floating_force_multiplier="0.225">
 		<AvailableSlots>
 			<ShipSlot
-				id="galleass_fore"
-				tag_id="fore" />
-			<ShipSlot
 				id="hull"
 				tag_id="hull" />
 			<ShipSlot
