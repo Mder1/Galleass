@@ -90,17 +90,21 @@ def el(tag, attrib=None, *children):
     return x
 
 def new_entity(name, guid_seed):
-    import uuid
-    g = '{%s}' % str(uuid.uuid5(uuid.UUID('6a1e7c52-9c1f-4f0e-9b5a-3d1a2f5e0c11'), 'galleass-stage1/' + guid_seed)).upper()
+    g = guid(guid_seed)
     return el('entity', {'name': name}, el('prefab_link', None, el('instance', {'guid': g}), el('prefab', {'guid': ZERO})))
 
-def mesh_component(*names):
-    # vanilla never self-closes meta_mesh_component (always <x name=".."></x>); a self-closing one crashes the
-    # engine's prefab loader at startup (TaleWorlds.Native.dll, 2026-10-07)
-    comps = el('components', None, *[el('meta_mesh_component', {'name': n}) for n in names])
-    for m in comps:
-        m.text = '\n'
-    return comps
+def guid(seed):
+    import uuid
+    return '{%s}' % str(uuid.uuid5(uuid.UUID('6a1e7c52-9c1f-4f0e-9b5a-3d1a2f5e0c11'), 'galleass-stage1/' + seed)).upper()
+
+def mesh_component(owner, *names):
+    # every component carries its own <prefab_link> like an entity (NavalDLC: 78k components, none without);
+    # a missing one fails the Kit's 'prefab_link_node != nullptr' assert (rglNested_prefab.cpp:3965) and crashes
+    # the game's prefab loader at startup (TaleWorlds.Native.dll +0x22cc33, 2026-10-07)
+    return el('components', None, *[el('meta_mesh_component', {'name': n},
+                                       el('prefab_link', None, el('instance', {'guid': guid('%s/mmc/%s' % (owner, n))}),
+                                          el('prefab', {'guid': ZERO})))
+                                    for n in names])
 
 def tags(*names):
     return el('tags', None, el('tags', {'type_name': 'string'}, *[el('tag', {'name': n}) for n in names]))
@@ -130,15 +134,15 @@ hull.append(el('physics', None,
                el('move_to_batched_kinematic', {'type_name': 'bool', 'value': '1'})))
 hull.append(tags('body_mesh', 'rope_physics_body', 'hull_water_mesh'))
 hull.append(mobility())
-hull.append(mesh_component(*['galleass_' + r for r in ('hull', 'paint', 'deck', 'trim', 'gilt', 'iron', 'dark', 'glass')],
+hull.append(mesh_component('hull', *['galleass_' + r for r in ('hull', 'paint', 'deck', 'trim', 'gilt', 'iron', 'dark', 'glass')],
                            'galleass_interior'))
 paint = new_entity('galleass_faction_paint', 'faction_paint')
-paint.append(tags('sail_mesh_entity')); paint.append(mobility()); paint.append(mesh_component('galleass_faction_paint'))
+paint.append(tags('sail_mesh_entity')); paint.append(mobility()); paint.append(mesh_component('faction_paint', 'galleass_faction_paint'))
 water = new_entity('deckwater', 'deckwater')
 water.append(tags('render_to_depth'))
 water.append(el('misc', None, el('is_visible', {'type_name': 'bool', 'value': '0'}),
                 el('mobility', {'type_name': 'int', 'value': '1'})))
-water.append(mesh_component('galleass_deckwater'))
+water.append(mesh_component('deckwater', 'galleass_deckwater'))
 for x in (hull, paint, water):
     ch.append(x)
 report.append('mesh_holder: %d meditheavy entities %s replaced by galleass_hull (9 meshes, bo_galleass), '
@@ -189,7 +193,7 @@ r = rud[0]
 flatten(r)
 r.set('name', 'galleass_rudder')
 drop(r, 'transform'); set_transform(r, pos=RUDDER_POS, rot=RUDDER_ROT)
-drop(r, 'components'); r.append(mesh_component('galleass_rudder_a'))
+drop(r, 'components'); r.append(mesh_component('rudder_objects/rudder', 'galleass_rudder_a'))
 r[:] = sorted(r, key=lambda c: ORDER.index(c.tag) if c.tag in ORDER else len(ORDER))
 rh = files['rudders_holder']
 for c in kids(rh):
@@ -202,7 +206,7 @@ for c in kids(rh):
             if k.get('name') == 'rudder_meditheavy':
                 flatten(k); k.set('name', 'galleass_rudder')
                 drop(k, 'transform'); set_transform(k, pos=RUDDER_POS, rot=RUDDER_ROT)
-                drop(k, 'components'); k.append(mesh_component('galleass_rudder_a'))
+                drop(k, 'components'); k.append(mesh_component('rudders_holder/rudder', 'galleass_rudder_a'))
                 k[:] = sorted(k, key=lambda c: ORDER.index(c.tag) if c.tag in ORDER else len(ORDER))
 report.append('rudder: galleass_rudder_a at %s rot %s, stock %s' % (RUDDER_POS, RUDDER_ROT, STOCK))
 
