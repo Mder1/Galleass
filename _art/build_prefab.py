@@ -594,6 +594,183 @@ report.append('floaters: %d columns (%.2f x %.2f m), volume %.0f m3, %.0f m3 bel
                                      vol_wl, WL_TARGET, mult, balance_z(cols, mass, round(mult, 3)), mass,
                                      balance_z(cols, mass * 1.1, round(mult, 3)), balance_z(cols, mass * 1.2, round(mult, 3))))
 
+# ==================================================================================================================
+# Stage 2b: navmesh + the gameplay points the agents use (they still stood on the meditheavy's deck, 1.5 m below
+# ours after the lift: agents fell through the hull, user 2026-10-07)
+# ==================================================================================================================
+import navmesh
+NAVMESH = 'galleass_ship_navmesh'
+NAV_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'NavMeshPrefabs')
+Z_POOP_TOP = G['SC_Z_FLOOR'] + 0.12 + LIFT           # poop deck surface (the stairs land on it)
+FC_R_IN = FC_R - 0.35 - 0.15                           # inside the forecastle parapet, clear of it
+DECK_X = W_IN - 0.25                                   # walkable half width between the bulwarks
+DECK_Y0, DECK_Y1 = BOX_Y0 + SIDE_T + 0.1, BOX_Y1 - SIDE_T - 0.1
+SC_STAIR_X, FC_STAIR_X = G['SC_STAIR_X'], G['FC_STAIR_X']
+SC_STAIR_Y = (round(SC_Y1 + (G['SC_Z_FLOOR'] - G['Z_GUN_DECK']) / math.tan(math.radians(40)), 4), SC_Y1)   # foot, head
+FC_STAIR_Y = (FC_YB - 3.0, FC_YB)
+STAIRS = [(s * SC_STAIR_X - 0.5, s * SC_STAIR_X + 0.5, SC_STAIR_Y[0], SC_STAIR_Y[1], 'poop') for s in (-1, 1)] + \
+         [(s * FC_STAIR_X - 0.5, s * FC_STAIR_X + 0.5, FC_STAIR_Y[0], FC_STAIR_Y[1], 'fc') for s in (-1, 1)]
+LEVEL_Z = {'deck': Z_DECK, 'poop': Z_POOP_TOP, 'fc': Z_FC}
+
+def lines(lo, hi, step, keep=()):
+    """Grid lines from lo to hi about step apart, with the 'keep' lines exactly (others too close to them dropped)."""
+    n = max(int(round((hi - lo) / step)), 1)
+    base = [lo + (hi - lo) * k / n for k in range(n + 1)]
+    keep = [k for k in keep if lo - 1e-6 <= k <= hi + 1e-6]
+    return sorted(set(round(v, 4) for v in keep + [b for b in base if all(abs(b - k) > 0.4 for k in keep)]))
+
+xs_half = [0.0, 0.95] + sorted({abs(a) for a, b, *_ in STAIRS} | {abs(b) for a, b, *_ in STAIRS}) + [4.1, 4.75, DECK_X]
+X_LINES = sorted({-x for x in xs_half} | set(xs_half))
+Y_DECK = lines(DECK_Y0, DECK_Y1, 1.5, keep=[SC_Y1, SC_STAIR_Y[0], FC_STAIR_Y[0], FC_YB])
+Y_POOP = lines(SC_Y0 + 0.3, SC_Y1, 1.5)
+Y_FC = lines(FC_YB, FC_CY + FC_R_IN, 1.0, keep=[FC_CY])
+
+def in_stairs(x0, x1, y0, y1):
+    return next((s for s in STAIRS if s[0] - 1e-3 <= x0 and x1 <= s[1] + 1e-3 and
+                 min(s[2], s[3]) - 1e-3 <= y0 and y1 <= max(s[2], s[3]) + 1e-3), None)
+
+def walkable(level, x0, x1, y0, y1):
+    xc, yc = (x0 + x1) / 2, (y0 + y1) / 2
+    corners = [(x, y) for x in (x0, x1) for y in (y0, y1)]
+    if level == 'deck':
+        if in_stairs(x0, x1, y0, y1):
+            return False
+        if yc < SC_Y1 and min(abs(x0), abs(x1)) < max(sc_hw(y0), sc_hw(y1)) + 0.02 and x0 * x1 >= 0:
+            return False                                          # the cabin
+        if yc < SC_Y1 and x0 * x1 < 0:
+            return False
+        if yc > FC_YB and min(abs(x0), abs(x1)) < FC_R + 0.15 or (yc > FC_YB and x0 * x1 < 0):
+            return False                                          # the forecastle
+        return True
+    if level == 'poop':
+        return all(abs(x) <= sc_hw(y) - 0.1 + 1e-6 for x, y in corners)
+    return all((abs(x) if y <= FC_CY else math.hypot(x, y - FC_CY)) <= FC_R_IN + 1e-6 for x, y in corners)
+
+verts, vindex, faces = [], {}, []
+def vid(key, xyz):
+    if key not in vindex:
+        vindex[key] = len(verts); verts.append(tuple(xyz))
+    return vindex[key]
+
+def add_cell(level, x0, x1, y0, y1, fid=0):
+    z = LEVEL_Z[level]
+    ks = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]                    # CCW from above
+    faces.append(([vid((level, round(x, 4), round(y, 4)), (x, y, z)) for x, y in ks], fid))
+    return len(faces) - 1
+
+cells = {}
+for level, ys in (('deck', Y_DECK), ('poop', Y_POOP), ('fc', Y_FC)):
+    for y0, y1 in zip(ys, ys[1:]):
+        for x0, x1 in zip(X_LINES, X_LINES[1:]):
+            if walkable(level, x0, x1, y0, y1):
+                cells[(level, x0, x1, y0, y1)] = add_cell(level, x0, x1, y0, y1)
+# stairs: ramps whose foot vertices are the gun deck's and whose head vertices are the upper deck's
+for sx0, sx1, ya, yb, upper in STAIRS:
+    ys = sorted({ya, yb} | {y for y in Y_DECK if min(ya, yb) < y < max(ya, yb)})
+    if ya > yb: ys = ys[::-1]
+    cols = [(a, b) for a, b in zip(X_LINES, X_LINES[1:]) if sx0 - 1e-6 <= a and b <= sx1 + 1e-6]
+    def sv(x, y):
+        t = (y - ya) / (yb - ya)
+        if t <= 1e-6: return vid(('deck', round(x, 4), round(y, 4)), (x, y, Z_DECK))
+        if t >= 1 - 1e-6: return vid((upper, round(x, 4), round(y, 4)), (x, y, LEVEL_Z[upper]))
+        return vid(('stair', upper, round(x, 4), round(y, 4)), (x, y, Z_DECK + t * (LEVEL_Z[upper] - Z_DECK)))
+    for (x0, x1) in cols:
+        for y0, y1 in zip(ys, ys[1:]):
+            q = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+            if y1 < y0:                                                   # keep CCW from above
+                q = [(x0, y1), (x1, y1), (x1, y0), (x0, y0)]
+            faces.append(([sv(x, y) for x, y in q], 0))
+
+# --- boarding: attachment points/grapnels to our rail, each on its own id face at the deck edge -----------------
+V_med, _, F_med = navmesh.read(os.path.join(os.path.dirname(nav_path), '..', 'NavMeshPrefabs', 'meditheavy_ship_navmesh.bin'))
+med_ids = {fid: [sum(V_med[v][k] for v in vs) / len(vs) for k in range(3)] for vs, _, fid in F_med if fid}
+ah = files['attachment_machine_holder']
+att = []
+for e in kids(ah):
+    ids = [int(v.get('value')) for v in e.iter('variable') if v.get('name') == 'RelatedShipNavmeshOffset']
+    p, r, _ = tf(e)
+    fid = ids[0] if ids else min(med_ids, key=lambda i: math.dist(med_ids[i][:2], p[:2]))
+    att.append((e, fid, p, r))
+edge_cols = {1: (4.75, DECK_X), -1: (-DECK_X, -4.75)}
+used = set()
+for side in (-1, 1):
+    pts = sorted((a for a in att if (a[2][0] > 0) == (side > 0)), key=lambda a: a[2][1])
+    ylo, yhi = min(a[2][1] for a in pts), max(a[2][1] for a in pts)
+    rows = [(y0, y1) for y0, y1 in zip(Y_DECK, Y_DECK[1:]) if (('deck',) + edge_cols[side] + (y0, y1)) in cells]
+    for e, fid, p, r in pts:
+        want = -15.5 + (p[1] - ylo) / (yhi - ylo) * (18.5 + 15.5)          # spread over our longer deck
+        y0, y1 = min((rw for rw in rows if (side, rw) not in used), key=lambda rw: abs((rw[0] + rw[1]) / 2 - want))
+        used.add((side, (y0, y1)))
+        key = ('deck',) + edge_cols[side] + (y0, y1)
+        vs, _ = faces[cells[key]]; faces[cells[key]] = (vs, fid)
+        write_tf(e, pos=(side * (DECK_X + 4.75) / 2, (y0 + y1) / 2, Z_DECK + max(p[2] - DECK_MEDITHEAVY(p[1]), 0.0)),
+                 rot=r)
+report.append('boarding: %d attachment machines on the rail, id faces %s' % (len(att), sorted(a[1] for a in att)))
+
+os.makedirs(NAV_DIR, exist_ok=True)
+nv, ne, nf = navmesh.write(os.path.join(NAV_DIR, NAVMESH + '.bin'), verts, faces)
+for v in folder.iter('variable'):
+    if v.get('name') == 'NavMeshPrefabName' and v.get('value') == 'meditheavy_ship_navmesh':
+        v.set('value', NAVMESH)
+report.append('navmesh %s: %d verts, %d edges, %d faces (deck %.2f, poop %.2f, forecastle %.2f, 4 stairs)'
+              % (NAVMESH, nv, ne, nf, Z_DECK, Z_POOP_TOP, Z_FC))
+
+# --- meditheavy deck -> our deck: spawn points, helm, AI barriers --------------------------------------------------
+def med_level(x, y, z):
+    """(face z, raised?) of the meditheavy navmesh face under (x, y) nearest to z."""
+    best = None
+    for vs, _, _ in F_med:
+        fz = navmesh.face_z(V_med, vs, x, y)
+        if fz is not None and (best is None or abs(z - fz) < abs(z - best)):
+            best = fz
+    if best is None:
+        best = DECK_MEDITHEAVY(y)
+    return best, best > 4.4                                    # its raised stern deck vs the main deck
+
+med_deck = [v for v in V_med if v[2] <= 4.4]; med_poop = [v for v in V_med if v[2] > 4.4]
+MED_DECK_Y = (min(v[1] for v in med_deck), max(v[1] for v in med_deck))
+MED_POOP_Y = (min(v[1] for v in med_poop), max(v[1] for v in med_poop))
+def med_half(y, pool):
+    near = [abs(v[0]) for v in pool if abs(v[1] - y) < 2.5] or [max(abs(v[0]) for v in pool)]
+    return max(max(near), 1.5)
+
+def remap(p):
+    x, y, z = p
+    fz, raised = med_level(x, y, z)
+    h = max(z - fz, 0.0)
+    if raised:
+        t = min(max((y - MED_POOP_Y[0]) / (MED_POOP_Y[1] - MED_POOP_Y[0]), 0.0), 1.0)
+        y2 = SC_Y0 + 0.6 + t * (SC_Y1 - 0.4 - SC_Y0 - 0.6)
+        x2 = max(min(x / med_half(y, med_poop), 1.0), -1.0) * (sc_hw(y2) - 0.45)
+        return (x2, y2, Z_POOP_TOP + h)
+    t = min(max((y - MED_DECK_Y[0]) / (MED_DECK_Y[1] - MED_DECK_Y[0]), 0.0), 1.0)
+    y2 = DECK_Y0 + 1.0 + t * (FC_YB - 0.4 - DECK_Y0 - 1.0)
+    x2 = max(min(x / med_half(y, med_deck), 1.0), -1.0) * (DECK_X - 0.35)
+    if y2 < SC_Y1 and abs(x2) < sc_hw(y2) + 0.4:               # beside the cabin: out on the side deck
+        x2 = math.copysign(sc_hw(y2) + 0.6, x2 if x2 else 1)
+    for sx0, sx1, ya, yb, _ in STAIRS:                          # not on/under a stair
+        if sx0 - 0.3 < x2 < sx1 + 0.3 and min(ya, yb) - 0.3 < y2 < max(ya, yb) + 0.3:
+            x2 = sx1 + 0.5 if x2 > 0 else sx0 - 0.5                 # outboard of the stair
+    return (x2, y2, Z_DECK + h)
+
+moved = {}
+for e in kids(files['control_point_holder']):                    # the helm: front of the poop, as on the meditheavy
+    p, r, _ = tf(e)
+    write_tf(e, pos=(p[0], SC_Y1 - 0.9, Z_POOP_TOP), rot=r)
+    moved['control_point_holder'] = 1
+for holder in ('spawn_point_holder', 'barrier_holder'):
+    for e in kids(files[holder]):
+        p, r, _ = tf(e)
+        write_tf(e, pos=remap(p), rot=r)
+        moved[holder] = moved.get(holder, 0) + 1
+report.append('meditheavy deck -> galleass deck: %s' % moved)
+
+# --- rope climbers (from boats up the side) hang from the cap rail -------------------------------------------------
+for e in kids(files['climbers_holder']):
+    p, r, _ = tf(e)
+    write_tf(e, pos=(math.copysign(X_CAP, p[0]), p[1], Z_CAP), rot=r)
+report.append('climbers: on the cap rail (x +-%.2f, z %.2f)' % (X_CAP, Z_CAP))
+
 # --- write --------------------------------------------------------------------------------------------------------
 ET.indent(folder, '\t', level=1)
 body = ET.tostring(folder, encoding='unicode').replace(' />', '/>')   # the editor's style
