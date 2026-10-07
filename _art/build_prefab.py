@@ -210,6 +210,13 @@ for c in kids(rh):
                 k[:] = sorted(k, key=lambda c: ORDER.index(c.tag) if c.tag in ORDER else len(ORDER))
 report.append('rudder: galleass_rudder_a at %s rot %s, stock %s' % (RUDDER_POS, RUDDER_ROT, STOCK))
 
+# --- no shield upgrades: high bulwarks instead (ModuleData galleass_side slot offers only the brazier) --------------
+sh = files['shields_holder']
+assert sh.find('prefab_link/prefab').get('guid') == ZERO     # unlinked root: nothing to inherit back
+n = len(kids(sh))
+drop(sh, 'children')
+report.append('shields_holder: %d side shield groups removed (holder kept, empty)' % n)
+
 # --- write --------------------------------------------------------------------------------------------------------
 ET.indent(folder, '\t', level=1)
 body = ET.tostring(folder, encoding='unicode').replace(' />', '/>')   # the editor's style

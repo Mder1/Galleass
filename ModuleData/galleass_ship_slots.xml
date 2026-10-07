@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Galleass side slot: the arrow brazier only. No shield upgrades: a 16th-century galleass has high
+     bulwarks instead of shield rows (vanilla 'side' offers northern/southern shields lvl1-3 + brazier). -->
+<ShipSlots>
+	<ShipSlot
+		id="galleass_side"
+		type_id="side"
+		prefab_id="wood">
+		<ShipUpgradePieces>
+			<ShipUpgradePiece
+				id="side_brazier" />
+		</ShipUpgradePieces>
+	</ShipSlot>
+</ShipSlots>
