@@ -836,6 +836,27 @@ for e in kids(files['climbers_holder']):
     write_tf(e, pos=(math.copysign(X_CAP, p[0]), p[1], Z_CAP), rot=r)
 report.append('climbers: on the cap rail (x +-%.2f, z %.2f)' % (X_CAP, Z_CAP))
 
+# --- roof upgrades (awnings over the poop): vanilla roofs (rounded end aft, origin at that end, +y -> -y by the
+# 180 deg turn) sit on the model's awning frame, scaled to it (user 2026-10-07: 'on our frame'); level poop -> no tilt
+ya, yb = G['SC_AWNING_Y']
+R_LEN, R_FRONT = 7.69, 0.36                  # vanilla roof length / part aft of the origin (ship_roof_a: y -7.33..0.36)
+RSY = (yb - ya + 0.18) / R_LEN               # over the hoops, 15 cm past the aft one
+RSX, RSZ = 0.80, 0.85                        # inside the front posts (frame half width 3.5 fore, 2.2 aft)
+R_ORIGIN = (0.0, ya - 0.15 + R_FRONT * RSY, G['SC_Z_AWNING'] + 0.6 + LIFT + 0.06)    # canopy base above the ridge
+n = 0
+for vis in (e for e in kids(files['roof_group']) if e.get('name') == 'visuals'):              # the 'roof' upgrade slot
+    for c in kids(vis):
+        if not re.fullmatch(r'roof_\d+', c.get('name') or ''):
+            continue
+        drop(c, 'transform')
+        t = ET.Element('transform')
+        ET.SubElement(t, 'position', type_name='vec3', value='%.3f, %.3f, %.3f' % R_ORIGIN)
+        ET.SubElement(t, 'rotation_euler', type_name='vec3', value='0.000, 0.000, %.3f' % math.pi)
+        ET.SubElement(t, 'scale', type_name='vec3', value='%.3f, %.3f, %.3f' % (RSX, RSY, RSZ))
+        c.insert(1, t)
+        n += 1
+report.append('roof upgrades: %d roofs on the awning frame at %s, scale %.2f/%.2f/%.2f' % (n, tuple(round(v, 2) for v in R_ORIGIN), RSX, RSY, RSZ))
+
 # --- write --------------------------------------------------------------------------------------------------------
 ET.indent(folder, '\t', level=1)
 body = ET.tostring(folder, encoding='unicode').replace(' />', '/>')   # the editor's style
