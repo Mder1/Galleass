@@ -838,11 +838,8 @@ report.append('climbers: on the cap rail (x +-%.2f, z %.2f)' % (X_CAP, Z_CAP))
 
 # --- roof upgrades (awnings over the poop): vanilla roofs (rounded end aft, origin at that end, +y -> -y by the
 # 180 deg turn) sit on the model's awning frame, scaled to it (user 2026-10-07: 'on our frame'); level poop -> no tilt
-ya, yb = G['SC_AWNING_Y']
-R_LEN, R_FRONT = 7.69, 0.36                  # vanilla roof length / part aft of the origin (ship_roof_a: y -7.33..0.36)
-RSY = (yb - ya + 0.18) / R_LEN               # over the hoops, 15 cm past the aft one
-RSX, RSZ = 0.80, 0.85                        # inside the front posts (frame half width 3.5 fore, 2.2 aft)
-R_ORIGIN = (0.0, ya - 0.15 + R_FRONT * RSY, G['SC_Z_AWNING'] + 0.6 + LIFT + 0.06)    # canopy base above the ridge
+RSX, RSY, RSZ = G['roof_scale_x'](), G['ROOF_SY'], 0.8          # the model's awning frame follows this footprint
+R_ORIGIN = (0.0, G['ROOF_ORIGIN_Y'], G['SC_Z_AWNING'] + 0.05 + LIFT)  # base plane on the frame's beam tops
 n = 0
 for vis in (e for e in kids(files['roof_group']) if e.get('name') == 'visuals'):              # the 'roof' upgrade slot
     for c in kids(vis):

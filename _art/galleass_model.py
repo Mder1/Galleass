@@ -75,7 +75,14 @@ FC_STAIR_X = 2.4                         # centre line of the two stairs up to t
 SC_Y_AFT, SC_Y_FORE = -24.0, -14.5
 SC_Z_FLOOR = 5.3                         # poop deck
 SC_Z_RAIL = 6.45
-SC_AWNING_Y = (-23.4, -18.6)            # aft hoop clears the stern lantern
+SC_AWNING_Y = (-23.4, -18.6)            # (old hooped frame; the frame now carries the roof footprint, see roof_edge)
+# roof upgrades (vanilla ship_roof_*): all share one base footprint, tapering like a stern; local y -7.33 (fore end
+# after their 180 deg turn) .. +0.35 (aft tip), base plane z 0. Half width of that base along local y:
+ROOF_BASE_HW = [(-7.33, 3.82), (-7.0, 3.82), (-5.5, 3.77), (-4.0, 3.62), (-2.5, 3.38), (-1.0, 2.85), (0.0, 1.99), (0.35, 1.2)]
+ROOF_SY = 0.70                           # along the ship
+ROOF_REACH_AFT = 2.02                    # furthest aft any roof style reaches (ship_roof_c_l3), local y
+LANTERN_Y = -24.15                       # on the poop deck, just inside the aft rail
+ROOF_ORIGIN_Y = LANTERN_Y + 0.6 + ROOF_REACH_AFT * ROOF_SY       # every roof clears the stern lantern by >= 0.6 m
 SC_Z_AWNING = 8.7
 # cabin windows: opening z, arch rise; arch top (+ tube) stays below the deck-line moulding at SC_Z_FLOOR - 0.12
 SCW_Z0, SCW_Z1, SCW_ARCH = 4.4, 4.88, 0.18
@@ -90,7 +97,6 @@ BALC_INSET = 0.08                         # balustrade set in from the floor edg
 BALC_Z_BOT = FC_Z_BASE - 0.3              # plate reaches below the hull top: it closes the hull end behind the cabin
 POOP_INSET = 0.06                         # poop balustrade line inside the deck edge (posts never overhang)
 SC_STAIR_X = 3.25                        # centre line of the two stairs up to the poop
-LANTERN_Y = -24.15                       # on the poop deck, just inside the aft rail
 
 # LIFT (user 2026-10-07, in game the ship sat too low; a galleass's rowing level was ~1.5-2 m above the water):
 # every part above the outer wall's foot (just above the flare) is built as before and then moved up Z_LIFT, the
@@ -871,6 +877,19 @@ def build_forecastle():
 def sc_hw(y):
     return half_beam(y, True) + 0.02
 
+def roof_y(ly):
+    """World y of a roof's local y (180 deg turn, ROOF_SY)."""
+    return ROOF_ORIGIN_Y - ly * ROOF_SY
+
+def roof_scale_x():
+    """Largest width scale that keeps the roof's base edge 5 cm inside the poop balustrade line."""
+    return min((sc_hw(roof_y(ly)) - POOP_INSET - 0.05) / pchip(ROOF_BASE_HW, ly)
+               for ly in [-7.33 + 7.68 * k / 40 for k in range(41)])
+
+def roof_edge(y):
+    """Half width of the (scaled) roof base at world y = where the awning frame's side beams run."""
+    return roof_scale_x() * pchip(ROOF_BASE_HW, (ROOF_ORIGIN_Y - y) / ROOF_SY)
+
 def tapered_block(name, ya, yb, z0, z1, hw_fn, role, n=16, grow=0.0):
     """Block whose half width follows hw_fn(y); z0 may be a function of y (bottom following the hull)."""
     bm = bmesh.new(); rings = []
@@ -1183,19 +1202,20 @@ def build_stern_balcony():
             lathe('sc_baluster', prof, 'trim', at=(x0 + (x1 - x0) * k / n, yf, zb), segs=10)
         for x in (x0, x1):
             box('sc_post', x - 0.09, x + 0.09, yf - 0.09, yf + 0.09, zb, SC_Z_RAIL + 0.1, 'trim')
-    # awning frame (tendalino) over the after part of the poop
-    ya, yb = SC_AWNING_Y
-    aw = lambda y: sc_hw(y) - POOP_INSET               # on the balustrade line
-    for y in (ya, (ya + yb) / 2, yb):
-        for side in (-1, 1):
-            x = side * aw(y)
-            sweep('awning_post', [(x, y, SC_Z_RAIL - 0.1), (x, y, SC_Z_AWNING + 0.05)], 0.06, 'trim', segs=12)
-            box('awning_post_cap', x - 0.08, x + 0.08, y - 0.08, y + 0.08, SC_Z_AWNING - 0.06, SC_Z_AWNING + 0.06, 'trim')
-        arc = [(-aw(y) * math.cos(t), y, SC_Z_AWNING + 0.6 * math.sin(t)) for t in [math.pi * k / 24 for k in range(25)]]
-        sweep('awning_hoop', arc, 0.05, 'trim', segs=12, cap=False)
+    # awning frame (tendalino) over the after part of the poop: it carries the roof upgrades, so its beams follow the
+    # roofs' base edge (roof_edge) and are flat at SC_Z_AWNING; the roofs rest on the beam tops (user 2026-10-07:
+    # the roofs floated over the old hooped frame)
+    lys = [-7.2 + 7.4 * k / 24 for k in range(25)]
     for side in (-1, 1):
-        sweep('awning_rail', [(side * aw(y), y, SC_Z_AWNING) for y in (ya, (ya + yb) / 2, yb)], 0.05, 'trim', segs=12)
-    sweep('awning_ridge', [(0, ya, SC_Z_AWNING + 0.6), (0, yb, SC_Z_AWNING + 0.6)], 0.05, 'trim', segs=12)
+        sweep('awning_rail', [(side * roof_edge(roof_y(ly)), roof_y(ly), SC_Z_AWNING) for ly in lys], 0.05, 'trim', segs=12)
+    for ly in (-7.0, -3.5, -0.3):
+        y = roof_y(ly); w = roof_edge(y)
+        for side in (-1, 1):
+            x = side * w
+            sweep('awning_post', [(x, y, SC_Z_FLOOR + 0.1), (x, y, SC_Z_AWNING + 0.05)], 0.06, 'trim', segs=12)
+            box('awning_post_cap', x - 0.08, x + 0.08, y - 0.08, y + 0.08, SC_Z_AWNING - 0.06, SC_Z_AWNING + 0.06, 'trim')
+        sweep('awning_beam', [(-w, y, SC_Z_AWNING), (w, y, SC_Z_AWNING)], 0.05, 'trim', segs=12)
+    sweep('awning_ridge', [(0, roof_y(-7.0), SC_Z_AWNING), (0, roof_y(-0.3), SC_Z_AWNING)], 0.05, 'trim', segs=12)
     build_stern_lantern()
     # stairs from the gun deck up to the poop, running aft along both sides of the cabin front
     run = (SC_Z_FLOOR - Z_GUN_DECK) / math.tan(math.radians(40))
