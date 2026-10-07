@@ -1503,8 +1503,23 @@ def long_axis(me):
 
 def add_uvs(me, role):
     s = UV_SCALE[role]
-    a = long_axis(me)
     uv = me.uv_layers.new(name='UVMap') if not me.uv_layers else me.uv_layers[0]
+    if role in ('hull', 'paint'):
+        # planking of walls and hull: planks always run horizontally and the mapping is continuous across facets -
+        # sideways-facing faces map along the ship (y, z), fore/aft-facing ones across it (x, z), bottoms/tops (y, x).
+        # (Per-part long axis + per-face projection put the planks vertical/diagonal on the tall end walls after the
+        # lift and broke curved surfaces - forecastle round, hull ends - into small squares; user 2026-10-07.)
+        for poly in me.polygons:
+            n = poly.normal
+            ax = max(range(3), key=lambda k: abs(n[k]))
+            for li in poly.loop_indices:
+                p = me.vertices[me.loops[li].vertex_index].co
+                uv.data[li].uv = ((p.y, p.z) if ax == 0 else (p.x, p.z) if ax == 1 else (p.y, p.x))
+                uv.data[li].uv = (uv.data[li].uv[0] * s, uv.data[li].uv[1] * s)
+        col = me.color_attributes.new('Col', 'BYTE_COLOR', 'CORNER') if 'Col' not in me.color_attributes else me.color_attributes['Col']
+        for d in col.data: d.color = (1, 1, 1, 1)
+        return
+    a = long_axis(me)
     for poly in me.polygons:
         n = poly.normal
         u = a - n * a.dot(n)
