@@ -502,6 +502,79 @@ for c in kids(du):
     write_tf(c, pos=p)
     report.append('deck upgrade %.1f -> (%.2f, %.2f, %.3f)' % (y, *p))
 
+# --- floaters: columns filling OUR watertight body (vanilla physics: each floater is a box, origin = centre of its
+# bottom face, scale = size; buoyancy = submerged height x footprint x 1020 x g x hull floating_force_multiplier;
+# the ship settles where that equals mass x g). The meditheavy's columns were the wrong shape (roll/pitch/damage).
+FLOAT_DX, FLOAT_DY = 2 * W_OUT / 7, 2.1                 # 7 columns across the full width; ~vanilla floater count (max 140)
+WL_TARGET = 0.0                                         # design waterline (model z 0) at the hull XML's mass
+WING_Z0, WING_ZF = G['WING_Z0'], G['WING_Z_FACE']
+
+def cove_x_at_z(y, z):
+    lo, hi = 0.0, 1.0
+    for _ in range(30):
+        mid = (lo + hi) / 2
+        if G['cove_xz'](y, mid)[1] < z: lo = mid
+        else: hi = mid
+    return G['cove_xz'](y, lo)[0]
+
+def body_half_width(y, z):
+    """Half width of the watertight body at (y, z): hull shell, the flare and the box up to the gun deck, castles."""
+    w, zt = 0.0, G['z_top'](y)
+    if min(G['z_bottom'](y), zt - 0.15) <= z <= zt:
+        w = G['hull_x_at'](y, z)
+    if BOX_Y0 <= y <= BOX_Y1 and z >= WING_Z0:
+        w = max(w, W_OUT if z >= WING_ZF else cove_x_at_z(y, z))
+    if y >= FC_YB and G['FC_Z_BASE'] - 0.2 <= z <= Z_FC:
+        w = max(w, fc_half(y))
+    if SC_Y0 <= y <= SC_Y1 and zt - 0.1 <= z <= Z_POOP:
+        w = max(w, sc_hw(y))
+    return w
+
+def column(x, y):
+    cap = Z_POOP if (SC_Y0 <= y <= SC_Y1 and abs(x) < sc_hw(y)) else \
+          Z_FC if (y >= FC_YB and abs(x) < fc_half(y)) else Z_DECK
+    zs = [-3.0 + 0.04 * k for k in range(int((cap + 3.0) / 0.04) + 1)]
+    inside = [z for z in zs if body_half_width(y, z) >= abs(x)]
+    return (min(inside), max(inside)) if inside and max(inside) - min(inside) > 0.2 else None
+
+def balance_z(cols, mass, mult):
+    z = min(b for _, _, b, _ in cols)
+    while True:
+        f = sum(min(z - b, t - b) * FLOAT_DX * FLOAT_DY * 1020.0 * mult for _, _, b, t in cols if z > b)
+        if f >= mass:
+            return z
+        z += 0.01
+
+fh = files['floater_volume_holder']
+tmpl_f = kids(fh)[0]
+cols = []
+for j in range(int(52 / FLOAT_DY) + 1):
+    y = -26.0 + FLOAT_DY * (j + 0.5)
+    for i in range(7):
+        x = -W_OUT + FLOAT_DX * (i + 0.5)
+        c = column(x, y)
+        if c:
+            cols.append((x, y, c[0], c[1]))
+fh.find('children')[:] = []
+for n, (x, y, b, t) in enumerate(cols):
+    f = copy_regen(tmpl_f, 'galleass-floater/%d/' % n)
+    f.set('name', 'floater_volume_%03d_galleass' % n)
+    drop(f, 'transform')
+    tr = ET.Element('transform')
+    ET.SubElement(tr, 'position', type_name='vec3', value='%.3f, %.3f, %.3f' % (x, y, b))
+    ET.SubElement(tr, 'scale', type_name='vec3', value='%.3f, %.3f, %.3f' % (FLOAT_DX, FLOAT_DY, t - b))
+    f.insert(1, tr)
+    fh.find('children').append(f)
+mass = float(re.search(r'\bmass="([\d.]+)"', open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                             '..', 'ModuleData', 'galleass_mission_ships.xml')).read()).group(1))
+vol_wl = sum(max(min(WL_TARGET - b, t - b), 0) for _, _, b, t in cols) * FLOAT_DX * FLOAT_DY
+mult = mass / (1020.0 * vol_wl)
+report.append('floaters: %d columns (%.2f x %.2f m), volume %.0f m3, %.0f m3 below z %.2f -> galleass_ship_hulls.xml '
+              'floating_force_multiplier = %.3f for the waterline at z %.2f (mass %.0f); +10/+20 %% weight (upgrades) '
+              '-> z %.2f / %.2f' % (len(cols), FLOAT_DX, FLOAT_DY, sum(t - b for *_, b, t in cols) * FLOAT_DX * FLOAT_DY,
+                                     vol_wl, WL_TARGET, mult, balance_z(cols, mass, round(mult, 3)), mass,
+                                     balance_z(cols, mass * 1.1, round(mult, 3)), balance_z(cols, mass * 1.2, round(mult, 3))))
+
 # --- write --------------------------------------------------------------------------------------------------------
 ET.indent(folder, '\t', level=1)
 body = ET.tostring(folder, encoding='unicode').replace(' />', '/>')   # the editor's style
