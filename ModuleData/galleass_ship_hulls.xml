@@ -22,7 +22,7 @@
 		sea_worthiness="36"
 		inventory_capacity="4800"
 		map_visual_scale="0.05"
-		floating_force_multiplier="0.343">
+		floating_force_multiplier="0.225">
 		<AvailableSlots>
 			<ShipSlot
 				id="galleass_fore"

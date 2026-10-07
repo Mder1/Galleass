@@ -10,8 +10,12 @@ Nested prefab entities inherit missing elements (transform, tags, components, ph
 entity their <prefab guid> points to (NavalDLC base prefabs). Before removing something from such an entity it is
 flattened: the inherited elements are copied in and the base link is cut, so nothing comes back through inheritance.
 """
-import copy, re, sys
+import copy, math, os, re, sys, uuid
 import xml.etree.ElementTree as ET
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import model_geom
+G = model_geom.load()      # the model's geometry; its z constants are UNLIFTED design values: + Z_LIFT above the cut
+LIFT = G['Z_LIFT']
 
 nav_path, clone_path, out_path = sys.argv[1:4]
 ZERO = '{00000000-0000-0000-0000-000000000000}'
@@ -177,8 +181,8 @@ strip_meshes('figurehead_group', lambda m: m == 'figurehea_adapter_meditheavy', 
 # vanilla figureheads sit at (0, 21.24, 3.05) inside the group; ours go to (0, 26.7, 1.75), ~1.13x larger
 FIG_S = 1.13
 fg = files['figurehead_group']
-set_transform(fg, pos=(0.0, 26.7 - FIG_S * 21.24, 1.75 - FIG_S * 3.05), scale=(FIG_S, FIG_S, FIG_S))
-report.append('figurehead_group: scale %.2f, figureheads at (0, 26.7, 1.75)' % FIG_S)
+set_transform(fg, pos=(0.0, 26.7 - FIG_S * 21.24, 1.75 + LIFT - FIG_S * 3.05), scale=(FIG_S, FIG_S, FIG_S))
+report.append('figurehead_group: scale %.2f, figureheads at (0, 26.7, %.2f)' % (FIG_S, 1.75 + LIFT))
 
 # --- rudder: centreline stern rudder on the raked post ----------------------------------------------------------
 RUDDER_POS, RUDDER_ROT = (0.0, -23.831, -2.370), (0.4124, 0.0, 0.0)
@@ -222,14 +226,10 @@ for name in ('shields_holder', 'battlements_holder_fore', 'battlements_holder_af
 # ==================================================================================================================
 # Stage 2: relayout onto the galleass (oars, masts + rigging, fittings). Deck heights and widths come from the model.
 # ==================================================================================================================
-import math, os, uuid
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import model_geom
-G = model_geom.load()
-Z_DECK, Z_POOP, Z_FC = G['Z_GUN_DECK'], G['SC_Z_FLOOR'], G['FC_Z_PLATFORM']
+Z_DECK, Z_POOP, Z_FC = G['Z_GUN_DECK'] + LIFT, G['SC_Z_FLOOR'] + LIFT, G['FC_Z_PLATFORM'] + LIFT
 W_OUT, SIDE_T = G['WING_HW'], G['SIDE_T']
 W_IN = W_OUT - SIDE_T                                    # inner face of the bulwark
-X_CAP, Z_CAP = W_OUT - 0.11, G['Z_BULWARK_TOP'] + 0.1   # middle / top of the cap rail
+X_CAP, Z_CAP = W_OUT - 0.11, G['Z_BULWARK_TOP'] + LIFT + 0.1  # middle / top of the cap rail
 BOX_Y0, BOX_Y1 = G['WING_Y0'], G['WING_Y1']
 SC_Y0, SC_Y1 = G['SC_Y_AFT'], G['SC_Y_FORE']
 FC_YB, FC_CY, FC_R = G['FC_Y_BACK'], G['FC_CY'], G['fc_radius'](G['FC_Z_PLATFORM'])
@@ -256,8 +256,8 @@ def rail_point(y, side):
     if BOX_Y0 + 0.2 <= y <= BOX_Y1 - 0.2:
         return (side * X_CAP, y, Z_CAP)
     if y < BOX_Y0:
-        return (side * (sc_hw(y) - 0.06), y, G['SC_Z_RAIL'])
-    return (side * max(fc_half(y) - 0.15, 0.3), y, G['FC_Z_PARAPET'])
+        return (side * (sc_hw(y) - 0.06), y, G['SC_Z_RAIL'] + LIFT)
+    return (side * max(fc_half(y) - 0.15, 0.3), y, G['FC_Z_PARAPET'] + LIFT)
 
 # transforms (TaleWorlds Mat3.ApplyEulerAngles: z, then x, then y; as prefab_layout.py)
 I3 = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
@@ -361,7 +361,7 @@ tmpl = {}
 for s, n in ((-1, 'oar_left_lower_8m'), (1, 'oar_right_lower_8m')):
     tmpl[s] = next(e for e in dromon_oars.iter('entity') if re.fullmatch(n + r'_\d+', e.get('name') or ''))
 OAR_X = W_OUT - SIDE_T / 2                                           # pivot in the middle of the wall
-OAR_Z = (G['OARPORT_Z0'] + G['OARPORT_Z1']) / 2 - 0.7               # the oar pivots 0.7 above its entity
+OAR_Z = (G['OARPORT_Z0'] + G['OARPORT_Z1']) / 2 + LIFT - 0.7               # the oar pivots 0.7 above its entity
 n_oars = 0
 for grp_name, s in (('left_oar_machines', -1), ('right_oar_machines', 1)):
     grp = next(c for c in kids(decks['oar_deck_lower']) if c.get('name') == grp_name)
@@ -506,7 +506,7 @@ for c in kids(du):
 # bottom face, scale = size; buoyancy = submerged height x footprint x 1020 x g x hull floating_force_multiplier;
 # the ship settles where that equals mass x g). The meditheavy's columns were the wrong shape (roll/pitch/damage).
 FLOAT_DX, FLOAT_DY = 2 * W_OUT / 7, 2.1                 # 7 columns across the full width; ~vanilla floater count (max 140)
-WL_TARGET = -0.8                                        # LOOK TEST (user 2026-10-07): 0.8 m above the design waterline (model z 0)
+WL_TARGET = 0.0                                         # design waterline (model z 0); decks lifted in the model instead
 WING_Z0, WING_ZF = G['WING_Z0'], G['WING_Z_FACE']
 
 def cove_x_at_z(y, z):
@@ -518,15 +518,17 @@ def cove_x_at_z(y, z):
     return G['cove_xz'](y, lo)[0]
 
 def body_half_width(y, z):
-    """Half width of the watertight body at (y, z): hull shell, the flare and the box up to the gun deck, castles."""
+    """Half width of the watertight body at (y, z) (lifted, real heights): hull shell, the flare and the box up to
+    the gun deck, castles. The model's shapes are evaluated at the unlifted height."""
+    z = G['unlift_z'](y, z)
     w, zt = 0.0, G['z_top'](y)
     if min(G['z_bottom'](y), zt - 0.15) <= z <= zt:
         w = G['hull_x_at'](y, z)
     if BOX_Y0 <= y <= BOX_Y1 and z >= WING_Z0:
         w = max(w, W_OUT if z >= WING_ZF else cove_x_at_z(y, z))
-    if y >= FC_YB and G['FC_Z_BASE'] - 0.2 <= z <= Z_FC:
+    if y >= FC_YB and G['FC_Z_BASE'] - 0.2 <= z <= G['FC_Z_PLATFORM']:
         w = max(w, fc_half(y))
-    if SC_Y0 <= y <= SC_Y1 and zt - 0.1 <= z <= Z_POOP:
+    if SC_Y0 <= y <= SC_Y1 and zt - 0.1 <= z <= G['SC_Z_FLOOR']:
         w = max(w, sc_hw(y))
     return w
 

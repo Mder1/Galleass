@@ -88,6 +88,30 @@ POOP_INSET = 0.06                         # poop balustrade line inside the deck
 SC_STAIR_X = 3.25                        # centre line of the two stairs up to the poop
 LANTERN_Y = -24.15                       # on the poop deck, just inside the aft rail
 
+# LIFT (user 2026-10-07, in game the ship sat too low; a galleass's rowing level was ~1.5-2 m above the water):
+# every part above the outer wall's foot (just above the flare) is built as before and then moved up Z_LIFT, the
+# plain wall/hull/backbone across the cut stretch. Aft (from y -22, behind the strake runs) the cut climbs to just
+# above the stern post top, so the post and the rudder stay as they are. The beak moves up rigidly. The constants
+# above are the UNLIFTED design values: real heights = lift_z(y, z) (model_geom users: build_prefab.py).
+Z_LIFT = 1.5
+LIFT_RIGID = ('beak_',)
+LIFT_DONE = ('hull_shell',)                 # built at the lifted shape already
+
+def lift_band(y):
+    """(start, width) of the z band across which parts are stretched by Z_LIFT."""
+    t = smoothstep(-22.0, -23.5, y)
+    return 0.951 + t * (1.62 - 0.951), 0.006 + t * (0.22 - 0.006)
+
+def lift_z(y, z):
+    a, w = lift_band(y)
+    return z + Z_LIFT * min(max((z - a) / w, 0.0), 1.0)
+
+def unlift_z(y, z):
+    a, w = lift_band(y)
+    if z <= a: return z
+    if z >= a + w + Z_LIFT: return z - Z_LIFT
+    return a + (z - a) * w / (w + Z_LIFT)
+
 # masts (vanilla lateen rigs go here later): mizzen, main, fore
 MASTS = {'mizzen': -13.7, 'main': 5.5, 'fore': 22.5}
 # bow: no ram slot (user 2026-10-06). A carved beak under the forecastle front carries the vanilla figureheads
@@ -410,8 +434,15 @@ def build_hull():
         ys.append(y0 + (y1 - y0) * (0.5 - 0.5 * math.cos(t * math.pi)))
     bm = bmesh.new()
     rings = []
+    n = 40
     for y in ys:
+        # built at its LIFTED shape (see lift_z) with the rows spread over the lifted height: stretching the coarse
+        # shell afterwards put the whole lift into one row of faces (creased shading at the ends)
         sec = section(y)
+        zb, zt = lift_z(y, sec[0][1]), lift_z(y, sec[-1][1])
+        sec = [(hull_x_at(y, unlift_z(y, z)), z) for z in
+               (zb + (zt - zb) * (1 - math.cos(i / n * math.pi)) / 2 for i in range(n + 1))]
+        sec[0] = (0.0, zb) if section(y)[0][0] == 0.0 else (sec[0][0], zb)
         ring = [bm.verts.new((-w, y, z)) for w, z in reversed(sec)] + [bm.verts.new((w, y, z)) for w, z in sec[1:]]
         rings.append(ring)
     for a, b in zip(rings, rings[1:]):
@@ -1477,6 +1508,10 @@ by_role, interior = {}, []
 for o, role in PARTS:
     me = bpy.data.meshes.new_from_object(o.evaluated_get(dg))
     me.transform(o.matrix_world)
+    rigid = o.name.startswith(LIFT_RIGID)
+    for v in me.vertices:
+        if not o.name.startswith(LIFT_DONE):
+            v.co.z = v.co.z + Z_LIFT if rigid else lift_z(v.co.y, v.co.z)
     me.update()
     add_uvs(me, role)
     if o.name.startswith(INTERIOR):
@@ -1600,15 +1635,16 @@ def verts_of(names, test):
         out += [o.matrix_world @ v.co for v in o.data.vertices if test(o.matrix_world @ v.co)]
     return out
 
+# the parts were lifted (lift_z): every height used here is above the cut, so + Z_LIFT
 BODY = ['galleass_hull', 'galleass_paint', 'galleass_deck', 'galleass_trim']
 # 1) ship body for ship physics (root entity, dynamic convex hulls): hull slices up to the bulwark + both castles
 bmc = bmesh.new()
 for y0, y1 in ((-27.0, -17.6), (-17.6, -6.0), (-6.0, 6.0), (6.0, 20.6), (20.6, 26.5)):
-    pts = verts_of(BODY, lambda p, y0=y0, y1=y1: y0 - 0.05 <= p.y <= y1 + 0.05 and p.z <= Z_BULWARK_TOP + 0.1)
+    pts = verts_of(BODY, lambda p, y0=y0, y1=y1: y0 - 0.05 <= p.y <= y1 + 0.05 and p.z <= (Z_BULWARK_TOP + Z_LIFT) + 0.1)
     if len(pts) > 4: convex_piece(bmc, pts)
-pts = verts_of(BODY, lambda p: p.y >= FC_Y_BACK - 0.05 and p.z >= FC_Z_BASE - 0.1 and p.z <= FC_Z_PARAPET + 0.1)
+pts = verts_of(BODY, lambda p: p.y >= FC_Y_BACK - 0.05 and p.z >= (FC_Z_BASE + Z_LIFT) - 0.1 and p.z <= (FC_Z_PARAPET + Z_LIFT) + 0.1)
 convex_piece(bmc, pts)
-pts = verts_of(BODY, lambda p: SC_Y_AFT - 0.3 <= p.y <= SC_Y_FORE + 0.1 and p.z >= FC_Z_BASE - 0.1 and p.z <= SC_Z_FLOOR + 0.15)
+pts = verts_of(BODY, lambda p: SC_Y_AFT - 0.3 <= p.y <= SC_Y_FORE + 0.1 and p.z >= (FC_Z_BASE + Z_LIFT) - 0.1 and p.z <= (SC_Z_FLOOR + Z_LIFT) + 0.15)
 convex_piece(bmc, pts)
 mc = bpy.data.meshes.new('bo_composite_conv_galleass'); bmc.to_mesh(mc); bmc.free()
 coll('physics').objects.link(bpy.data.objects.new('bo_composite_conv_galleass', mc))
@@ -1617,46 +1653,46 @@ coll('physics').objects.link(bpy.data.objects.new('bo_composite_conv_galleass', 
 # thin walls, castles, decks, stairs as ramps - all convex pieces in one mesh
 bmb = bmesh.new()
 for y0, y1 in ((-27.0, -20.0), (-20.0, -12.0), (-12.0, -4.0), (-4.0, 4.0), (4.0, 12.0), (12.0, 20.6), (20.6, 26.5)):
-    pts = verts_of(BODY, lambda p, y0=y0, y1=y1: y0 - 0.05 <= p.y <= y1 + 0.05 and p.z <= Z_GUN_DECK + 0.01)
+    pts = verts_of(BODY, lambda p, y0=y0, y1=y1: y0 - 0.05 <= p.y <= y1 + 0.05 and p.z <= (Z_GUN_DECK + Z_LIFT) + 0.01)
     if len(pts) > 4: convex_piece(bmb, pts)
 def bx(x0, x1, y0, y1, z0, z1):
     convex_piece(bmb, [(x, y, z) for x in (x0, x1) for y in (y0, y1) for z in (z0, z1)])
 W = WING_HW
 for sd in (-1, 1):
-    bx(*sorted((sd * W, sd * (W - SIDE_T))), WING_Y0, WING_Y1, Z_GUN_DECK, Z_BULWARK_TOP + 0.1)          # outer walls
+    bx(*sorted((sd * W, sd * (W - SIDE_T))), WING_Y0, WING_Y1, (Z_GUN_DECK + Z_LIFT), (Z_BULWARK_TOP + Z_LIFT) + 0.1)          # outer walls
     for ye in (WING_Y0, WING_Y1):                                                                         # end walls
-        bx(*sorted((sd * (box_inner_x(ye) - 0.05), sd * W)), ye - 0.1, ye + 0.1, Z_GUN_DECK, Z_BULWARK_TOP + 0.1)
+        bx(*sorted((sd * (box_inner_x(ye) - 0.05), sd * W)), ye - 0.1, ye + 0.1, (Z_GUN_DECK + Z_LIFT), (Z_BULWARK_TOP + Z_LIFT) + 0.1)
 # forecastle: solid tower to the platform, parapet as a ring of thin pieces
-convex_piece(bmb, [(x, y, z) for (x, y) in horseshoe(fc_radius(FC_Z_BASE), n=24) for z in (Z_GUN_DECK, FC_Z_PLATFORM)])
-ring_o, ring_i = horseshoe(fc_radius(FC_Z_PLATFORM), n=24), horseshoe(fc_radius(FC_Z_PLATFORM) - 0.35, n=24)
+convex_piece(bmb, [(x, y, z) for (x, y) in horseshoe(fc_radius((FC_Z_BASE + Z_LIFT)), n=24) for z in ((Z_GUN_DECK + Z_LIFT), (FC_Z_PLATFORM + Z_LIFT))])
+ring_o, ring_i = horseshoe(fc_radius((FC_Z_PLATFORM + Z_LIFT)), n=24), horseshoe(fc_radius((FC_Z_PLATFORM + Z_LIFT)) - 0.35, n=24)
 for k in range(len(ring_o) - 1):
     convex_piece(bmb, [(x, y, z) for (x, y) in (ring_o[k], ring_o[k + 1], ring_i[k], ring_i[k + 1])
-                       for z in (FC_Z_PLATFORM, FC_Z_PARAPET + 0.1)])
+                       for z in ((FC_Z_PLATFORM + Z_LIFT), (FC_Z_PARAPET + Z_LIFT) + 0.1)])
 # cabin: walls with door gaps, poop deck slab, balustrade line, balcony slab
 def sc_wall_x(y0, y1, sd, z0, z1):
     convex_piece(bmb, [(sd * (sc_hw(y) + dx), y, z) for y in (y0, y1) for dx in (0.0, -SC_WALL) for z in (z0, z1)])
 for sd in (-1, 1):
-    sc_wall_x(SC_Y_AFT, SC_Y_FORE, sd, Z_GUN_DECK, SC_Z_FLOOR)
-    sc_wall_x(SC_Y_AFT - 0.3, SC_Y_FORE + 0.08, sd, SC_Z_FLOOR + 0.12, SC_Z_RAIL)                         # poop rail
+    sc_wall_x(SC_Y_AFT, SC_Y_FORE, sd, (Z_GUN_DECK + Z_LIFT), (SC_Z_FLOOR + Z_LIFT))
+    sc_wall_x(SC_Y_AFT - 0.3, SC_Y_FORE + 0.08, sd, (SC_Z_FLOOR + Z_LIFT) + 0.12, (SC_Z_RAIL + Z_LIFT))                         # poop rail
 for yf, d, dx in ((SC_Y_FORE, -1, SC_DOOR_X), (SC_Y_AFT, 1, 0.0)):
     wf = sc_hw(yf)
     for xa, xb in ((-wf, dx - SC_DOOR_W / 2), (dx + SC_DOOR_W / 2, wf)):
-        bx(xa, xb, *sorted((yf, yf + d * SC_WALL)), Z_GUN_DECK, SC_Z_FLOOR)
-    bx(dx - SC_DOOR_W / 2, dx + SC_DOOR_W / 2, *sorted((yf, yf + d * SC_WALL)), Z_GUN_DECK + 2.1, SC_Z_FLOOR)
+        bx(xa, xb, *sorted((yf, yf + d * SC_WALL)), (Z_GUN_DECK + Z_LIFT), (SC_Z_FLOOR + Z_LIFT))
+    bx(dx - SC_DOOR_W / 2, dx + SC_DOOR_W / 2, *sorted((yf, yf + d * SC_WALL)), (Z_GUN_DECK + Z_LIFT) + 2.1, (SC_Z_FLOOR + Z_LIFT))
 convex_piece(bmb, [(sd * (sc_hw(y) + 0.08), y, z) for y in (SC_Y_AFT - 0.3, SC_Y_FORE + 0.08) for sd in (-1, 1)
-                   for z in (SC_Z_FLOOR, SC_Z_FLOOR + 0.12)])
+                   for z in ((SC_Z_FLOOR + Z_LIFT), (SC_Z_FLOOR + Z_LIFT) + 0.12)])
 convex_piece(bmb, [(x, y, z) for x, y in [(-sc_hw(SC_Y_AFT) - 0.1, SC_Y_AFT), (sc_hw(SC_Y_AFT) + 0.1, SC_Y_AFT),
                                           (-1.0, SC_Y_AFT - BALC_RY), (1.0, SC_Y_AFT - BALC_RY)]
-                   for z in (Z_GUN_DECK - 0.16, Z_GUN_DECK)])
+                   for z in ((Z_GUN_DECK + Z_LIFT) - 0.16, (Z_GUN_DECK + Z_LIFT))])
 # stairs as ramps (agents' feet and missiles)
-run = (SC_Z_FLOOR - Z_GUN_DECK) / math.tan(math.radians(40))
+run = ((SC_Z_FLOOR + Z_LIFT) - (Z_GUN_DECK + Z_LIFT)) / math.tan(math.radians(40))
 for sd in (-1, 1):
     x = sd * SC_STAIR_X
     convex_piece(bmb, [(x + dx, y, z) for dx in (-0.5, 0.5) for (y, z) in
-                       ((SC_Y_FORE + run, Z_GUN_DECK), (SC_Y_FORE, SC_Z_FLOOR + 0.12), (SC_Y_FORE, Z_GUN_DECK))])
+                       ((SC_Y_FORE + run, (Z_GUN_DECK + Z_LIFT)), (SC_Y_FORE, (SC_Z_FLOOR + Z_LIFT) + 0.12), (SC_Y_FORE, (Z_GUN_DECK + Z_LIFT)))])
     x = sd * FC_STAIR_X
     convex_piece(bmb, [(x + dx, y, z) for dx in (-0.5, 0.5) for (y, z) in
-                       ((FC_Y_BACK - 3.0, Z_GUN_DECK), (FC_Y_BACK, FC_Z_PLATFORM), (FC_Y_BACK, Z_GUN_DECK))])
+                       ((FC_Y_BACK - 3.0, (Z_GUN_DECK + Z_LIFT)), (FC_Y_BACK, (FC_Z_PLATFORM + Z_LIFT)), (FC_Y_BACK, (Z_GUN_DECK + Z_LIFT)))])
 mb = bpy.data.meshes.new('bo_galleass'); bmb.to_mesh(mb); bmb.free()
 coll('physics').objects.link(bpy.data.objects.new('bo_galleass', mb))
 coll('physics').hide_render = True; coll('physics').hide_viewport = True
@@ -1736,7 +1772,7 @@ for fid in ('figurehead_lion', 'dragon_l', 'wingsofvictoryfigurehead', 'sirenfig
         if o.name.split('.')[-1] != '0':
             bpy.data.objects.remove(o); continue
         coll('preview').objects.link(o); objs.append(o)
-        o.location = FIG_POS; o.rotation_euler = (FIG_ROT_X, 0, 0); o.scale = FIG_SCALE
+        o.location = (FIG_POS[0], FIG_POS[1], FIG_POS[2] + Z_LIFT); o.rotation_euler = (FIG_ROT_X, 0, 0); o.scale = FIG_SCALE
         o.data.materials.clear(); o.data.materials.append(MATS['gilt'])
     PREVIEW[fid] = objs
 
