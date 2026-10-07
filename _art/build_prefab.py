@@ -664,6 +664,11 @@ for level, ys in (('deck', Y_DECK), ('poop', Y_POOP), ('fc', Y_FC)):
         for x0, x1 in zip(X_LINES, X_LINES[1:]):
             if walkable(level, x0, x1, y0, y1):
                 cells[(level, x0, x1, y0, y1)] = add_cell(level, x0, x1, y0, y1)
+# forecastle ground floor (walk-in, at gun-deck level; it shares the deck's vertices along its open back)
+for y0, y1 in zip(Y_FC, Y_FC[1:]):
+    for x0, x1 in zip(X_LINES, X_LINES[1:]):
+        if walkable('fc', x0, x1, y0, y1):
+            cells[('fcg', x0, x1, y0, y1)] = add_cell('deck', x0, x1, y0, y1)
 # stairs: ramps whose foot vertices are the gun deck's and whose head vertices are the upper deck's
 for sx0, sx1, ya, yb, upper in STAIRS:
     ys = sorted({ya, yb} | {y for y in Y_DECK if min(ya, yb) < y < max(ya, yb)})

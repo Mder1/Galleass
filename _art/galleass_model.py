@@ -61,8 +61,12 @@ WREATH_RY, WREATH_RZ = 0.56, 0.5           # gilded ring round each gunport (cle
 FC_CY = 21.6                             # centre of the round front
 FC_Y_BACK = 18.6
 FC_Z_BASE = 2.15
-FC_Z_PLATFORM, FC_Z_PARAPET, FC_Z_RAIL = 3.9, 5.3, 6.0
-FC_EMB_SILL, FC_EMB_TOP, FC_EMB_W = 4.3, 5.0, 0.8
+# the platform stands FC_RAISE higher than first built so the ground floor under it is a walk-in room (~2.3 m
+# headroom over the gun deck; user 2026-10-07)
+FC_RAISE = 0.9
+FC_Z_PLATFORM, FC_Z_PARAPET, FC_Z_RAIL = 3.9 + FC_RAISE, 5.3 + FC_RAISE, 6.0 + FC_RAISE
+FC_EMB_SILL, FC_EMB_TOP, FC_EMB_W = 4.3 + FC_RAISE, 5.0 + FC_RAISE, 0.8
+FC_PORT_Z = 3.1                          # round ports of the ground floor (rings stay under the gilt moulding)
 FC_GUN_DEGS = (-90, -45, 0, 45, 90)
 FC_LOWER_PORT_DEGS = (-40, 0, 40)        # round decorative ports on the lower tier
 FC_STAIR_X = 2.4                         # centre line of the two stairs up to the platform
@@ -812,12 +816,12 @@ def build_forecastle():
     lower = horseshoe_wall('fc_lower', FC_Z_BASE, FC_Z_PLATFORM, 0.35, 'paint')
     cuts = []
     for deg in FC_LOWER_PORT_DEGS:
-        x, y = fc_point(deg, fc_radius(2.95))
+        x, y = fc_point(deg, fc_radius(FC_PORT_Z))
         a = math.radians(90 - deg)
-        cuts.append(cutter_cyl(x, y, 2.95, 0.22, 1.2, (math.pi / 2, 0, a - math.pi / 2)))
-        round_lining('fc_port_lining', (x, y, 2.95), (math.cos(a), math.sin(a), 0), 0.22, 0.35)
-        R = fc_radius(2.95)
-        fn = lambda u, v, dd, a=a: ((R + dd) * math.cos(a + u / R), FC_CY + (R + dd) * math.sin(a + u / R), 2.95 + v)
+        cuts.append(cutter_cyl(x, y, FC_PORT_Z, 0.22, 1.2, (math.pi / 2, 0, a - math.pi / 2)))
+        round_lining('fc_port_lining', (x, y, FC_PORT_Z), (math.cos(a), math.sin(a), 0), 0.22, 0.35)
+        R = fc_radius(FC_PORT_Z)
+        fn = lambda u, v, dd, a=a: ((R + dd) * math.cos(a + u / R), FC_CY + (R + dd) * math.sin(a + u / R), FC_PORT_Z + v)
         flat_annulus('fc_port_ring', fn, 0.29, 0.29, 0.35, 0.35, -0.01, 0.05, 'gilt')
     subtract(lower, cuts)
     horseshoe_slab('fc_floor_low', fc_radius(FC_Z_BASE) - 0.35, FC_Z_BASE + 0.01, Z_GUN_DECK, 'deck')   # inside the wall, 1 cm up: no shared plane
@@ -1696,12 +1700,21 @@ for sd in (-1, 1):
     for ye in (WING_Y0, WING_Y1):                                                                         # end walls
         bx(*sorted((sd * (box_inner_x(ye) - 0.05), sd * W)), ye - 0.1, ye + 0.1, (Z_GUN_DECK + Z_LIFT), (Z_BULWARK_TOP + Z_LIFT) + 0.1)
 # forecastle: solid tower to the platform, parapet as a ring of thin pieces
-convex_piece(bmb, [(x, y, z) for (x, y) in horseshoe(fc_radius((FC_Z_BASE + Z_LIFT)), n=24) for z in ((Z_GUN_DECK + Z_LIFT), (FC_Z_PLATFORM + Z_LIFT))])
+# forecastle: a walk-in ground floor (floor slab, walls from the gun deck up, platform slab), open at the back
+convex_piece(bmb, [(x, y, z) for (x, y) in horseshoe(fc_radius(FC_Z_BASE) - 0.3, n=24)
+                   for z in ((Z_GUN_DECK + Z_LIFT) - 0.15, (Z_GUN_DECK + Z_LIFT))])
+convex_piece(bmb, [(x, y, z) for (x, y) in horseshoe(fc_radius(FC_Z_PLATFORM) - 0.05, n=24)
+                   for z in ((FC_Z_PLATFORM + Z_LIFT) - 0.15, (FC_Z_PLATFORM + Z_LIFT))])
 ring_o, ring_i = horseshoe(fc_radius((FC_Z_PLATFORM + Z_LIFT)), n=24), horseshoe(fc_radius((FC_Z_PLATFORM + Z_LIFT)) - 0.35, n=24)
 for k in range(len(ring_o) - 1):
     convex_piece(bmb, [(x, y, z) for (x, y) in (ring_o[k], ring_o[k + 1], ring_i[k], ring_i[k + 1])
-                       for z in ((FC_Z_PLATFORM + Z_LIFT), (FC_Z_PARAPET + Z_LIFT) + 0.1)])
+                       for z in ((Z_GUN_DECK + Z_LIFT), (FC_Z_PARAPET + Z_LIFT) + 0.1)])
 # cabin: walls with door gaps, poop deck slab, balustrade line, balcony slab
+# cabin floor in short slices (its walls taper; the gun-deck slab only reaches the box end; user: fell through)
+_ys = [SC_Y_AFT, -22.0, -20.0, -18.0, -16.0, SC_Y_FORE]
+for y0, y1 in zip(_ys, _ys[1:]):
+    convex_piece(bmb, [(sd * (sc_hw(y) - SC_WALL + 0.02), y, z) for y in (y0, y1) for sd in (-1, 1)
+                       for z in ((Z_GUN_DECK + Z_LIFT) - 0.15, (Z_GUN_DECK + Z_LIFT))])
 def sc_wall_x(y0, y1, sd, z0, z1):
     convex_piece(bmb, [(sd * (sc_hw(y) + dx), y, z) for y in (y0, y1) for dx in (0.0, -SC_WALL) for z in (z0, z1)])
 for sd in (-1, 1):
@@ -1861,7 +1874,7 @@ look('chk_side_row_aft.png', (7.0, -20.0, 1.8), (4.3, -10.0, 1.8), lens=28)
 look('chk_side_wall.png', (9.5, 3.0, 2.9), (4.4, 6.0, 1.6), lens=28)
 look('chk_gunport.png', (6.2, gunport_y(1) - 1.2, 3.3), (4.4, gunport_y(1), 3.15), lens=35)
 look('chk_gunport_fore.png', (6.2, gunport_y(4) + 1.6, 3.3), (4.2, gunport_y(4), 3.15), lens=35)
-look('chk_fc_port.png', (2.5, 28.5, 3.0), (1.6, 25.2, 2.95), lens=35)
+look('chk_fc_port.png', (2.5, 28.5, FC_PORT_Z + Z_LIFT + 0.05), (1.6, 25.2, FC_PORT_Z + Z_LIFT), lens=35)
 look('chk_sc_window.png', (6.5, -19.0, 5.0), (4.3, -20.5, 4.8), lens=35)
 look('chk_side_wall_fore.png', (9.5, 13.0, 2.9), (4.2, 17.5, 1.8), lens=28)
 # textured preview: vanilla textures (paint/gilt/trim are tinted previews, real tints are set in the Kit)
