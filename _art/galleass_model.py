@@ -387,7 +387,9 @@ def z_bottom(y):
 def z_top(y):
     """Top of the hull shell: low midships, rising under the castles at the ends."""
     fore = smoothstep(15.0, 19.5, y) * (FC_Z_BASE - Z_HULL_TOP)
-    aft = smoothstep(-13.0, -19.5, y) * (FC_Z_BASE - Z_HULL_TOP)
+    # full height by the box end (y -17.6): aft of it the cabin body (bottom z_top - 0.1, 2 cm proud of the hull)
+    # must not show below the rub rail (user 2026-10-07: wedge under the rail at the stern box corner)
+    aft = smoothstep(-13.0, -17.4, y) * (FC_Z_BASE - Z_HULL_TOP)
     return Z_HULL_TOP + fore + aft
 
 def half_beam(y, top):
