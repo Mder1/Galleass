@@ -96,7 +96,9 @@ SCW_Z0, SCW_Z1, SCW_ARCH = 4.4, 4.76, 0.13     # cabin side windows (smaller sin
 SCW_W, SCW_N = 0.36, 10                    # width (was 0.5) and number per side (was 6; user 2026-10-08)
 # cabin door beside the mizzen mast (the mast at y -13.7 stands on the centreline 0.8 m in front of the bulkhead)
 SC_DOOR_X, SC_DOOR_W = 1.35, 1.0
-SC_FWIN_XS = (2.08, 2.52)                 # front windows: a small arched pair each side (door to x 1.85, stairs from 2.75)
+# front windows: two small arched pairs, both on the wide side of the (off-centre) door, evenly between the port stairs
+# (x -2.75) and the door (from x 0.85) (user 2026-10-08)
+SC_FWIN_XS = tuple(c + d for c in (-1.85, -0.05) for d in (-0.22, 0.22))
 SC_WALL = 0.2                             # cabin wall thickness (cabin interior is walk-in)
 BALC_RY = 1.3                             # stern balcony depth (apex reaches the stern post's face); width = cabin's
 BALC_INSET = 0.08                         # balustrade set in from the floor edge
@@ -1001,12 +1003,10 @@ def build_sterncastle():
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
         obj_from_bm(bm, 'sc_window_hood', 'trim')
     zw = (SCW_Z0 + SCW_Z1) / 2
-    # cabin door, and a pair of the small arched windows each side of it in the front bulkhead (user 2026-10-08:
-    # they replace one plain window each), between the door (to x 1.85) and the stairs (from x 2.75)
+    # cabin door, and two pairs of the small arched windows on the wide side of it in the front bulkhead
     cuts.append(cutter_box(SC_DOOR_X, SC_Y_FORE, Z_GUN_DECK + 1.0, SC_DOOR_W, 0.6, 2.0))
     for x in SC_FWIN_XS:
-        for sd in (-1, 1):
-            arched_window((sd * x, SC_Y_FORE, zw), Vector((0, 1, 0)))
+        arched_window((x, SC_Y_FORE, zw), Vector((0, 1, 0)))
     # stern door onto the platform (its two windows went for the stern ports below them; user 2026-10-08)
     cuts.append(cutter_box(0, SC_Y_AFT, Z_GUN_DECK + 1.0, SC_DOOR_W, 0.6, 2.0))
     # side windows (the drawing's band of small arched windows)
@@ -1971,7 +1971,7 @@ look('chk_side_wall.png', (9.5, 3.0, 2.9), (4.4, 6.0, 1.6), lens=28)
 look('chk_gunport.png', (6.2, gunport_y(1) - 1.2, 3.3), (4.4, gunport_y(1), 3.15), lens=35)
 look('chk_stern_chaser.png', (8.0, WING_Y0 - 5.0, 5.6), (STERN_GP_X, WING_Y0, 3.15 + Z_LIFT), lens=35)
 look('chk_sc_stern_ports.png', (2.4, -29.0, 4.6), (0.0, -24.0, 3.15 + Z_LIFT), lens=30)
-look('chk_sc_front.png', (2.3, SC_Y_FORE + 4.5, 6.2), (2.3, SC_Y_FORE, 4.6 + Z_LIFT), lens=32)
+look('chk_sc_front.png', (0.0, SC_Y_FORE + 6.0, 6.4), (0.0, SC_Y_FORE, 4.6 + Z_LIFT), lens=28)
 look('chk_sc_gunport.png', (7.5, SC_GP_Y - 3.0, 5.0), (sc_hw(SC_GP_Y), SC_GP_Y, 3.15 + Z_LIFT), lens=35)
 look('chk_sc_gunroom.png', (-1.2, -15.6, 4.6), (1.5, -21.0, 4.1), lens=20)
 look('chk_gunport_fore.png', (6.2, gunport_y(4) + 1.6, 3.3), (4.2, gunport_y(4), 3.15), lens=35)
