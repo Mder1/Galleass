@@ -1074,6 +1074,20 @@ def build_stern_lantern():
     sweep('lantern_cross_v', [(x0, y0, zc), (x0, y0, zc + 0.6)], 0.03, 'gilt', square=True)
     sweep('lantern_cross_h', [(x0 - 0.16, y0, zc + 0.4), (x0 + 0.16, y0, zc + 0.4)], 0.03, 'gilt', square=True)
 
+# balcony balustrade line (shared by the model and its collision)
+BALC_T_WALL = 0.12                                       # rail ends just off the stern wall, room for the end posts
+BALC_Z_RAIL = 1.0                                        # rail top above the balcony floor (Z_GUN_DECK)
+def balc_edge_in(t):
+    """Balustrade line, BALC_INSET inside the balcony floor's edge; t: 0 = port end at the stern wall, pi = stbd."""
+    rx, ry = sc_hw(SC_Y_AFT) + 0.1 - BALC_INSET, BALC_RY - BALC_INSET
+    return (-rx * math.cos(t), SC_Y_AFT - ry * math.sin(t))
+
+def balc_rail_path(n=48):
+    """ONE rail along the whole curve (user 2026-10-08: the two halves ended either side of the post): it passes
+    across the stern post's front face (y -25.307 at rail height), pulled back 4 cm at the centre so it touches it."""
+    ts = [BALC_T_WALL + (math.pi - 2 * BALC_T_WALL) * k / n for k in range(n + 1)]
+    return [(x, y - 0.04 * math.sin(t) ** 16) for t in ts for x, y in [balc_edge_in(t)]]
+
 def build_stern_balcony():
     """Half-oval balcony behind the stern door, at cabin-floor level, with a turned balustrade ending on the
     stern post, carried by two carved knees."""
@@ -1095,24 +1109,19 @@ def build_stern_balcony():
     post.rotation_euler = (math.atan2(0.1, 1.7), 0, 0)
     subtract(plate, [post])
     # balustrade along the curved edge; the stern post stands at the aft centre, the rail ends on it
-    zb, zr = Z_GUN_DECK, Z_GUN_DECK + 1.0
+    zb, zr = Z_GUN_DECK, Z_GUN_DECK + BALC_Z_RAIL
     prof = [(r * 0.88, z) for r, z in BALUSTER]
     prof = smooth_profile([(r, z * (zr - zb - 0.08) / 0.9) for r, z in prof])
     # the balustrade stands BALC_INSET inside the floor edge, so nothing overhangs the plate (seen from below)
-    def edge_in(t):
-        return (-(rx - BALC_INSET) * math.cos(t), SC_Y_AFT - (ry - BALC_INSET) * math.sin(t))
+    edge_in = balc_edge_in
     x_stop = 0.28                                         # last baluster/curve point before the stern post
     t_post = math.acos(x_stop / (rx - BALC_INSET))
-    t_wall = 0.12                                         # just off the stern wall, room for the end post
+    t_wall = BALC_T_WALL
     for ta, tb, sgn in ((t_wall, t_post, -1), (math.pi - t_post, math.pi - t_wall, 1)):
         ts = [ta + (tb - ta) * k / 12 for k in range(13)]
         for x, y in [edge_in(t) for t in ts][1:]:
             lathe('balcony_baluster', prof, 'trim', at=(x, y, zb), segs=10)
-    # ONE rail along the whole curve (user 2026-10-08: the two halves ended either side of the post): it passes
-    # across the stern post's front face (y -25.307 at rail height), pulled back 4 cm at the centre so it touches it
-    ts = [t_wall + (math.pi - 2 * t_wall) * k / 48 for k in range(49)]
-    rail = [(x, y - 0.04 * math.sin(t) ** 16, zr - 0.04) for t in ts for x, y in [edge_in(t)]]
-    sweep('balcony_rail', rail, 0.06, 'trim', square=True)
+    sweep('balcony_rail', [(x, y, zr - 0.04) for x, y in balc_rail_path()], 0.06, 'trim', square=True)
     for side in (-1, 1):                                  # square end posts set against the stern wall
         x, y = edge_in(t_wall if side < 0 else math.pi - t_wall)
         box('balcony_end_post', x - 0.08, x + 0.08, SC_Y_AFT - 0.16, SC_Y_AFT, zb, zr + 0.06, 'trim')
@@ -1825,6 +1834,15 @@ convex_piece(bmb, [(sd * (sc_hw(y) + 0.08), y, z) for y in (SC_Y_AFT - 0.3, SC_Y
 convex_piece(bmb, [(x, y, z) for x, y in [(-sc_hw(SC_Y_AFT) - 0.1, SC_Y_AFT), (sc_hw(SC_Y_AFT) + 0.1, SC_Y_AFT),
                                           (-1.0, SC_Y_AFT - BALC_RY), (1.0, SC_Y_AFT - BALC_RY)]
                    for z in ((Z_GUN_DECK + Z_LIFT) - 0.16, (Z_GUN_DECK + Z_LIFT))])
+# balcony balustrade (user 2026-10-08: walked through it): thin walls along the rail line, floor to rail top, and
+# the short end rails back to the stern wall
+_bz = ((Z_GUN_DECK + Z_LIFT), (Z_GUN_DECK + Z_LIFT) + BALC_Z_RAIL + 0.02)
+_bp = balc_rail_path(16)
+_ends = [((x, SC_Y_AFT), (x, y)) for x, y in (_bp[0], _bp[-1])]
+for (xa, ya), (xb, yb) in list(zip(_bp, _bp[1:])) + _ends:
+    L = math.hypot(xb - xa, yb - ya)
+    nx, ny = -(yb - ya) / L * 0.07, (xb - xa) / L * 0.07
+    convex_piece(bmb, [(x + sd * nx, y + sd * ny, z) for x, y in ((xa, ya), (xb, yb)) for sd in (-1, 1) for z in _bz])
 # stairs as ramps (agents' feet and missiles)
 run = ((SC_Z_FLOOR + Z_LIFT) - (Z_GUN_DECK + Z_LIFT)) / math.tan(math.radians(40))
 for sd in (-1, 1):
