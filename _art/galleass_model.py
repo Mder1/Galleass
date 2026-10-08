@@ -1106,13 +1106,13 @@ def build_stern_balcony():
     t_wall = 0.12                                         # just off the stern wall, room for the end post
     for ta, tb, sgn in ((t_wall, t_post, -1), (math.pi - t_post, math.pi - t_wall, 1)):
         ts = [ta + (tb - ta) * k / 12 for k in range(13)]
-        pts = [edge_in(t) for t in ts]
-        # the rail then turns in onto the post's front face (post front at rail height y -25.307)
-        tip = (sgn * 0.1, -25.26)
-        rail = pts + [tip] if sgn < 0 else [tip] + pts
-        sweep('balcony_rail', [(x, y, zr - 0.04) for x, y in rail], 0.06, 'trim', square=True)
-        for x, y in pts[1:]:
+        for x, y in [edge_in(t) for t in ts][1:]:
             lathe('balcony_baluster', prof, 'trim', at=(x, y, zb), segs=10)
+    # ONE rail along the whole curve (user 2026-10-08: the two halves ended either side of the post): it passes
+    # across the stern post's front face (y -25.307 at rail height), pulled back 4 cm at the centre so it touches it
+    ts = [t_wall + (math.pi - 2 * t_wall) * k / 48 for k in range(49)]
+    rail = [(x, y - 0.04 * math.sin(t) ** 16, zr - 0.04) for t in ts for x, y in [edge_in(t)]]
+    sweep('balcony_rail', rail, 0.06, 'trim', square=True)
     for side in (-1, 1):                                  # square end posts set against the stern wall
         x, y = edge_in(t_wall if side < 0 else math.pi - t_wall)
         box('balcony_end_post', x - 0.08, x + 0.08, SC_Y_AFT - 0.16, SC_Y_AFT, zb, zr + 0.06, 'trim')
