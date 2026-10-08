@@ -91,12 +91,12 @@ LANTERN_Y = -24.15                       # on the poop deck, just inside the aft
 ROOF_ORIGIN_Y = LANTERN_Y + 0.6 + ROOF_REACH_AFT * ROOF_SY       # every roof clears the stern lantern by >= 0.6 m
 SC_Z_AWNING = 8.7
 # cabin windows: opening z, arch rise; arch top (+ tube) stays below the deck-line moulding at SC_Z_FLOOR - 0.12
-SCW_Z0, SCW_Z1, SCW_ARCH = 4.4, 4.88, 0.18
+SCW_Z0, SCW_Z1, SCW_ARCH = 4.4, 4.76, 0.13     # cabin side windows (smaller since 2026-10-08: were 0.48 tall, arch 0.18)
+SCW_W, SCW_N = 0.36, 10                    # width (was 0.5) and number per side (was 6; user 2026-10-08)
 # cabin door beside the mizzen mast (the mast at y -13.7 stands on the centreline 0.8 m in front of the bulkhead)
 SC_DOOR_X, SC_DOOR_W = 1.35, 1.0
 SC_FWIN_X = 2.35                         # front windows, outboard of the door
 SC_WALL = 0.2                             # cabin wall thickness (cabin interior is walk-in)
-SC_AWIN_X = 1.25                          # small windows either side of the stern door
 SC_EWIN_Z = 4.6                           # front/stern windows: at side-window height, above the window band
 BALC_RY = 1.3                             # stern balcony depth (apex reaches the stern post's face); width = cabin's
 BALC_INSET = 0.08                         # balustrade set in from the floor edge
@@ -980,26 +980,23 @@ def build_sterncastle():
     for x in (-SC_FWIN_X, SC_FWIN_X):
         cuts.append(cutter_box(x, SC_Y_FORE, SC_EWIN_Z, 0.5, 0.6, 0.5))
         lining('sc_window_lining', (x, SC_Y_FORE, SC_EWIN_Z), (0, 1, 0), 0.5, 0.5, SC_WALL, sill_out=0.04)
-    # stern door onto the balcony, with a window on each side
+    # stern door onto the platform (its two windows went for the stern ports below them; user 2026-10-08)
     cuts.append(cutter_box(0, SC_Y_AFT, Z_GUN_DECK + 1.0, SC_DOOR_W, 0.6, 2.0))
-    for x in (-SC_AWIN_X, SC_AWIN_X):
-        cuts.append(cutter_box(x, SC_Y_AFT, SC_EWIN_Z, 0.5, 0.6, 0.5))
-        lining('sc_window_lining', (x, SC_Y_AFT, SC_EWIN_Z), (0, -1, 0), 0.5, 0.5, SC_WALL, sill_out=0.04)
     # side windows (the drawing's band of small arched windows)
-    nwin = 6
+    nwin = SCW_N
     for side in (-1, 1):
         for i in range(nwin):
             y = SC_Y_AFT + 1.0 + (SC_Y_FORE - SC_Y_AFT - 2.0) * (i + 0.5) / nwin
             nrm = wall_normal(sc_hw, y, side)
-            cuts.append(cutter_box(side * sc_hw(y), y, (SCW_Z0 + SCW_Z1) / 2, 0.6, 0.5, SCW_Z1 - SCW_Z0,
+            cuts.append(cutter_box(side * sc_hw(y), y, (SCW_Z0 + SCW_Z1) / 2, 0.6, SCW_W, SCW_Z1 - SCW_Z0,
                                    math.atan2(nrm.y, nrm.x)))
-            lining('sc_window_lining', (side * sc_hw(y), y, (SCW_Z0 + SCW_Z1) / 2), nrm, 0.5,
+            lining('sc_window_lining', (side * sc_hw(y), y, (SCW_Z0 + SCW_Z1) / 2), nrm, SCW_W,
                    SCW_Z1 - SCW_Z0, SC_WALL, sill_out=0.04)
             # arch over each window
             # wooden arched hood on top of the frame: a flat half-elliptical board in the wall plane whose inner
             # edge continues the jambs' inner faces, resting on the frame's top
             M = _basis(Vector((side * sc_hw(y), y, SCW_Z1)), nrm)
-            ai, ao = 0.25 - 0.04, 0.25                      # same width as the jamb boards: the frame curving over
+            ai, ao = SCW_W / 2 - 0.04, SCW_W / 2            # same width as the jamb boards: the frame curving over
             bi, bo = SCW_ARCH, SCW_ARCH + 0.04
             bm = bmesh.new()
             K = 24
