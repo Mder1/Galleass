@@ -910,12 +910,12 @@ n = len(kids(bh)); drop(bh, 'children')
 report.append('ship_ballista_holder: %d vanilla fore weapons removed' % n)
 
 # --- the stern lantern lights up: vanilla's lantern light (LightCycle: on at night; light, flame, ember) copied into
-# the model's lantern glass, a little stronger than the mast lanterns'. Flame and ember stay in the glass; the light
-# itself hangs just under the bowl, a little forward of the post: vanilla lights cast shadows (light_flags 96), and
-# inside the glass the gilt bowl kept every ray steeper than ~14 deg off the deck (user night test 2026-10-07)
+# the model's lantern, a little stronger than the mast lanterns'. The lantern is an open cage (user 2026-10-08: the
+# glass kept the light in); vanilla lights cast shadows (light_flags 96), so the light sits in the middle of the cage,
+# not at the flame: from there the gilt bowl only shades a cone under the lantern (rays escape down to ~45 deg)
 th = files['torch_holder']
 LANTERN_Z0 = G['SC_Z_FLOOR'] + 0.12 + 3.5 + LIFT + 0.42          # bottom of the lantern's glass (model)
-LIGHT_Z0, LIGHT_R = LANTERN_Z0 - 0.42 - 0.18 - 0.1, 8.0          # 0.1 under the bowl's drop knob; deck ~3.3 below
+LIGHT_Z0, LIGHT_R = LANTERN_Z0 + 0.95 / 2, 8.0                   # middle of the cage (pane height 0.95); deck ~4 below
 src = next(e for e in th.iter('entity') if e.get('name') == 'light')
 # not a link: its base is an entity INSIDE nord_lantern_nested, which may not resolve outside that prefab (night
 # test 2026-10-08: still dark) -> copy the full vanilla definition (all base links there are already zero)
@@ -924,7 +924,7 @@ assert src is not None and all(p.get('guid') == ZERO for p in src.iter('prefab')
 light = copy_regen(src, 'galleass-stern-lantern/')
 write_tf(light, pos=(0.0, G['LANTERN_Y'], LANTERN_Z0 + 0.12), rot=(0, 0, 0))
 lamp = next(e for e in kids(light) if e.get('name') == 'torch_light')
-write_tf(lamp, pos=(0.0, 0.2, LIGHT_Z0 - (LANTERN_Z0 + 0.12)), rot=(0, 0, 0))
+write_tf(lamp, pos=(0.0, 0.0, LIGHT_Z0 - (LANTERN_Z0 + 0.12)), rot=(0, 0, 0))
 for lc in light.iter('light_component'):
     misc = lc.find('misc')
     if misc is None:
@@ -939,7 +939,7 @@ for lc in light.iter('light_component'):
         x.set('value', v)
 th.find('children').append(light)
 report.append('stern lantern: flame at (0, %.2f, %.2f), light at (0, %.2f, %.2f) r %.0f'
-              % (G['LANTERN_Y'], LANTERN_Z0 + 0.12, G['LANTERN_Y'] + 0.2, LIGHT_Z0, LIGHT_R))
+              % (G['LANTERN_Y'], LANTERN_Z0 + 0.12, G['LANTERN_Y'], LIGHT_Z0, LIGHT_R))
 
 # --- write --------------------------------------------------------------------------------------------------------
 ET.indent(folder, '\t', level=1)

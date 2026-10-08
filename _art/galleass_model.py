@@ -1000,8 +1000,8 @@ def build_sterncastle():
     build_stern_balcony()
 
 def build_stern_lantern():
-    """Venetian stern lantern on a turned post: bowl with drop knob, eight flat glass panes between gilded
-    corner ribs and bands, moulded cornice, ogee dome, ball finial and cross."""
+    """Venetian stern lantern on a turned post: bowl with drop knob, an open octagonal cage of gilded corner ribs
+    and bands (no glass), moulded cornice, ogee dome, ball finial and cross."""
     x0, y0 = 0.0, LANTERN_Y
     lathe('lantern_post', [(0.11, 0), (0.13, 0.08), (0.1, 0.3), (0.1, 3.2), (0.13, 3.3), (0.1, 3.42), (0.1, 3.55)],
           'trim', at=(x0, y0, SC_Z_FLOOR + 0.12), segs=12)
@@ -1009,8 +1009,8 @@ def build_stern_lantern():
     R, H = 0.42, 0.95                                     # pane circumradius, pane height
     zg0 = zl + 0.42; zg1 = zg0 + H
     rot = math.pi / 8                                     # octagon faces/ribs: ribs on the corners
-    def octa(name, prof, role):
-        o = lathe(name, prof, role, at=(x0, y0, 0), segs=8)
+    def octa(name, prof, role, cap=True):
+        o = lathe(name, prof, role, at=(x0, y0, 0), segs=8, cap=cap)
         o.rotation_euler = (0, 0, rot)                    # lathe is around the origin: rotate in place below
         o.location = (0, 0, 0)
         me = o.data
@@ -1022,8 +1022,7 @@ def build_stern_lantern():
     # bowl and drop knob (round), collar on the post
     lathe('lantern_bowl', [(0.0, zl - 0.18), (0.07, zl - 0.14), (0.05, zl - 0.06), (0.14, zl), (0.32, zl + 0.16),
                            (0.46, zl + 0.34), (0.48, zl + 0.42)], 'gilt', at=(x0, y0, 0), segs=48)
-    # glass panes (flat, hard-edged) and the gilded frame
-    octa('lantern_glass', [(R, zg0), (R, zg1)], 'glass')
+    # open frame, no glass (user 2026-10-08: the panes kept the light in; open like vanilla torches)
     # corner ribs: flat boards squared to each octagon corner, running between the bands (ends hidden in them)
     for k in range(8):
         a = 2 * math.pi * k / 8 + rot
@@ -1037,8 +1036,10 @@ def build_stern_lantern():
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
         obj_from_bm(bm, 'lantern_rib', 'gilt')
     RB = R + 0.05                                         # band circumradius: encloses the rib corners
+    RI = R - 0.04                                         # open rings (no glass: a capped band was a solid disc)
     for zb in (zg0, zg0 + H * 0.62, zg1):                 # lower/upper rails and the transom bar
-        octa('lantern_band', [(RB, zb - 0.025), (RB, zb + 0.025)], 'gilt')
+        octa('lantern_band', [(RI, zb - 0.025), (RB, zb - 0.025), (RB, zb + 0.025), (RI, zb + 0.025),
+                              (RI, zb - 0.025)], 'gilt', cap=False)
     # cornice and ogee dome
     # cornice: its underside covers the top band's corners
     lathe('lantern_cornice', [(RB + 0.02, zg1 + 0.02), (R + 0.12, zg1 + 0.07), (R + 0.12, zg1 + 0.12),
