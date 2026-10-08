@@ -101,10 +101,10 @@ SC_STAIR_X = 3.25                        # centre line of the two stairs up to t
 # LIFT (user 2026-10-07, in game the ship sat too low; a galleass's rowing level was ~1.5-2 m above the water):
 # every part above the outer wall's foot (just above the flare) is built as before and then moved up Z_LIFT, the
 # plain wall/hull/backbone across the cut stretch. Aft (from y -22, behind the strake runs) the cut climbs to just
-# above the stern post top, so the post and the rudder stay as they are. The beak moves up rigidly. The constants
+# above the stern post top, so the post and the rudder stay as they are. The spur moves up rigidly. The constants
 # above are the UNLIFTED design values: real heights = lift_z(y, z) (model_geom users: build_prefab.py).
 Z_LIFT = 1.5
-LIFT_RIGID = ('beak_',)
+LIFT_RIGID = ('spur_',)
 LIFT_DONE = ('hull_shell', 'strake_low_run', 'strake_high_run')     # built at the lifted shape already
 
 OAR_DROP = 0.75                            # oar ports + strakes sit this much lower than the full lift (user 2026-10-07)
@@ -142,11 +142,17 @@ def unlift_z(y, z):
 # masts (vanilla lateen rigs go here later): mizzen, main, fore
 # fore mast at 20.9 (was 22.5): behind the forecastle's ring of five guns (user 2026-10-07)
 MASTS = {'mizzen': -13.7, 'main': 5.5, 'fore': 20.9}
-# bow: no ram slot (user 2026-10-06). A carved beak under the forecastle front carries the vanilla figureheads
-# (figurehead slot). Figurehead pivot/tilt/scale as on the meditheavy (rotation x -0.85 rad, scale 0.85/0.92/0.92).
-FIG_POS = (0.0, 26.7, 1.75)
-FIG_ROT_X = -0.85
-FIG_SCALE = (0.95, 1.05, 1.05)                    # vanilla 0.85/0.92/0.92 x ~1.12 (bigger ship)
+# bow: no ram slot (user 2026-10-06) and no figurehead (user 2026-10-08): a fixed spur (Rammsporn) as in the drawing,
+# a timber beak rising gently from the bow, three iron hoops and a bronze point. Drawing (px -> ship as above): wood from
+# the bow to y 30.4, centre z 1.73 -> 1.99, 1.9 m deep at the bow -> 0.65 m behind the point; hoops at y 27.2/28.8/30.3;
+# bronze cone y 30.35 -> 31.3. Unlifted design values; the spur moves up rigidly with the lift (as the beak did).
+# (y, centre z, half width, half height) stations of the wooden beak; the first is buried in the bow
+SPUR = [(24.2, 1.30, 0.52, 0.80), (Y_STEM_WL + 0.3, 1.35, 0.50, 0.78), (27.5, 1.66, 0.38, 0.52),
+        (30.4, 1.97, 0.27, 0.32)]                 # top at the bow 2.13: just under the forecastle rub rail (2.15)
+# knee under the root (drawing: the stem sweeps up into the spur's underside): (y, bottom z), top = spur centre
+SPUR_KNEE = [(24.6, -0.2), (25.3, 0.15), (25.9, 0.45), (26.5, 0.75), (27.0, 0.98)]
+SPUR_HOOPS = (27.2, 28.8, 30.25)
+SPUR_TIP = (30.3, 31.3)                           # bronze point: base (over the wood's end) -> point
 
 ROLES = {                                 # role -> blockout colour (real materials are set up in the Kit)
     'hull':  (0.42, 0.28, 0.17),          # hull planking (below the rowing level)
@@ -1333,71 +1339,55 @@ def catmull(pts, n=40):
                           + (-p0 + 3 * p1 - 3 * p2 + p3) * t ** 3))
     return out
 
-def build_beak():
-    """Carved beak (knee of the head) from the stem forward under the forecastle; the figurehead sits on its end.
-    Knee and rail are smooth timbers; the painted cheek is recessed between them; a gilded trail board with a
-    volute runs along the middle of the cheek, clear of both timbers."""
-    fy, fz = FIG_POS[1], FIG_POS[2]
-    # the knee grows out of the stem: it starts inside the hull at the backbone's thickness
-    knee = catmull([(0, Y_STEM_WL - 0.6, -0.15), (0, Y_STEM_WL + 0.15, 0.15), (0, Y_STEM_WL + 0.75, 0.85),
-                    (0, fy - 0.6, fz - 0.3), (0, fy + 0.1, fz - 0.02)], 40)
-    knee_r = [0.2 + 0.12 * smoothstep(0, 8, k) - 0.06 * k / 40 for k in range(41)]
-    sweep('beak_knee', knee, knee_r, 'trim', square=True)
-    rail = catmull([(0, Y_STEM_WL + 0.35, FC_Z_BASE - 0.05), (0, Y_STEM_WL + 1.0, FC_Z_BASE - 0.1),
-                    (0, fy - 0.15, fz + 0.28)], 30)
-    sweep('beak_rail', rail, 0.17, 'trim', square=True)
-    KNEE_HALF = 0.32 * 0.7071; RAIL_HALF = 0.17 * 0.7071; CHEEK_X = 0.1; TRAIL_R = 0.035
-    # cheek: outline = rail (stem -> seat) + knee back (seat -> stem), only the part above the knee start
-    kpart = [p for p in knee if p.y >= Y_STEM_WL + 0.2]
-    # whole knee (down to where it starts inside the hull): no open gap between knee, stem and rail
-    outline = [(p.y, p.z) for p in rail] + [(p.y, p.z) for p in reversed(knee)]
+def spur_at(y):
+    """(centre z, half width, half height) of the wooden spur at y (linear between the SPUR stations)."""
+    for (y0, *v0), (y1, *v1) in zip(SPUR, SPUR[1:]):
+        if y <= y1 or (y1, *v1) == SPUR[-1]:
+            t = min(max((y - y0) / (y1 - y0), 0.0), 1.0)
+            return tuple(a + (b - a) * t for a, b in zip(v0, v1))
+
+def spur_loft(name, stations, role, segs=16, rnd=3.0):
+    """Lofted beam along +y through (y, centre z, half width, half height) stations; superellipse section (rnd 2 =
+    ellipse, higher = squarer), both ends capped."""
     bm = bmesh.new()
-    for side in (-1, 1):
-        vs = [bm.verts.new((side * CHEEK_X, y, z)) for y, z in outline]
-        bm.faces.new(vs if side > 0 else list(reversed(vs)))
-    obj_from_bm(bm, 'beak_cheek', 'paint')
-    # trail board: parallel to the knee at a fixed offset above it, as far as it stays clear of the rail
-    def nearest(p, curve):
-        return min((p - q).length for q in curve)
-    OFF = KNEE_HALF + TRAIL_R + 0.1
-    cand = []
-    for i in range(1, len(kpart) - 1):
-        d = (kpart[i + 1] - kpart[i - 1]).normalized()
-        up = Vector((0, -d.z, d.y))
-        if up.z < 0: up = -up
-        P = kpart[i] + up * OFF
-        if P.y < Y_STEM_WL + 0.55:                        # only on the cheek, clear of the bow (and room for the volute)
-            continue
-        if nearest(P, rail) - RAIL_HALF - TRAIL_R > 0.06:
-            cand.append(P)
-        elif cand:
-            break
-    run = catmull(cand[::max(len(cand) // 6, 1)] + [cand[-1]], 24)
-    print('beak trail: %d pts, min knee %.3f, min rail %.3f' % (len(run),
-          min(nearest(p, knee) - KNEE_HALF for p in run), min(nearest(p, rail) - RAIL_HALF for p in run)))
-    # volute at the lower (stem) end, wound on the side away from the knee, leaving tangentially into the board
-    d = (run[1] - run[0]).normalized()
-    rv = 0.13
-    perp = Vector((0, -d.z, d.y))
-    best = None
-    for sgn in (1, -1):                                   # sgn=1: centre on +perp, CCW; sgn=-1: centre on -perp, CW
-        c = run[0] + sgn * rv * perp
-        a_end = math.atan2((run[0] - c).z, (run[0] - c).y)
-        pts = []
-        for k in range(21):
-            r = 0.035 + (rv - 0.035) * k / 20
-            a = a_end - sgn * 2.5 * math.pi * (1 - k / 20)
-            pts.append(Vector((0, c.y + r * math.cos(a), c.z + r * math.sin(a))))
-        clear = min(min(nearest(q, knee) - KNEE_HALF, nearest(q, rail) - RAIL_HALF, q.y - Y_STEM_WL - 0.2) for q in pts)
-        if best is None or clear > best[0]:
-            best = (clear, pts)
-    vol = best[1]
-    print('beak volute clearance %.3f centre y %.2f z %.2f, run0 y %.2f z %.2f, run_end y %.2f z %.2f' % (best[0], vol[0].y, vol[0].z, run[0].y, run[0].z, run[-1].y, run[-1].z))
-    path = vol + run[1:]
-    radii = [0.015 + 0.02 * min(k / 20, 1) for k in range(len(path))]
-    for side in (-1, 1):
-        x = side * (CHEEK_X + 0.02)
-        pass                                              # gilt trail board removed (user 2026-10-06)
+    rings = []
+    for y, zc, w, h in stations:
+        ring = []
+        for i in range(segs):
+            a = 2 * math.pi * (i + 0.5) / segs
+            c, s_ = math.cos(a), math.sin(a)
+            ring.append(bm.verts.new((w * math.copysign(abs(c) ** (2 / rnd), c), y,
+                                      zc + h * math.copysign(abs(s_) ** (2 / rnd), s_))))
+        rings.append(ring)
+    for r0, r1 in zip(rings, rings[1:]):
+        for i in range(segs):
+            bm.faces.new((r0[i], r0[(i + 1) % segs], r1[(i + 1) % segs], r1[i]))
+    bm.faces.new(list(reversed(rings[0]))); bm.faces.new(rings[-1])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return obj_from_bm(bm, name, role, smooth=True)
+
+def build_spur():
+    """The galleass's spur: timber beak out of the bow, iron hoops, bronze point (drawing; user 2026-10-08)."""
+    ys = [SPUR[0][0] + (SPUR[-1][0] - SPUR[0][0]) * k / 24 for k in range(25)]
+    spur_loft('spur_beak', [(y, *spur_at(y)) for y in ys], 'trim')
+    knee = []
+    for y, zb in SPUR_KNEE:
+        zc = spur_at(y)[0]
+        knee.append((y, (zb + zc) / 2, 0.2 - 0.04 * (y - SPUR_KNEE[0][0]) / (SPUR_KNEE[-1][0] - SPUR_KNEE[0][0]),
+                     (zc - zb) / 2))
+    spur_loft('spur_knee', knee, 'trim', rnd=6.0)
+    for yh in SPUR_HOOPS:
+        zc, w, h = spur_at(yh)
+        spur_loft('spur_hoop', [(yh - 0.07, zc, w + 0.03, h + 0.03), (yh + 0.07, zc, w + 0.03, h + 0.03)], 'iron')
+    # bronze point: a socket over the wood's end, then a four-sided point (the drawing's cone, sharpened)
+    y0, y1 = SPUR_TIP
+    zc, w, h = spur_at(SPUR[-1][0])
+    zt = zc + 0.05
+    spur_loft('spur_point', [(y0, zc, w + 0.025, h + 0.025), (y0 + 0.25, zc + 0.01, w + 0.025, h + 0.025),
+                             (y0 + 0.32, zc + 0.012, w * 0.8, h * 0.8), (y1 - 0.02, zt, 0.012, 0.012),
+                             (y1, zt, 0.002, 0.002)], 'gilt', rnd=2.4)
+    print('spur: bow y %.2f -> wood end %.2f, point %.2f; z at bow %.2f +- %.2f, at the end %.2f +- %.2f (unlifted)'
+          % (Y_STEM_WL, SPUR[-1][0], y1, *spur_at(Y_STEM_WL)[::2], *spur_at(SPUR[-1][0])[::2]))
 
 def build_rudder():
     """Sternpost rudder hung on the straight raked sternpost. Modelled upright in its own frame (hinge = local Z,
@@ -1560,17 +1550,14 @@ wale('wale_low', lambda y: WALE_Z, min(_hull_ys), max(_hull_ys), height=0.22, n=
 build_sides(); build_deck_fittings()
 build_forecastle(); build_sterncastle(); build_ends(); build_markers()
 rudder = build_rudder()
-build_beak()
+build_spur()
 coll('cutters').hide_render = True; coll('cutters').hide_viewport = True
 
 # apply booleans and merge parts into one object per material role; the cabin interior (furniture, cabin floor)
 # goes into its own multi-material object so distant LODs can drop it
 INTERIOR = ('cabin_', 'sc_floor')
-# the beak is its own mesh: the prefab hangs it on the figurehead slot's 'platform' child, which the game keeps only
-# while a figurehead is fitted (no figurehead -> no beak, the bow ends at the stem; user 2026-10-07)
-BEAK = ('beak_',)
 dg = bpy.context.evaluated_depsgraph_get()
-by_role, interior, beak = {}, [], []
+by_role, interior = {}, []
 for o, role in PARTS:
     me = bpy.data.meshes.new_from_object(o.evaluated_get(dg))
     me.transform(o.matrix_world)
@@ -1582,8 +1569,6 @@ for o, role in PARTS:
     add_uvs(me, role)
     if o.name.startswith(INTERIOR):
         interior.append((me, role))
-    elif o.name.startswith(BEAK):
-        beak.append((me, role))
     else:
         by_role.setdefault(role, []).append(me)
 for role, meshes in by_role.items():
@@ -1594,7 +1579,7 @@ for role, meshes in by_role.items():
     o = obj_from_bm(bm, f'galleass_{role}', role, 'final', smooth=True)
     # smooth along planks and turned parts (6-sided = 60 deg), hard at box corners; glass panes stay flat
     o.data.set_sharp_from_angle(angle=math.radians(30 if role == 'glass' else 65))
-for name, group in (('galleass_interior', interior), ('galleass_beak', beak)):
+for name, group in (('galleass_interior', interior),):
     if not group:
         continue
     roles = sorted(set(r for _, r in group))
@@ -1756,11 +1741,16 @@ def verts_of(names, test):
 # the parts were lifted (lift_z): every height used here is above the cut, so + Z_LIFT
 BODY = ['galleass_hull', 'galleass_paint', 'galleass_deck', 'galleass_trim']
 # 1) ship body for ship physics (root entity, dynamic convex hulls): hull slices up to the bulwark + both castles
+def in_spur(p):
+    """Spur/knee vertices: kept out of the composite (ship-ship) hull. Nothing else reaches past y 25.55."""
+    return p.y > 25.6
 bmc = bmesh.new()
 for y0, y1 in ((-27.0, -17.6), (-17.6, -6.0), (-6.0, 6.0), (6.0, 20.6), (20.6, 26.5)):
-    pts = verts_of(BODY, lambda p, y0=y0, y1=y1: y0 - 0.05 <= p.y <= y1 + 0.05 and p.z <= (Z_BULWARK_TOP + Z_LIFT) + 0.1)
+    pts = verts_of(BODY, lambda p, y0=y0, y1=y1: y0 - 0.05 <= p.y <= y1 + 0.05 and p.z <= (Z_BULWARK_TOP + Z_LIFT) + 0.1
+                   and not in_spur(p))
     if len(pts) > 4: convex_piece(bmc, pts)
-pts = verts_of(BODY, lambda p: p.y >= FC_Y_BACK - 0.05 and p.z >= (FC_Z_BASE + Z_LIFT) - 0.1 and p.z <= (FC_Z_PARAPET + Z_LIFT) + 0.1)
+pts = verts_of(BODY, lambda p: p.y >= FC_Y_BACK - 0.05 and p.z >= (FC_Z_BASE + Z_LIFT) - 0.1 and p.z <= (FC_Z_PARAPET + Z_LIFT) + 0.1
+               and not in_spur(p))
 convex_piece(bmc, pts)
 pts = verts_of(BODY, lambda p: SC_Y_AFT - 0.3 <= p.y <= SC_Y_FORE + 0.1 and p.z >= (FC_Z_BASE + Z_LIFT) - 0.1 and p.z <= (SC_Z_FLOOR + Z_LIFT) + 0.15)
 convex_piece(bmc, pts)
@@ -1824,6 +1814,13 @@ for sd in (-1, 1):
     x = sd * FC_STAIR_X
     convex_piece(bmb, [(x + dx, y, z) for dx in (-0.5, 0.5) for (y, z) in
                        ((FC_Y_BACK - 3.0, (Z_GUN_DECK + Z_LIFT)), (FC_Y_BACK, (FC_Z_PLATFORM + Z_LIFT)), (FC_Y_BACK, (Z_GUN_DECK + Z_LIFT)))])
+# spur (missiles, feet): the timber in two tapered pieces, the point as one
+for ya, yb in ((SPUR[0][0], 27.5), (27.5, SPUR_TIP[0] + 0.25)):
+    convex_piece(bmb, [(sx * w, y, zc + sz * h + Z_LIFT) for y in (ya, yb) for zc, w, h in [spur_at(y)]
+                       for sx in (-1, 1) for sz in (-1, 1)])
+zc, w, h = spur_at(SPUR[-1][0])
+convex_piece(bmb, [(sx * w, SPUR_TIP[0] + 0.25, zc + sz * h + Z_LIFT) for sx in (-1, 1) for sz in (-1, 1)]
+             + [(0, SPUR_TIP[1], zc + 0.05 + Z_LIFT)])
 mb = bpy.data.meshes.new('bo_galleass'); bmb.to_mesh(mb); bmb.free()
 coll('physics').objects.link(bpy.data.objects.new('bo_galleass', mb))
 coll('physics').hide_render = True; coll('physics').hide_viewport = True
@@ -1893,27 +1890,6 @@ def shot(fname, loc, rot, ortho=None, xray=False, refs=(), res=(2000, 1000), len
     sc.render.filepath = os.path.join(RENDER_DIR, fname)
     bpy.ops.render.render(write_still=True)
 
-# preview only: vanilla figureheads on the beak with the planned transform (not exported)
-PREVIEW = {}
-for fid in ('figurehead_lion', 'dragon_l', 'wingsofvictoryfigurehead', 'sirenfigurehead', 'seaserpentfigurehead'):
-    bpy.ops.wm.obj_import(filepath=os.path.join(HERE, f'ref/figureheads/{fid}.obj'), forward_axis='Y', up_axis='Z')
-    objs = []
-    for o in list(bpy.context.selected_objects):
-        for c in o.users_collection: c.objects.unlink(o)
-        if o.name.split('.')[-1] != '0':
-            bpy.data.objects.remove(o); continue
-        coll('preview').objects.link(o); objs.append(o)
-        o.location = (FIG_POS[0], FIG_POS[1], FIG_POS[2] + Z_LIFT); o.rotation_euler = (FIG_ROT_X, 0, 0); o.scale = FIG_SCALE
-        o.data.materials.clear(); o.data.materials.append(MATS['gilt'])
-    PREVIEW[fid] = objs
-
-def show_preview(fid):
-    for k, objs in PREVIEW.items():
-        for o in objs:
-            o.hide_render = (k != fid)
-            o.hide_viewport = (k != fid)          # the saved .blend shows only the chosen figurehead
-show_preview('figurehead_lion')
-
 def look(fname, loc, target, lens=35, res=(1400, 1000)):
     d = Vector(target) - Vector(loc)
     cam.location = loc; cam.rotation_euler = d.to_track_quat('-Z', 'Y').to_euler()
@@ -1936,11 +1912,9 @@ shot('mdl_bow_close.png', (13, 38, 8.5), (78, 0, 150), lens=30)
 shot('mdl_stern_close.png', (-12, -34, 9.5), (78, 0, -25), lens=30)
 shot('mdl_deck.png', (0, -11, 8.5), (72, 0, 0), lens=24)
 # close-ups for checking joins
-for fid in list(PREVIEW) + [None]:
-    show_preview(fid)
-    look(f'chk_fig_{fid or "none"}.png', (9.0, 31.0, 3.2), (0, 26.0, 1.8), lens=30)
-look('chk_fig_side.png', (12, 26.5, 2.0), (0, 26.0, 1.6), lens=30)
-show_preview('figurehead_lion')
+look('chk_spur_q.png', (9.0, 33.5, 5.0), (0, 27.5, 3.3), lens=30)
+look('chk_spur_side.png', (14, 27.5, 3.4), (0, 27.5, 3.4), lens=30)
+look('chk_spur_root.png', (4.5, 27.0, 4.6), (0, 25.0, 3.3), lens=28)
 look('chk_poop_corner.png', (-6.5, -27.5, 8.5), (-3.0, -23.5, 6.0), lens=30)
 look('chk_awning.png', (2.5, -16.5, 10.5), (0, -21.0, 8.4), lens=30)
 look('chk_sc_stairs.png', (5.5, -9.5, 7.5), (3.2, -14.3, 5.8), lens=30)

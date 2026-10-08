@@ -16,7 +16,7 @@
 		base_speed="3.2"
 		default_group="Infantry"
 		can_navigate_shallow_water="false"
-		can_equip_figurehead="true"
+		can_equip_figurehead="false"
 		production_build_weight="3.0"
 		value="75000"
 		sea_worthiness="36"

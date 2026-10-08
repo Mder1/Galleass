@@ -3,7 +3,7 @@
 python3 build_prefab.py <NavalDLC packed xml> <clone xml> <out xml>
 
 Stage 1 (hull swap): our meshes + physics shapes replace the meditheavy ones, the meditheavy-only geometry is
-removed, the rudder becomes a centreline stern rudder and the figureheads move to the beak. Everything else (oars,
+removed, the rudder becomes a centreline stern rudder and the figureheads go (fixed spur). Everything else (oars,
 sails, slots, spawn/boarding points, ...) still sits where the meditheavy has it; stage 2 relays it out.
 
 Nested prefab entities inherit missing elements (transform, tags, components, physics, children, ...) from the
@@ -177,29 +177,12 @@ strip_meshes('ship_ballista_holder', lambda m: m == 'ship_meditheavy_ballista_pl
 strip_meshes('ram_group', lambda m: m == 'adaptor_meditheavy', 'the ram adaptor')
 strip_meshes('figurehead_group', lambda m: m == 'figurehea_adapter_meditheavy', 'the figurehead adapter')
 
-# --- figureheads: move the whole group onto the beak ------------------------------------------------------------
-# vanilla figureheads sit at (0, 21.24, 3.05) inside the group; ours go to (0, 26.7, 1.75), ~1.13x larger
-FIG_S = 1.13
+# --- no figureheads (user 2026-10-08): the bow carries a fixed spur in the hull mesh instead; can_equip_figurehead is
+# false in the hull XML, and the group is emptied like the fore weapon slot
 fg = files['figurehead_group']
-set_transform(fg, pos=(0.0, 26.7 - FIG_S * 21.24, 1.75 + LIFT - FIG_S * 3.05), scale=(FIG_S, FIG_S, FIG_S))
-report.append('figurehead_group: scale %.2f, figureheads at (0, 26.7, %.2f)' % (FIG_S, 1.75 + LIFT))
-# the carved beak carrying the figurehead rides on the slot's 'platform' child: the game keeps a 'platform' child only
-# while a figurehead is fitted (VisualShipFactory.CleanNonExistingUpgrades), so an empty slot leaves a clean stem.
-# The beak mesh is in ship coordinates: the platform cancels the group's offset and (uniform) scale.
-fg_pos = [float(v) for v in fg.find('transform/position').get('value').split(',')]
-assert fg.find('transform/rotation_euler') is None or \
-    all(abs(float(v)) < 1e-6 for v in fg.find('transform/rotation_euler').get('value').split(','))
-plat = next(c for c in kids(fg) if c.get('name') == 'platform')
-assert 'platform' in [t.get('name') for t in plat.iter('tag')]
-drop(plat, 'transform'); drop(plat, 'components')
-t = ET.Element('transform')
-ET.SubElement(t, 'position', type_name='vec3', value='%.3f, %.3f, %.3f' % tuple(-v / FIG_S for v in fg_pos))
-ET.SubElement(t, 'rotation_euler', type_name='vec3', value='0.000, 0.000, 0.000')
-ET.SubElement(t, 'scale', type_name='vec3', value='%.4f, %.4f, %.4f' % ((1 / FIG_S,) * 3))
-plat.insert(1, t)
-plat.append(mesh_component('beak', 'galleass_beak'))
-plat[:] = sorted(plat, key=lambda c: ORDER.index(c.tag) if c.tag in ORDER else len(ORDER))
-report.append('figurehead_group/platform: galleass_beak (shown only with a figurehead)')
+flatten(fg)                                   # cut the base link first, or the figureheads come back
+n = len(kids(fg)); drop(fg, 'children')
+report.append('figurehead_group: %d vanilla figureheads/platform removed' % n)
 
 # --- rudder: centreline stern rudder on the raked post ----------------------------------------------------------
 RUDDER_POS, RUDDER_ROT = (0.0, -23.831, -2.370), (0.4124, 0.0, 0.0)

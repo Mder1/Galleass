@@ -47,7 +47,6 @@ GROUPS = {
     'galleass_hull': [o for r in ROLES for o in objs(f'galleass_{r}')],
     'galleass_faction_paint': objs('galleass_faction_paint'),
     'galleass_interior': objs('galleass_interior'),
-    'galleass_beak': objs('galleass_beak'),
     'galleass_hull_plate': objs('galleass_hull_plate'),
     'galleass_rudder_a': objs('galleass_rudder_a'),
     'galleass_deckwater': objs('galleass_deckwater', False),
@@ -92,7 +91,7 @@ def split_composite(name, child_fmt):
 GROUPS['bo_composite_conv_galleass'] = split_composite('bo_composite_conv_galleass', 'bo_galleass_conv_part%d')
 
 # the painted planking is plain wood under the faction overlay: same material as the hull planking
-# (every mesh, also multi-material ones such as the beak)
+# (every mesh, also multi-material ones such as the interior)
 for o in bpy.data.objects:
     if o.type == 'MESH':
         for i, m in enumerate(o.data.materials):
