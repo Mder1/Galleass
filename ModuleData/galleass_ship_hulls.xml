@@ -34,6 +34,9 @@
 				id="deck"
 				tag_id="deck" />
 			<ShipSlot
+				id="oars"
+				tag_id="oars" />
+			<ShipSlot
 				id="sail"
 				tag_id="sail" />
 			<ShipSlot

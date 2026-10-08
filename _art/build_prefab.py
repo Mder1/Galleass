@@ -442,7 +442,12 @@ for s, n in ((-1, 'oar_left_lower_8m'), (1, 'oar_right_lower_8m')):
     assert all(p.get('guid') == ZERO for p in tmpl[s].iter('prefab')), 'oar definition with links'
 OAR_X = W_OUT - SIDE_T / 2                                           # pivot in the middle of the wall
 OAR_Z = G['lift_z'](0.0, (G['OARPORT_Z0'] + G['OARPORT_Z1']) / 2) - 0.7              # the oar pivots 0.7 above its entity
-OAR_MESH_VANILLA, OAR_MESH = 'base_oar_8m', 'galleass_oar_11m'
+OAR_MESH = 'galleass_oar_11m'
+# vanilla oar meshes -> ours (make_oar.py): the base oar and the 'oars' slot's upgrade oars (Light = narrow, Wide)
+OAR_MESHES = {'base_oar_8m': OAR_MESH}
+for _l in (1, 2, 3):
+    OAR_MESHES['narrow_oar_l%d_8m' % _l] = 'galleass_oar_light_l%d' % _l
+    OAR_MESHES['wide_oar_l%d_8m' % _l] = 'galleass_oar_wide_l%d' % _l
 OAR_OUT, OAR_BLADE = 10.35, 2.0                                      # pivot -> blade tip, blade length (make_oar.py)
 # retracted: the oar slides inboard straight through its port until only the blade tip stays outside (the vanilla
 # dromon pulls its 8 m oars in 5.66 m; ours would have stood 4.7 m out - user 2026-10-08)
@@ -457,8 +462,8 @@ for grp_name, s in (('left_oar_machines', -1), ('right_oar_machines', 1)):
         o.set('name', '%s_%d' % (tmpl[s].get('name'), i))
         write_tf(o, pos=(s * OAR_X, G['oar_y'](i), OAR_Z), rot=(0, 0, 0))
         for m in o.iter('meta_mesh_component'):
-            if m.get('name') == OAR_MESH_VANILLA:
-                m.set('name', OAR_MESH); n_mesh += 1
+            if m.get('name') in OAR_MESHES:
+                m.set('name', OAR_MESHES[m.get('name')]); n_mesh += 1
         rf = next(c for c in o.iter('entity') if c.get('name') == 'retracted_frame')
         write_tf(rf, pos=(-s * OAR_RETRACT, 0.0, 0.7), rot=(0.0, 0.0, tf(rf)[1][2]))   # level, through the port
         ch.append(o); n_oars += 1
