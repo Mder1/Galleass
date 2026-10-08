@@ -917,6 +917,10 @@ th = files['torch_holder']
 LANTERN_Z0 = G['SC_Z_FLOOR'] + 0.12 + 3.5 + LIFT + 0.42          # bottom of the lantern's glass (model)
 LIGHT_Z0, LIGHT_R = LANTERN_Z0 - 0.42 - 0.18 - 0.1, 8.0          # 0.1 under the bowl's drop knob; deck ~3.3 below
 src = next(e for e in th.iter('entity') if e.get('name') == 'light')
+# not a link: its base is an entity INSIDE nord_lantern_nested, which may not resolve outside that prefab (night
+# test 2026-10-08: still dark) -> copy the full vanilla definition (all base links there are already zero)
+src = base(src)
+assert src is not None and all(p.get('guid') == ZERO for p in src.iter('prefab')), 'vanilla lantern light'
 light = copy_regen(src, 'galleass-stern-lantern/')
 write_tf(light, pos=(0.0, G['LANTERN_Y'], LANTERN_Z0 + 0.12), rot=(0, 0, 0))
 lamp = next(e for e in kids(light) if e.get('name') == 'torch_light')
