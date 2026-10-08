@@ -96,9 +96,8 @@ SCW_Z0, SCW_Z1, SCW_ARCH = 4.4, 4.76, 0.13     # cabin side windows (smaller sin
 SCW_W, SCW_N = 0.36, 10                    # width (was 0.5) and number per side (was 6; user 2026-10-08)
 # cabin door beside the mizzen mast (the mast at y -13.7 stands on the centreline 0.8 m in front of the bulkhead)
 SC_DOOR_X, SC_DOOR_W = 1.35, 1.0
-SC_FWIN_X = 2.35                         # front windows, outboard of the door
+SC_FWIN_XS = (2.08, 2.52)                 # front windows: a small arched pair each side (door to x 1.85, stairs from 2.75)
 SC_WALL = 0.2                             # cabin wall thickness (cabin interior is walk-in)
-SC_EWIN_Z = 4.6                           # front/stern windows: at side-window height, above the window band
 BALC_RY = 1.3                             # stern balcony depth (apex reaches the stern post's face); width = cabin's
 BALC_INSET = 0.08                         # balustrade set in from the floor edge
 BALC_Z_BOT = FC_Z_BASE - 0.3              # plate reaches below the hull top: it closes the hull end behind the cabin
@@ -975,47 +974,46 @@ def build_sterncastle():
     c = cuts[-1]
     for col in c.users_collection: col.objects.unlink(c)
     coll('cutters').objects.link(c)
-    # cabin door and two windows in the front bulkhead
+    def arched_window(c, nrm):
+        """Small arched cabin window: opening, lining with a sill, and a wooden arched hood on top of the frame (a
+        flat half-elliptical board in the wall plane whose inner edge continues the jambs' inner faces)."""
+        cuts.append(cutter_box(*c, 0.6, SCW_W, SCW_Z1 - SCW_Z0, math.atan2(nrm.y, nrm.x)))
+        lining('sc_window_lining', c, nrm, SCW_W, SCW_Z1 - SCW_Z0, SC_WALL, sill_out=0.04)
+        M = _basis(Vector((c[0], c[1], SCW_Z1)), nrm)
+        ai, ao = SCW_W / 2 - 0.04, SCW_W / 2                # same width as the jamb boards: the frame curving over
+        bi, bo = SCW_ARCH, SCW_ARCH + 0.04
+        bm = bmesh.new()
+        K = 24
+        rings = []
+        for k in range(K + 1):
+            t = math.pi * k / K
+            ring = []
+            for (a, b) in ((ai, bi), (ao, bo)):
+                for yy in (-0.01, 0.02):                    # same 2 cm lip as the frame
+                    ring.append(bm.verts.new(M @ Vector((a * math.cos(t), yy, b * math.sin(t)))))
+            rings.append(ring)                               # [inner-back, inner-front, outer-back, outer-front]
+        for r0, r1 in zip(rings, rings[1:]):
+            for i0, i1 in ((0, 1), (1, 3), (3, 2), (2, 0)):
+                bm.faces.new((r0[i0], r0[i1], r1[i1], r1[i0]))
+        for r, flip in ((rings[0], False), (rings[-1], True)):
+            f = (r[0], r[2], r[3], r[1])
+            bm.faces.new(tuple(reversed(f)) if flip else f)
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        obj_from_bm(bm, 'sc_window_hood', 'trim')
+    zw = (SCW_Z0 + SCW_Z1) / 2
+    # cabin door, and a pair of the small arched windows each side of it in the front bulkhead (user 2026-10-08:
+    # they replace one plain window each), between the door (to x 1.85) and the stairs (from x 2.75)
     cuts.append(cutter_box(SC_DOOR_X, SC_Y_FORE, Z_GUN_DECK + 1.0, SC_DOOR_W, 0.6, 2.0))
-    for x in (-SC_FWIN_X, SC_FWIN_X):
-        cuts.append(cutter_box(x, SC_Y_FORE, SC_EWIN_Z, 0.5, 0.6, 0.5))
-        lining('sc_window_lining', (x, SC_Y_FORE, SC_EWIN_Z), (0, 1, 0), 0.5, 0.5, SC_WALL, sill_out=0.04)
+    for x in SC_FWIN_XS:
+        for sd in (-1, 1):
+            arched_window((sd * x, SC_Y_FORE, zw), Vector((0, 1, 0)))
     # stern door onto the platform (its two windows went for the stern ports below them; user 2026-10-08)
     cuts.append(cutter_box(0, SC_Y_AFT, Z_GUN_DECK + 1.0, SC_DOOR_W, 0.6, 2.0))
     # side windows (the drawing's band of small arched windows)
-    nwin = SCW_N
     for side in (-1, 1):
-        for i in range(nwin):
-            y = SC_Y_AFT + 1.0 + (SC_Y_FORE - SC_Y_AFT - 2.0) * (i + 0.5) / nwin
-            nrm = wall_normal(sc_hw, y, side)
-            cuts.append(cutter_box(side * sc_hw(y), y, (SCW_Z0 + SCW_Z1) / 2, 0.6, SCW_W, SCW_Z1 - SCW_Z0,
-                                   math.atan2(nrm.y, nrm.x)))
-            lining('sc_window_lining', (side * sc_hw(y), y, (SCW_Z0 + SCW_Z1) / 2), nrm, SCW_W,
-                   SCW_Z1 - SCW_Z0, SC_WALL, sill_out=0.04)
-            # arch over each window
-            # wooden arched hood on top of the frame: a flat half-elliptical board in the wall plane whose inner
-            # edge continues the jambs' inner faces, resting on the frame's top
-            M = _basis(Vector((side * sc_hw(y), y, SCW_Z1)), nrm)
-            ai, ao = SCW_W / 2 - 0.04, SCW_W / 2            # same width as the jamb boards: the frame curving over
-            bi, bo = SCW_ARCH, SCW_ARCH + 0.04
-            bm = bmesh.new()
-            K = 24
-            rings = []
-            for k in range(K + 1):
-                t = math.pi * k / K
-                ring = []
-                for (a, b) in ((ai, bi), (ao, bo)):
-                    for yy in (-0.01, 0.02):                # same 2 cm lip as the frame
-                        ring.append(bm.verts.new(M @ Vector((a * math.cos(t), yy, b * math.sin(t)))))
-                rings.append(ring)                           # [inner-back, inner-front, outer-back, outer-front]
-            for r0, r1 in zip(rings, rings[1:]):
-                for i0, i1 in ((0, 1), (1, 3), (3, 2), (2, 0)):
-                    bm.faces.new((r0[i0], r0[i1], r1[i1], r1[i0]))
-            for r, flip in ((rings[0], False), (rings[-1], True)):
-                f = (r[0], r[2], r[3], r[1])
-                bm.faces.new(tuple(reversed(f)) if flip else f)
-            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-            obj_from_bm(bm, 'sc_window_hood', 'trim')
+        for i in range(SCW_N):
+            y = SC_Y_AFT + 1.0 + (SC_Y_FORE - SC_Y_AFT - 2.0) * (i + 0.5) / SCW_N
+            arched_window((side * sc_hw(y), y, zw), wall_normal(sc_hw, y, side))
     # two stern ports either side of the door, facing aft across the open platform (user 2026-10-08)
     for x in (-SC_AGP_X, SC_AGP_X):
         c = (x, SC_Y_AFT, (GP_SILL + GP_TOP) / 2)
@@ -1973,6 +1971,7 @@ look('chk_side_wall.png', (9.5, 3.0, 2.9), (4.4, 6.0, 1.6), lens=28)
 look('chk_gunport.png', (6.2, gunport_y(1) - 1.2, 3.3), (4.4, gunport_y(1), 3.15), lens=35)
 look('chk_stern_chaser.png', (8.0, WING_Y0 - 5.0, 5.6), (STERN_GP_X, WING_Y0, 3.15 + Z_LIFT), lens=35)
 look('chk_sc_stern_ports.png', (2.4, -29.0, 4.6), (0.0, -24.0, 3.15 + Z_LIFT), lens=30)
+look('chk_sc_front.png', (2.3, SC_Y_FORE + 4.5, 6.2), (2.3, SC_Y_FORE, 4.6 + Z_LIFT), lens=32)
 look('chk_sc_gunport.png', (7.5, SC_GP_Y - 3.0, 5.0), (sc_hw(SC_GP_Y), SC_GP_Y, 3.15 + Z_LIFT), lens=35)
 look('chk_sc_gunroom.png', (-1.2, -15.6, 4.6), (1.5, -21.0, 4.1), lens=20)
 look('chk_gunport_fore.png', (6.2, gunport_y(4) + 1.6, 3.3), (4.2, gunport_y(4), 3.15), lens=35)
