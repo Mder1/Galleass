@@ -910,23 +910,32 @@ n = len(kids(bh)); drop(bh, 'children')
 report.append('ship_ballista_holder: %d vanilla fore weapons removed' % n)
 
 # --- the stern lantern lights up: vanilla's lantern light (LightCycle: on at night; light, flame, ember) copied into
-# the model's lantern glass, a little stronger than the mast lanterns'
+# the model's lantern glass, a little stronger than the mast lanterns'. Flame and ember stay in the glass; the light
+# itself hangs just under the bowl, a little forward of the post: vanilla lights cast shadows (light_flags 96), and
+# inside the glass the gilt bowl kept every ray steeper than ~14 deg off the deck (user night test 2026-10-07)
 th = files['torch_holder']
 LANTERN_Z0 = G['SC_Z_FLOOR'] + 0.12 + 3.5 + LIFT + 0.42          # bottom of the lantern's glass (model)
+LIGHT_Z0, LIGHT_R = LANTERN_Z0 - 0.42 - 0.18 - 0.1, 8.0          # 0.1 under the bowl's drop knob; deck ~3.3 below
 src = next(e for e in th.iter('entity') if e.get('name') == 'light')
 light = copy_regen(src, 'galleass-stern-lantern/')
 write_tf(light, pos=(0.0, G['LANTERN_Y'], LANTERN_Z0 + 0.12), rot=(0, 0, 0))
+lamp = next(e for e in kids(light) if e.get('name') == 'torch_light')
+write_tf(lamp, pos=(0.0, 0.2, LIGHT_Z0 - (LANTERN_Z0 + 0.12)), rot=(0, 0, 0))
 for lc in light.iter('light_component'):
     misc = lc.find('misc')
     if misc is None:
         misc = ET.SubElement(lc, 'misc')
-    for k, t, v in (('light_radius', 'float', '6.000'), ('light_intensity', 'float', '160.000')):
+    # vanilla always keeps the light frame's scale equal to the radius
+    for k, t, v in (('light_intensity', 'float', '160.000'), ('light_radius', 'float', '%.3f' % LIGHT_R),
+                    ('light_local_frame_rot', 'mat3', ', '.join('%.6f' % (LIGHT_R if i % 4 == 0 else 0) for i in range(9))),
+                    ('light_shadow_radius', 'float', '%.3f' % (LIGHT_R - 2))):
         x = misc.find(k)
         if x is None:
             x = ET.SubElement(misc, k, type_name=t)
         x.set('value', v)
 th.find('children').append(light)
-report.append('stern lantern light at (0, %.2f, %.2f)' % (G['LANTERN_Y'], LANTERN_Z0 + 0.12))
+report.append('stern lantern: flame at (0, %.2f, %.2f), light at (0, %.2f, %.2f) r %.0f'
+              % (G['LANTERN_Y'], LANTERN_Z0 + 0.12, G['LANTERN_Y'] + 0.2, LIGHT_Z0, LIGHT_R))
 
 # --- write --------------------------------------------------------------------------------------------------------
 ET.indent(folder, '\t', level=1)
