@@ -966,7 +966,9 @@ def banner_mounts():
         dxdy = (roof_edge(y + 0.05) - roof_edge(y - 0.05)) / 0.1
         for sd in (-1, 1):
             n = (sd, -dxdy); nl = math.hypot(*n)
-            m.append(dict(name='banner_awning_%+.1f_%+d' % (ly, sd), pin=(sd * x, y, SC_Z_AWNING - 0.05),
+            # pin on the rail's centre line: the loops (r ~0.03 at this scale) wrap the 5 cm rail (user 2026-10-08:
+            # they hung below it)
+            m.append(dict(name='banner_awning_%+.1f_%+d' % (ly, sd), pin=(sd * x, y, SC_Z_AWNING),
                           normal=(n[0] / nl, n[1] / nl), scale=1.4, kind='rail'))
     for mast in ('main', 'mizzen', 'fore'):               # masts: forward face, high above the lanterns
         deck = FC_Z_PLATFORM if mast == 'fore' else Z_GUN_DECK
