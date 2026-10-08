@@ -474,8 +474,8 @@ for t in small.iter('tag'):
 sh.find('children').append(small)
 MASTS = G['MASTS']
 RIGS = [  # (rig entity, mast, deck crossing z, rake, vanilla deck profile of the ship it came from)
-    (rigs['lateen_sail_large_nested'], 'main', Z_DECK, -0.10, DECK_MEDITHEAVY),
-    (rigs['lateen_sail_medium_nested'], 'fore', Z_FC, -G['FORE_RAKE'], DECK_MEDITHEAVY),
+    (rigs['lateen_sail_large_nested'], 'main', Z_DECK, -G['MAST_RAKE']['main'], DECK_MEDITHEAVY),
+    (rigs['lateen_sail_medium_nested'], 'fore', Z_FC, -G['MAST_RAKE']['fore'], DECK_MEDITHEAVY),
     (small, 'mizzen', Z_DECK, -0.157, DECK_MEDITLIGHT),
 ]
 for rig, mast, zd, rake, vdeck in RIGS:
@@ -995,43 +995,20 @@ th.find('children').append(light)
 report.append('stern lantern: wood x%.2f on the bowl floor %.2f, %s, light at (0, %.2f, %.2f) r %.0f i %.0f'
               % (EMBER_S, LANTERN_Z0, TORCH_FIRE[0], G['LANTERN_Y'], LIGHT_Z0, LIGHT_R, LIGHT_I))
 
-# --- banners (user 2026-10-08): vanilla's hanging castle banner (Native mesh bd_banner_b: 2.18 x 4.48 m at scale 1,
-# rod on top, hangs down from the origin, the cloth 0.01..0.21 in front of it along -y). Tagged banner_with_faction_color
-# only: MissionShip collects every child with that tag and NavalMissionPrepareView paints the owner's banner on at
-# spawn (not bd_banner_b: SailVisual takes the first child with that tag as its cloth top banner). On capture only the
-# sails switch; these keep the old banner until the next battle.
-BANNER_MESH = 'bd_banner_b'
+# --- banners (user 2026-10-08): vanilla cloth banners (Native generic_flag_vertical_a: force_enable_cloth -> it
+# flutters; material with use_tableau_blending). Tagged banner_with_faction_color only: MissionShip collects every child
+# with that tag and NavalMissionPrepareView paints the owner's banner on at spawn (not bd_banner_b: SailVisual takes the
+# first child with that tag as its cloth top banner). On capture only the sails switch. Layout and iron holders: the
+# model's banner_mounts() (one source for both).
+BANNER_MESH = 'generic_flag_vertical_a'
 def banner(name, pos, normal, s):
-    """Banner whose cloth faces along the horizontal 'normal' (local -y -> normal), rod at pos."""
+    """Cloth banner pinned along its top edge at pos, its face towards the horizontal 'normal' (local x -> normal)."""
     e = new_entity(name, 'banner/' + name)
-    write_tf(e, pos=pos, rot=(0.0, 0.0, math.atan2(normal[0], -normal[1])))
+    write_tf(e, pos=pos, rot=(0.0, 0.0, math.atan2(normal[1], normal[0])))
     t = e.find('transform'); ET.SubElement(t, 'scale', type_name='vec3', value='%.3f, %.3f, %.3f' % (s, s, s))
     e.append(tags('banner_with_faction_color')); e.append(mobility()); e.append(mesh_component('banner/' + name, BANNER_MESH))
     return e
-bl = []
-# sides: from the cap rail in the outer gaps between the broadside gunports; small enough that the tail stays above
-# the rub rail, the rod just off the cap rail's face (the cloth clears the gilt moulding)
-S_SIDE, Z_CAP_TOP = 0.34, G['Z_BULWARK_TOP'] + 0.1 + LIFT
-gys = [G['gunport_y'](i) for i in range(G['GUNPORTS_PER_SIDE'])]
-for k in (0, len(gys) - 2):
-    y = (gys[k] + gys[k + 1]) / 2
-    for sd in (-1, 1):
-        bl.append(banner('banner_side_%d_%+d' % (k, sd), (sd * (W_OUT + 0.07), y, Z_CAP_TOP - 0.05), (sd, 0), S_SIDE))
-# stern castle: from the awning frame's side rails between its posts, facing outboard over the poop balustrade
-S_AWN, Z_AWN = 0.42, G['SC_Z_AWNING'] + LIFT
-for ly in (-5.25, -1.9):
-    y = G['roof_y'](ly); x = G['roof_edge'](y)
-    dxdy = (G['roof_edge'](y + 0.05) - G['roof_edge'](y - 0.05)) / 0.1
-    for sd in (-1, 1):
-        n = (sd, -dxdy); nl = math.hypot(*n); n = (n[0] / nl, n[1] / nl)        # mirrored: same fore-aft part
-        bl.append(banner('banner_awning_%+.1f_%+d' % (ly, sd), (sd * x + n[0] * 0.07, y + n[1] * 0.07, Z_AWN - 0.02), n, S_AWN))
-# masts: on each mast's forward face high above the lanterns (the masts rake forward, so below the rod the mast
-# leans away from the cloth); r = mast radius there (+ clearance)
-S_MAST = 0.42
-for mast, r in (('main', 0.27), ('mizzen', 0.24), ('fore', 0.235)):
-    deck = Z_FC if mast == 'fore' else Z_DECK
-    z = deck + 6.3
-    bl.append(banner('banner_mast_' + mast, (0.0, mast_y(mast, z) + r + 0.03, z), (0, 1), S_MAST))
+bl = [banner(b['name'], (b['pin'][0], b['pin'][1], b['pin'][2] + LIFT), b['normal'], b['scale']) for b in G['banner_mounts']()]
 grp = new_entity('galleass_banners', 'banners')
 grp.append(mobility()); grp.append(el('children', None, *bl))
 files['torch_holder'].find('children').append(grp)          # ship frame (like the stern lantern)

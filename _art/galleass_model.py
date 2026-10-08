@@ -151,6 +151,12 @@ def unlift_z(y, z):
 # fore mast at 20.9 (was 22.5): behind the forecastle's ring of five guns (user 2026-10-07)
 MASTS = {'mizzen': -13.7, 'main': 5.5, 'fore': 20.9}
 FORE_RAKE = 0.157                          # fore mast leans forward (prefab: rig rotation x = -FORE_RAKE)
+MAST_RAKE = {'main': 0.10, 'mizzen': 0.157, 'fore': FORE_RAKE}     # all lean forward; the prefab's rigs use these
+MAST_R = {'main': 0.27, 'mizzen': 0.24, 'fore': 0.235}             # vanilla mast radius at banner height
+def mast_axis_y(mast, z):
+    """y of a mast's axis at (unlifted) z; it crosses its deck (gun deck / forecastle platform) at MASTS[mast]."""
+    deck = FC_Z_PLATFORM if mast == 'fore' else Z_GUN_DECK
+    return MASTS[mast] + (z - deck) * math.tan(MAST_RAKE[mast])
 # the vanilla medium rig's mast ends 0.5 m above the forecastle's walk-in ground floor: a heel (a little thicker than
 # the mast's 0.24 m) runs from a step block on the floor up the raked axis into the platform, over the mast's foot
 FORE_HEEL_R = 0.26
@@ -934,6 +940,68 @@ def roof_edge(y):
     """Half width of the (scaled) roof base at world y = where the awning frame's side beams run."""
     return roof_scale_x() * pchip(ROOF_BASE_HW, (ROOF_ORIGIN_Y - y) / ROOF_SY)
 
+# ================================================================= banners (cloth, owner's banner in battle)
+# vanilla cloth banner generic_flag_vertical_a (force_enable_cloth, banner-capable material): 0.7 x 1.16 m at scale 1,
+# pinned along its top edge (local z 0), hanging down, cloth plane = local y-z (faces local x). Each mount: the pin
+# line's centre (unlifted), the outward normal (the cloth faces it), the scale, the holder kind. Iron holders keep
+# the swinging cloth off walls and masts (user 2026-10-08); the prefab places the banners (prefab: + Z_LIFT).
+BANNER_W, BANNER_H = 0.7, 1.16
+BANNER_ARM = 0.5                                          # wall holders: crossbar this far out from the wall
+MAST_ARM = 0.6                                            # mast holders: crossbar this far ahead of the mast face
+def banner_mounts():
+    m = []
+    zc = Z_BULWARK_TOP + 0.1 + 0.03                       # on the cap rail
+    gys = [gunport_y(i) for i in range(GUNPORTS_PER_SIDE)]
+    for k in (0, GUNPORTS_PER_SIDE - 2):                  # outer gaps between the broadside gunports
+        y = (gys[k] + gys[k + 1]) / 2
+        for sd in (-1, 1):
+            m.append(dict(name='banner_side_%d_%+d' % (k, sd), pin=(sd * (WING_HW + BANNER_ARM), y, zc),
+                          normal=(sd, 0.0), scale=1.1, kind='wall', wall=(sd * (WING_HW - 0.12), y, zc)))
+    zf = FC_Z_PARAPET + 0.1 + 0.03                         # forecastle cap, aft end of the straight sides
+    for sd in (-1, 1):
+        m.append(dict(name='banner_fc_%+d' % sd, pin=(sd * (fc_radius(zf) + BANNER_ARM), 19.45, zf), normal=(sd, 0.0),
+                      scale=1.1, kind='wall', wall=(sd * (fc_radius(zf) - 0.15), 19.45, zf)))
+    for ly in (-5.25, -1.9):                              # stern castle: under the awning frame's side rails
+        y = roof_y(ly); x = roof_edge(y)
+        dxdy = (roof_edge(y + 0.05) - roof_edge(y - 0.05)) / 0.1
+        for sd in (-1, 1):
+            n = (sd, -dxdy); nl = math.hypot(*n)
+            m.append(dict(name='banner_awning_%+.1f_%+d' % (ly, sd), pin=(sd * x, y, SC_Z_AWNING - 0.05),
+                          normal=(n[0] / nl, n[1] / nl), scale=1.4, kind='rail'))
+    for mast in ('main', 'mizzen', 'fore'):               # masts: forward face, high above the lanterns
+        deck = FC_Z_PLATFORM if mast == 'fore' else Z_GUN_DECK
+        z = deck + 6.3
+        m.append(dict(name='banner_mast_' + mast, pin=(0.0, mast_axis_y(mast, z) + MAST_R[mast] + MAST_ARM, z),
+                      normal=(0.0, 1.0), scale=1.4, kind='mast', mast=mast))
+    return m
+
+def build_banner_holders():
+    """Iron holders: two arms off the wall top with a crossbar (walls); collar, arm, brace and crossbar (masts)."""
+    for b in banner_mounts():
+        px, py, pz = b['pin']; nx, ny = b['normal']; tx, ty = -ny, nx          # tangent along the crossbar
+        half = BANNER_W * b['scale'] / 2 + 0.05
+        bar = [(px - tx * half, py - ty * half, pz + 0.02), (px + tx * half, py + ty * half, pz + 0.02)]
+        if b['kind'] == 'wall':
+            sweep('banner_bar', bar, 0.02, 'iron', segs=8)
+            wx, wy, wz = b['wall']
+            for e in (-1, 1):
+                ox, oy = tx * e * (half - 0.04), ty * e * (half - 0.04)
+                sweep('banner_arm', [(wx + ox, wy + oy, wz), (px + ox, py + oy, pz + 0.02)], 0.022, 'iron', square=True)
+                box('banner_arm_plate', wx + ox - 0.05, wx + ox + 0.05, wy + oy - 0.05, wy + oy + 0.05, wz - 0.03, wz + 0.005, 'iron')
+        elif b['kind'] == 'mast':
+            mast = b['mast']; r = MAST_R[mast] + 0.03; rk = MAST_RAKE[mast]
+            ax = Vector((0, math.sin(rk), math.cos(rk)))                     # mast axis (leans forward)
+            e1 = Vector((1, 0, 0)); e2 = ax.cross(e1).normalized()
+            for zz in (pz + 0.02, pz - 0.5):                                   # collars for the arm and the brace
+                c = Vector((0, mast_axis_y(mast, zz), zz))
+                sweep('banner_collar', [tuple(c + r * (math.cos(2 * math.pi * k / 24) * e1 + math.sin(2 * math.pi * k / 24) * e2))
+                                        for k in range(24)], 0.03, 'iron', segs=8, closed=True)
+            yf = mast_axis_y(mast, pz + 0.02) + r
+            sweep('banner_arm', [(0, yf, pz + 0.02), (0, py, pz + 0.02)], 0.03, 'iron', square=True)
+            yb = mast_axis_y(mast, pz - 0.5) + r
+            sweep('banner_brace', [(0, yb, pz - 0.5), (0, yf + 0.6 * (py - yf), pz + 0.0)], 0.022, 'iron', square=True)
+            sweep('banner_bar', bar, 0.025, 'iron', segs=8)
+
 def tapered_block(name, ya, yb, z0, z1, hw_fn, role, n=16, grow=0.0):
     """Block whose half width follows hw_fn(y); z0 may be a function of y (bottom following the hull)."""
     bm = bmesh.new(); rings = []
@@ -1590,6 +1658,7 @@ build_sides(); build_deck_fittings()
 build_forecastle(); build_sterncastle(); build_ends(); build_markers()
 rudder = build_rudder()
 build_spur()
+build_banner_holders()
 coll('cutters').hide_render = True; coll('cutters').hide_viewport = True
 
 # apply booleans and merge parts into one object per material role (the cabin floor is plain deck now: with the
