@@ -150,9 +150,10 @@ MASTS = {'mizzen': -13.7, 'main': 5.5, 'fore': 20.9}
 SPUR = [(24.2, 1.30, 0.52, 0.80), (Y_STEM_WL + 0.3, 1.35, 0.50, 0.78), (27.5, 1.66, 0.38, 0.52),
         (30.4, 1.97, 0.27, 0.32)]                 # top at the bow 2.13: just under the forecastle rub rail (2.15)
 # knee under the root (drawing: the stem sweeps up into the spur's underside): (y, bottom z), top = spur centre
-SPUR_KNEE = [(24.6, -0.2), (25.3, 0.15), (25.9, 0.45), (26.5, 0.75), (27.0, 0.98)]
+SPUR_KNEE = [(24.6, -0.2), (25.3, 0.15), (25.9, 0.45), (26.5, 0.78), (27.0, 1.15)]   # ends inside the spur
 SPUR_HOOPS = (27.2, 28.8, 30.25)
 SPUR_TIP = (30.3, 31.3)                           # bronze point: base (over the wood's end) -> point
+SPUR_DROP = 0.4                                   # the whole spur this much lower than drawn (user 2026-10-08)
 
 ROLES = {                                 # role -> blockout colour (real materials are set up in the Kit)
     'hull':  (0.42, 0.28, 0.17),          # hull planking (below the rowing level)
@@ -1344,7 +1345,8 @@ def spur_at(y):
     for (y0, *v0), (y1, *v1) in zip(SPUR, SPUR[1:]):
         if y <= y1 or (y1, *v1) == SPUR[-1]:
             t = min(max((y - y0) / (y1 - y0), 0.0), 1.0)
-            return tuple(a + (b - a) * t for a, b in zip(v0, v1))
+            zc, w, h = (a + (b - a) * t for a, b in zip(v0, v1))
+            return zc - SPUR_DROP, w, h
 
 def spur_loft(name, stations, role, segs=16, rnd=3.0):
     """Lofted beam along +y through (y, centre z, half width, half height) stations; superellipse section (rnd 2 =
@@ -1372,7 +1374,7 @@ def build_spur():
     spur_loft('spur_beak', [(y, *spur_at(y)) for y in ys], 'trim')
     knee = []
     for y, zb in SPUR_KNEE:
-        zc = spur_at(y)[0]
+        zc, zb = spur_at(y)[0], zb - SPUR_DROP
         knee.append((y, (zb + zc) / 2, 0.2 - 0.04 * (y - SPUR_KNEE[0][0]) / (SPUR_KNEE[-1][0] - SPUR_KNEE[0][0]),
                      (zc - zb) / 2))
     spur_loft('spur_knee', knee, 'trim', rnd=6.0)
