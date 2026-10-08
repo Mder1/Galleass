@@ -184,6 +184,12 @@ fg = files['figurehead_group']
 flatten(fg)                                   # cut the base link first, or the figureheads come back
 n = len(kids(fg)); drop(fg, 'children')
 report.append('figurehead_group: %d vanilla figureheads/platform removed' % n)
+# no ram either (no bow slot since 2026-10-06; the fixed spur is in the hull mesh): the vanilla rams were left in the
+# group and still showed in the Kit (user 2026-10-08)
+rg = files['ram_group']
+flatten(rg)
+n = sum(1 for _ in rg.iter('meta_mesh_component')); drop(rg, 'children')
+report.append('ram_group: vanilla rams removed (%d meshes)' % n)
 
 # --- rudder: centreline stern rudder on the raked post ----------------------------------------------------------
 RUDDER_POS, RUDDER_ROT = (0.0, -23.831, -2.370), (0.4124, 0.0, 0.0)
