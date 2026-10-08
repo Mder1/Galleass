@@ -915,7 +915,11 @@ report.append('ship_ballista_holder: %d vanilla fore weapons removed' % n)
 # not at the flame: from there the gilt bowl only shades a cone under the lantern (rays escape down to ~45 deg)
 th = files['torch_holder']
 LANTERN_Z0 = G['SC_Z_FLOOR'] + 0.12 + 3.5 + LIFT + 0.42          # bottom of the lantern's glass (model)
-LIGHT_Z0, LIGHT_R = LANTERN_Z0 + 0.95 / 2, 8.0                   # middle of the cage (pane height 0.95); deck ~4 below
+LIGHT_Z0, LIGHT_R, LIGHT_I = LANTERN_Z0 + 0.95 / 2, 14.0, 220.0  # middle of the cage (pane height 0.95); deck ~4 below
+# a fire to match the 0.84 m lantern (user 2026-10-08: bigger wood, light to match): burned_wood_a is 1.25 x 1.0 x 0.48
+# at scale 1 (origin at its bottom; vanilla lantern 0.189) -> 0.44 = a 0.55 m pile on the bowl floor; the flame is
+# vanilla's ship torch fire (psys_torch_fire_moving; its torches light r 20 / i 100) instead of the small lantern fire
+EMBER_S, TORCH_FIRE = 0.44, ('psys_torch_fire_moving', '{516757BC-A1C9-44C7-84DF-9EA28E4E1055}')
 src = next(e for e in th.iter('entity') if e.get('name') == 'light')
 # not a link: its base is an entity INSIDE nord_lantern_nested, which may not resolve outside that prefab (night
 # test 2026-10-08: still dark) -> copy the full vanilla definition (all base links there are already zero)
@@ -925,12 +929,18 @@ light = copy_regen(src, 'galleass-stern-lantern/')
 write_tf(light, pos=(0.0, G['LANTERN_Y'], LANTERN_Z0 + 0.12), rot=(0, 0, 0))
 lamp = next(e for e in kids(light) if e.get('name') == 'torch_light')
 write_tf(lamp, pos=(0.0, 0.0, LIGHT_Z0 - (LANTERN_Z0 + 0.12)), rot=(0, 0, 0))
+ember = next(e for e in kids(light) if e.get('name') == 'burning_campfire')
+set_transform(ember, pos=(0.0, 0.0, LANTERN_Z0 + 0.005 - (LANTERN_Z0 + 0.12)), scale=(EMBER_S,) * 3)
+flame = next(e for e in kids(light) if e.get('name') == 'prt_torch_light')
+set_transform(flame, pos=(0.0, 0.0, LANTERN_Z0 + 0.48 * EMBER_S * 0.6 - (LANTERN_Z0 + 0.12)))
+ps = flame.find('components/particle_system_instanced_component')
+ps.set('name', TORCH_FIRE[0]); ps.find('misc/guid').set('value', TORCH_FIRE[1])
 for lc in light.iter('light_component'):
     misc = lc.find('misc')
     if misc is None:
         misc = ET.SubElement(lc, 'misc')
     # vanilla always keeps the light frame's scale equal to the radius
-    for k, t, v in (('light_intensity', 'float', '160.000'), ('light_radius', 'float', '%.3f' % LIGHT_R),
+    for k, t, v in (('light_intensity', 'float', '%.3f' % LIGHT_I), ('light_radius', 'float', '%.3f' % LIGHT_R),
                     ('light_local_frame_rot', 'mat3', ', '.join('%.6f' % (LIGHT_R if i % 4 == 0 else 0) for i in range(9))),
                     ('light_shadow_radius', 'float', '%.3f' % (LIGHT_R - 2))):
         x = misc.find(k)
@@ -938,8 +948,8 @@ for lc in light.iter('light_component'):
             x = ET.SubElement(misc, k, type_name=t)
         x.set('value', v)
 th.find('children').append(light)
-report.append('stern lantern: flame at (0, %.2f, %.2f), light at (0, %.2f, %.2f) r %.0f'
-              % (G['LANTERN_Y'], LANTERN_Z0 + 0.12, G['LANTERN_Y'], LIGHT_Z0, LIGHT_R))
+report.append('stern lantern: wood x%.2f on the bowl floor %.2f, %s, light at (0, %.2f, %.2f) r %.0f i %.0f'
+              % (EMBER_S, LANTERN_Z0, TORCH_FIRE[0], G['LANTERN_Y'], LIGHT_Z0, LIGHT_R, LIGHT_I))
 
 # --- write --------------------------------------------------------------------------------------------------------
 ET.indent(folder, '\t', level=1)
