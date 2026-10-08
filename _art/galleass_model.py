@@ -947,6 +947,7 @@ def roof_edge(y):
 # the swinging cloth off walls and masts (user 2026-10-08); the prefab places the banners (prefab: + Z_LIFT).
 BANNER_W, BANNER_H = 0.7, 1.16
 BANNER_ARM = 0.5                                          # wall holders: crossbar this far out from the wall
+AWNING_BANNER_SCALE = 1.4                                 # stern castle banners (their loops set the awning rail's size)
 MAST_ARM = 0.6                                            # mast holders: crossbar this far ahead of the mast face
 def banner_mounts():
     m = []
@@ -969,7 +970,7 @@ def banner_mounts():
             # pin on the rail's centre line: the loops (r ~0.03 at this scale) wrap the 5 cm rail (user 2026-10-08:
             # they hung below it)
             m.append(dict(name='banner_awning_%+.1f_%+d' % (ly, sd), pin=(sd * x, y, SC_Z_AWNING),
-                          normal=(n[0] / nl, n[1] / nl), scale=1.4, kind='rail'))
+                          normal=(n[0] / nl, n[1] / nl), scale=AWNING_BANNER_SCALE, kind='rail'))
     for mast in ('main', 'mizzen', 'fore'):               # masts: forward face, high above the lanterns
         deck = FC_Z_PLATFORM if mast == 'fore' else Z_GUN_DECK
         z = deck + 6.3
@@ -977,32 +978,39 @@ def banner_mounts():
                       normal=(0.0, 1.0), scale=1.4, kind='mast', mast=mast))
     return m
 
+def banner_loop_r(scale):
+    """Radius of a bar the banner's loops wrap: loop radius 0.023 at scale 1 (generic_flag_vertical_a), minus play."""
+    return 0.023 * scale - 0.004
+
 def build_banner_holders():
     """Iron holders: two arms off the wall top with a crossbar (walls); collar, arm, brace and crossbar (masts)."""
     for b in banner_mounts():
         px, py, pz = b['pin']; nx, ny = b['normal']; tx, ty = -ny, nx          # tangent along the crossbar
         half = BANNER_W * b['scale'] / 2 + 0.05
-        bar = [(px - tx * half, py - ty * half, pz + 0.02), (px + tx * half, py + ty * half, pz + 0.02)]
+        # the crossbar runs through the loops: on their centre line (the pin), as thick as they allow (user
+        # 2026-10-08: the banners did not sit on the bars)
+        bar_r = banner_loop_r(b['scale'])
+        bar = [(px - tx * half, py - ty * half, pz), (px + tx * half, py + ty * half, pz)]
         if b['kind'] == 'wall':
-            sweep('banner_bar', bar, 0.02, 'iron', segs=8)
+            sweep('banner_bar', bar, bar_r, 'iron', segs=10)
             wx, wy, wz = b['wall']
             for e in (-1, 1):
                 ox, oy = tx * e * (half - 0.04), ty * e * (half - 0.04)
-                sweep('banner_arm', [(wx + ox, wy + oy, wz), (px + ox, py + oy, pz + 0.02)], 0.022, 'iron', square=True)
+                sweep('banner_arm', [(wx + ox, wy + oy, wz), (px + ox, py + oy, pz)], 0.022, 'iron', square=True)
                 box('banner_arm_plate', wx + ox - 0.05, wx + ox + 0.05, wy + oy - 0.05, wy + oy + 0.05, wz - 0.03, wz + 0.005, 'iron')
         elif b['kind'] == 'mast':
             mast = b['mast']; r = MAST_R[mast] + 0.03; rk = MAST_RAKE[mast]
             ax = Vector((0, math.sin(rk), math.cos(rk)))                     # mast axis (leans forward)
             e1 = Vector((1, 0, 0)); e2 = ax.cross(e1).normalized()
-            for zz in (pz + 0.02, pz - 0.5):                                   # collars for the arm and the brace
+            for zz in (pz, pz - 0.5):                                          # collars for the arm and the brace
                 c = Vector((0, mast_axis_y(mast, zz), zz))
                 sweep('banner_collar', [tuple(c + r * (math.cos(2 * math.pi * k / 24) * e1 + math.sin(2 * math.pi * k / 24) * e2))
                                         for k in range(24)], 0.03, 'iron', segs=8, closed=True)
-            yf = mast_axis_y(mast, pz + 0.02) + r
-            sweep('banner_arm', [(0, yf, pz + 0.02), (0, py, pz + 0.02)], 0.03, 'iron', square=True)
+            yf = mast_axis_y(mast, pz) + r
+            sweep('banner_arm', [(0, yf, pz), (0, py, pz)], 0.03, 'iron', square=True)
             yb = mast_axis_y(mast, pz - 0.5) + r
             sweep('banner_brace', [(0, yb, pz - 0.5), (0, yf + 0.6 * (py - yf), pz + 0.0)], 0.022, 'iron', square=True)
-            sweep('banner_bar', bar, 0.025, 'iron', segs=8)
+            sweep('banner_bar', bar, bar_r, 'iron', segs=10)
 
 def tapered_block(name, ya, yb, z0, z1, hw_fn, role, n=16, grow=0.0):
     """Block whose half width follows hw_fn(y); z0 may be a function of y (bottom following the hull)."""
@@ -1323,7 +1331,10 @@ def build_stern_balcony():
     cap = [(0.6 * w, roof_y(0.52)), (0.0, roof_y(0.6))]                  # rounded end, 0.17 m aft of the base end
     stbd = [(roof_edge(roof_y(ly)), roof_y(ly)) for ly in lys] + cap
     path = stbd + [(-x, y) for x, y in reversed(stbd[:-1])]
-    sweep('awning_rail', [(x, y, SC_Z_AWNING) for x, y in catmull(path, 4 * len(path))], 0.05, 'trim', segs=12)
+    # the rail is as thin as the stern banners' loops allow (user 2026-10-08: the loops should wrap it): loop radius
+    # 0.023 at scale 1 (generic_flag_vertical_a) x the banners' scale, minus a little play
+    rail_r = banner_loop_r(AWNING_BANNER_SCALE)
+    sweep('awning_rail', [(x, y, SC_Z_AWNING) for x, y in catmull(path, 4 * len(path))], rail_r, 'trim', segs=12)
     for ly in (-7.0, -3.5, -0.3):
         y = roof_y(ly); w = roof_edge(y)
         for side in (-1, 1):
