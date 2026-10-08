@@ -21,6 +21,10 @@ for i, o in enumerate(objs):
     for v in o.data.vertices:
         if v.co.y > 3.0:
             v.co.y += STRETCH
+    # mesh_extract writes OBJ texture coordinates as (u, 1 - v); undo it, or the Kit gets the texture mirrored along
+    # the oar (user 2026-10-08: whitish oars beside vanilla's brown ones; vanilla handle v -1.071, ours was 2.071)
+    for d in o.data.uv_layers[0].data:
+        d.uv = (d.uv[0], 1.0 - d.uv[1])
     o.data.update()
     o.name = o.data.name = NAME if i == 0 else f'{NAME}_lod{i}'
     o.data.materials.clear(); o.data.materials.append(mat)
