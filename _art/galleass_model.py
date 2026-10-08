@@ -55,6 +55,7 @@ WING_Z0, WING_Z_FACE = -0.5, 0.95         # flare leaves the hull (just below th
 # broadside gunports in the gun-deck bulwark (cannons)
 GUNPORTS_PER_SIDE = 5
 GP_SILL, GP_TOP, GP_W = 2.85, 3.45, 0.6
+# gunport linings: a plain frame inside the port, no projecting window sill (user 2026-10-08)
 WREATH_RY, WREATH_RZ = 0.56, 0.5           # gilded ring round each gunport (clears the sill ends)
 # stern chasers (user 2026-10-08): one gunport in each aft end wall of the box, beside the cabin, facing aft; centred
 # between the cabin side (x 3.56) and the gilt corner bead (from x ~5.7)
@@ -645,7 +646,7 @@ def build_sides():
         for i in range(GUNPORTS_PER_SIDE):
             y = gunport_y(i); zc = (GP_SILL + GP_TOP) / 2
             cuts.append(cutter_box(side * W, y, zc, 0.8, GP_W, GP_TOP - GP_SILL))
-            lining('gunport_lining', (side * W, y, zc), (side, 0, 0), GP_W, GP_TOP - GP_SILL, SIDE_T, sill_out=0.05)
+            lining('gunport_lining', (side * W, y, zc), (side, 0, 0), GP_W, GP_TOP - GP_SILL, SIDE_T)
         subtract(wall, cuts)
         # end walls against the castles, lower edge on the cove
         for yend, d in ((Y1, -1), (Y0, 1)):
@@ -678,8 +679,7 @@ def build_sides():
             if yend == Y0:                                     # stern chaser port, facing aft
                 zc = (GP_SILL + GP_TOP) / 2
                 subtract(ew, [cutter_box(side * STERN_GP_X, Y0, zc, GP_W, 0.8, GP_TOP - GP_SILL)])
-                lining('gunport_lining', (side * STERN_GP_X, Y0, zc), (0, -1, 0), GP_W, GP_TOP - GP_SILL, SIDE_T,
-                       sill_out=0.05)
+                lining('gunport_lining', (side * STERN_GP_X, Y0, zc), (0, -1, 0), GP_W, GP_TOP - GP_SILL, SIDE_T)
             # flat gilded bead: from the gilt moulding down the outer corner, then curling inward into a volute
             # just above the rub rail (user's sketch)
             u0, R = 0.08, 0.22
@@ -1020,13 +1020,13 @@ def build_sterncastle():
     for x in (-SC_AGP_X, SC_AGP_X):
         c = (x, SC_Y_AFT, (GP_SILL + GP_TOP) / 2)
         cuts.append(cutter_box(*c, GP_W, 0.8, GP_TOP - GP_SILL))
-        lining('gunport_lining', c, (0, -1, 0), GP_W, GP_TOP - GP_SILL, SC_WALL, sill_out=0.05)
+        lining('gunport_lining', c, (0, -1, 0), GP_W, GP_TOP - GP_SILL, SC_WALL)
     # broadside gunport in each cabin side (the cabin is a gun room now; user 2026-10-08)
     for side in (-1, 1):
         nrm = wall_normal(sc_hw, SC_GP_Y, side)
         c = (side * sc_hw(SC_GP_Y), SC_GP_Y, (GP_SILL + GP_TOP) / 2)
         cuts.append(cutter_box(*c, 0.8, GP_W, GP_TOP - GP_SILL, math.atan2(nrm.y, nrm.x)))
-        lining('gunport_lining', c, nrm, GP_W, GP_TOP - GP_SILL, SC_WALL, sill_out=0.05)
+        lining('gunport_lining', c, nrm, GP_W, GP_TOP - GP_SILL, SC_WALL)
     subtract(body, cuts)
     # cabin floor (planked, level with the gun deck) and door frames
     tapered_block('sc_floor', SC_Y_AFT + SC_WALL - 0.01, SC_Y_FORE - SC_WALL + 0.01, FC_Z_BASE, Z_GUN_DECK,
