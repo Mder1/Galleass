@@ -669,7 +669,7 @@ def lines(lo, hi, step, keep=()):
     keep = [k for k in keep if lo - 1e-6 <= k <= hi + 1e-6]
     return sorted(set(round(v, 4) for v in keep + [b for b in base if all(abs(b - k) > 0.4 for k in keep)]))
 
-xs_half = [0.0, 0.95] + sorted({abs(a) for a, b, *_ in STAIRS} | {abs(b) for a, b, *_ in STAIRS}) + [4.1, 4.75, DECK_X]
+xs_half = [0.0, 0.4, 0.95, 1.75] + sorted({abs(a) for a, b, *_ in STAIRS} | {abs(b) for a, b, *_ in STAIRS}) + [4.1, 4.75, DECK_X]
 X_LINES = sorted({-x for x in xs_half} | set(xs_half))
 Y_DECK = lines(DECK_Y0, DECK_Y1, 1.5, keep=[SC_Y1, SC_STAIR_Y[0], FC_STAIR_Y[0], FC_YB])
 Y_POOP = lines(SC_Y0 + 0.3, SC_Y1, 1.5)
@@ -735,6 +735,39 @@ for sx0, sx1, ya, yb, upper in STAIRS:
             if y1 < y0:                                                   # keep CCW from above
                 q = [(x0, y1), (x1, y1), (x1, y0), (x0, y0)]
             faces.append(([sv(x, y) for x, y in q], 0))
+
+# --- the cabin (a gun room, walk-in at gun-deck level) and the open stern platform behind it (user 2026-10-08: the
+# boarding nets go there): own vertex keys, so nothing bridges through a wall; the fore door's cell shares the deck's
+# vertices along the cabin front, the aft door's cell the platform's
+SC_WALL_T, BALC_RX, BALC_RY = G['SC_WALL'], sc_hw(SC_Y0) + 0.1, G['BALC_RY']
+DOOR_F, DOOR_A = (0.95, 1.75), (-0.4, 0.4)                        # clear widths inside the door linings
+def cab_vid(x, y):
+    key = ('deck' if abs(y - SC_Y1) < 1e-6 else 'cab', round(x, 4), round(y, 4))
+    return vid(key, (x, y, Z_DECK))
+def cab_cell(x0, x1, y0, y1):
+    faces.append(([cab_vid(x, y) for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1))], 0))
+Y_CAB = lines(SC_Y0 + SC_WALL_T, SC_Y1 - SC_WALL_T, 1.0)
+n_cab = 0
+for y0, y1 in zip(Y_CAB, Y_CAB[1:]):
+    for x0, x1 in zip(X_LINES, X_LINES[1:]):
+        if all(abs(x) <= sc_hw(y) - SC_WALL_T - 0.15 + 1e-6 for x in (x0, x1) for y in (y0, y1)):
+            cab_cell(x0, x1, y0, y1); n_cab += 1
+for (xa, xb), (ya, yb) in ((DOOR_F, (SC_Y1 - SC_WALL_T, SC_Y1)), (DOOR_A, (SC_Y0, SC_Y0 + SC_WALL_T))):
+    for x0, x1 in zip(X_LINES, X_LINES[1:]):
+        if xa - 1e-6 <= x0 and x1 <= xb + 1e-6:
+            cab_cell(x0, x1, ya, yb); n_cab += 1
+def on_platform(x, y):
+    return ((x / (BALC_RX - 0.15)) ** 2 + ((SC_Y0 - y) / (BALC_RY - 0.15)) ** 2 <= 1 + 1e-6 and y <= SC_Y0 + 1e-6
+            and not (abs(x) < 0.35 and y < SC_Y0 - BALC_RY + 0.45))   # clear of the stern post
+# own finer grid (the curved plate is small); it keeps the aft door's x lines, so the door cell joins it
+X_PLAT = [-1.65, -1.35, -1.05, -0.75, -0.4, 0.0, 0.4, 0.75, 1.05, 1.35, 1.65]
+Y_PLAT = [SC_Y0 - 1.1, SC_Y0 - 0.9, SC_Y0 - 0.6, SC_Y0 - 0.3, SC_Y0]
+n_plat = 0
+for y0, y1 in zip(Y_PLAT, Y_PLAT[1:]):
+    for x0, x1 in zip(X_PLAT, X_PLAT[1:]):
+        if all(on_platform(x, y) for x in (x0, x1) for y in (y0, y1)):
+            cab_cell(x0, x1, y0, y1); n_plat += 1
+report.append('navmesh: cabin %d cells (incl. both door openings), stern platform %d cells' % (n_cab, n_plat))
 
 # --- boarding: attachment points/grapnels to our rail, each on its own id face at the deck edge -----------------
 V_med, _, F_med = navmesh.read(os.path.join(os.path.dirname(nav_path), '..', 'NavMeshPrefabs', 'meditheavy_ship_navmesh.bin'))
@@ -820,11 +853,24 @@ for holder in ('spawn_point_holder', 'barrier_holder'):
         moved[holder] = moved.get(holder, 0) + 1
 report.append('meditheavy deck -> galleass deck: %s' % moved)
 
-# --- rope climbers (from boats up the side) hang from the cap rail -------------------------------------------------
+# --- rope climbers (boarding nets, from boats up the hull) hang from the open stern platform's edge, one at each
+# rear quarter (user 2026-10-08). Climber frame: origin = top landing (climb_end), local +x outboard (rope 0.25 m
+# inboard of it, swimmers' points below), climb_point 0.7 m inboard where the climber steps onto the deck. The origin
+# stands 0.3 m outside the plate's edge so the rope clears the plate; the step-off point lands 0.4 m inside it.
+spots = []
 for e in kids(files['climbers_holder']):
     p, r, _ = tf(e)
-    write_tf(e, pos=(math.copysign(X_CAP, p[0]), p[1], Z_CAP), rot=r)
-report.append('climbers: on the cap rail (x +-%.2f, z %.2f)' % (X_CAP, Z_CAP))
+    t = math.pi / 4 if p[0] < 0 else 3 * math.pi / 4
+    ex, ey = -BALC_RX * math.cos(t), SC_Y0 - BALC_RY * math.sin(t)
+    nx, ny = -math.cos(t) / BALC_RX, -math.sin(t) / BALC_RY
+    nl = math.hypot(nx, ny); nx, ny = nx / nl, ny / nl
+    pos = (ex + 0.3 * nx, ey + 0.3 * ny, Z_DECK + 0.1)
+    write_tf(e, pos=pos, rot=(-0.162, -0.197, math.atan2(ny, nx)))   # vanilla starboard climber's tilts, turned
+    step = (pos[0] - 0.7 * nx, pos[1] - 0.7 * ny)
+    assert any(x0 <= step[0] <= x1 and y0 <= step[1] <= y1 and all(on_platform(x, y) for x in (x0, x1) for y in (y0, y1))
+               for y0, y1 in zip(Y_PLAT, Y_PLAT[1:]) for x0, x1 in zip(X_PLAT, X_PLAT[1:])), step   # on a navmesh cell
+    spots.append(tuple(round(v, 2) for v in pos))
+report.append('climbers: on the stern platform edge %s' % spots)
 
 # --- roof upgrades (awnings over the poop): vanilla roofs (rounded end aft, origin at that end, +y -> -y by the
 # 180 deg turn) sit on the model's awning frame, scaled to it (user 2026-10-07: 'on our frame'); level poop -> no tilt
