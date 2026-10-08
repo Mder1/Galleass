@@ -452,7 +452,26 @@ OAR_OUT, OAR_BLADE = 10.35, 2.0                                      # pivot -> 
 # retracted: the oar slides inboard straight through its port until only the blade tip stays outside (the vanilla
 # dromon pulls its 8 m oars in 5.66 m; ours would have stood 4.7 m out - user 2026-10-08)
 OAR_RETRACT = OAR_OUT - 0.4
-n_oars, n_mesh = 0, 0
+# the brown: oar textures are greyscale; every vanilla ship tints all its oar meshes per sub-mesh with one factor
+# colour (dromon 0.145/0.122/0.106 - ours come from it; user 2026-10-08: our oars were white). The sub-mesh names
+# are read from the Kit's imported assets (they only exist once imported).
+OAR_TINT = '0.145, 0.122, 0.106, 1.000'
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tpac_tools'))
+import meshinfo
+def oar_submeshes(name, _cache={}):
+    if name not in _cache:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'Assets', name + '_geo.tpac')
+        _cache[name] = [m['name'] for tg, g, n, meta in (meshinfo.assets(path) if os.path.exists(path) else [])
+                        if n == name and str(tg).startswith('a08f8b97') for m in meshinfo.meshes(meta)]
+    return _cache[name]
+def tint(component, name):
+    drop(component, 'children')
+    subs = oar_submeshes(name)
+    if subs:
+        component.append(el('children', None, *[el('mesh', {'name': m}, el('misc', None, el('factor_color',
+                         {'type_name': 'vec4', 'value': OAR_TINT}))) for m in subs]))
+    return len(subs)
+n_oars, n_mesh, n_tint = 0, 0, 0
 for grp_name, s in (('left_oar_machines', -1), ('right_oar_machines', 1)):
     grp = next(c for c in kids(decks['oar_deck_lower']) if c.get('name') == grp_name)
     assert base(grp) is None and grp.find('children') is not None
@@ -464,6 +483,7 @@ for grp_name, s in (('left_oar_machines', -1), ('right_oar_machines', 1)):
         for m in o.iter('meta_mesh_component'):
             if m.get('name') in OAR_MESHES:
                 m.set('name', OAR_MESHES[m.get('name')]); n_mesh += 1
+                n_tint += tint(m, m.get('name'))
         rf = next(c for c in o.iter('entity') if c.get('name') == 'retracted_frame')
         write_tf(rf, pos=(-s * OAR_RETRACT, 0.0, 0.7), rot=(0.0, 0.0, tf(rf)[1][2]))   # level, through the port
         ch.append(o); n_oars += 1
@@ -477,6 +497,7 @@ od = next(sc for sc in decks['oar_deck_lower'].iter('script') if sc.get('name') 
 for k, v in (('_verticalBaseAngle', (dip_max + dip_min) / 2), ('_verticalRotationAngle', (dip_max - dip_min) / 2)):
     var = next(x for x in od.iter('variable') if x.get('name') == k)
     var.set('value', '%.3f' % v)
+report.append('oar tint %s on %d sub-meshes' % (OAR_TINT, n_tint))
 report.append('oars: upper (manned) bank removed; %d unmanned oars (%s, %d meshes) at x +-%.2f, pivot z %.2f, y %.1f..%.1f; '
               'retract %.2f m inboard; dip %.1f..%.1f deg (blade tip %.2f above .. %.2f below the water)'
               % (n_oars, OAR_MESH, n_mesh, OAR_X, OAR_H, G['oar_y'](0), G['oar_y'](G['OARS_PER_SIDE'] - 1), OAR_RETRACT,
