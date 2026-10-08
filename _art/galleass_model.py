@@ -882,7 +882,7 @@ def build_forecastle():
         a = math.radians(90 - deg) if abs(deg) < 90 else (0.0 if deg > 0 else math.pi)
         cuts.append(cutter_box(x, y, (FC_EMB_SILL + FC_EMB_TOP) / 2, 1.6, FC_EMB_W, FC_EMB_TOP - FC_EMB_SILL, a))
         lining('fc_embrasure_lining', (x, y, (FC_EMB_SILL + FC_EMB_TOP) / 2), (math.cos(a), math.sin(a), 0),
-               FC_EMB_W, FC_EMB_TOP - FC_EMB_SILL, 0.35, sill_out=0.05,
+               FC_EMB_W, FC_EMB_TOP - FC_EMB_SILL, 0.35,                # gunports: no window sill
                curve_r=None if abs(deg) >= 90 else fc_radius(FC_EMB_SILL))
         # gun position marker (cannon goes here later)
         r_in = fc_radius(FC_Z_PLATFORM) - 1.8
