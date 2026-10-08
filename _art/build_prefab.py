@@ -415,7 +415,7 @@ def deck_profile(spawn_holder):
 DECK_MEDITHEAVY = deck_profile(files['spawn_point_holder'])          # still the meditheavy's (stage 2 later)
 DECK_MEDITLIGHT = deck_profile(nav_file('meditlight_ship_nested', 'spawn_point_holder'))
 
-# --- oars: ONE bank of unmanned oars (the dromon's lower 8 m oars) at the model's 20 ports per side ------------
+# --- oars: ONE bank of unmanned oars (the dromon's lower 8 m oars) at the model's ports (OARS_PER_SIDE) ------------
 oh = files['oars_holder']
 decks = {d.get('name'): d for d in kids(oh)}
 oh.find('children').remove(decks['oar_deck_upper'])                 # the meditheavy's manned upper bank

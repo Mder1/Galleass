@@ -38,8 +38,8 @@ Y_OUTR_AFT, Y_OUTR_FORE = -17.6, 20.6
 Z_OUTR_LOW, Z_OUTR_RAIL = 1.0, 1.7
 
 # closed rowing level: oar ports in the side planking (unmanned oars rest on the outrigger rail)
-OARS_PER_SIDE = 20
-# ports from y -16.9 to 19.9 (clear of the box end walls' inner faces at -17.4 / 20.4), spacing ~1.94 m
+OARS_PER_SIDE = 25                         # was 20 (user 2026-10-08)
+# ports from y -16.9 to 19.9 (clear of the box end walls' inner faces at -17.4 / 20.4), spacing ~1.53 m
 _OAR_FIRST, _OAR_LAST = -16.9, 19.9
 _OAR_S = (_OAR_LAST - _OAR_FIRST) / (OARS_PER_SIDE - 1)
 OAR_Y_AFT, OAR_Y_FORE = _OAR_FIRST - _OAR_S / 2, _OAR_LAST + _OAR_S / 2
