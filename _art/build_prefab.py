@@ -468,7 +468,7 @@ sh.find('children').append(small)
 MASTS = G['MASTS']
 RIGS = [  # (rig entity, mast, deck crossing z, rake, vanilla deck profile of the ship it came from)
     (rigs['lateen_sail_large_nested'], 'main', Z_DECK, -0.10, DECK_MEDITHEAVY),
-    (rigs['lateen_sail_medium_nested'], 'fore', Z_FC, -0.157, DECK_MEDITHEAVY),
+    (rigs['lateen_sail_medium_nested'], 'fore', Z_FC, -G['FORE_RAKE'], DECK_MEDITHEAVY),
     (small, 'mizzen', Z_DECK, -0.157, DECK_MEDITLIGHT),
 ]
 for rig, mast, zd, rake, vdeck in RIGS:

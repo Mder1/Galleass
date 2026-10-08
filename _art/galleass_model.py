@@ -142,6 +142,13 @@ def unlift_z(y, z):
 # masts (vanilla lateen rigs go here later): mizzen, main, fore
 # fore mast at 20.9 (was 22.5): behind the forecastle's ring of five guns (user 2026-10-07)
 MASTS = {'mizzen': -13.7, 'main': 5.5, 'fore': 20.9}
+FORE_RAKE = 0.157                          # fore mast leans forward (prefab: rig rotation x = -FORE_RAKE)
+# the vanilla medium rig's mast ends 0.5 m above the forecastle's walk-in ground floor: a heel (a little thicker than
+# the mast's 0.24 m) runs from a step block on the floor up the raked axis into the platform, over the mast's foot
+FORE_HEEL_R = 0.26
+def fore_mast_y(z):
+    """y of the fore mast's axis at (unlifted) z: it crosses the platform at MASTS['fore']."""
+    return MASTS['fore'] + (z - FC_Z_PLATFORM) * math.tan(FORE_RAKE)
 # bow: no ram slot (user 2026-10-06) and no figurehead (user 2026-10-08): a fixed spur (Rammsporn) as in the drawing,
 # a timber beak rising gently from the bow, three iron hoops and a bronze point. Drawing (px -> ship as above): wood from
 # the bow to y 30.4, centre z 1.73 -> 1.99, 1.9 m deep at the bow -> 0.65 m behind the point; hoops at y 27.2/28.8/30.3;
@@ -755,6 +762,14 @@ def build_deck_fittings():
     for name, y in MASTS.items():
         z = Z_GUN_DECK if name != 'fore' else FC_Z_PLATFORM
         lathe(f'mast_partner_{name}', [(0.62, 0), (0.62, 0.12), (0.5, 0.3), (0.5, 0.32)], 'trim', at=(0, y, z), segs=10)
+    # fore mast heel in the forecastle's ground floor (user 2026-10-08: the mast did not reach the floor)
+    z0, z1 = Z_GUN_DECK - 0.05, FC_Z_PLATFORM - 0.02
+    sweep('fore_heel', [(0, fore_mast_y(z0), z0), (0, fore_mast_y(z1), z1)], FORE_HEEL_R, 'trim', segs=16)
+    for zb in (Z_GUN_DECK + 0.45, FC_Z_PLATFORM - 0.45):
+        sweep('fore_heel_band', [(0, fore_mast_y(zb - 0.05), zb - 0.05), (0, fore_mast_y(zb + 0.05), zb + 0.05)],
+              FORE_HEEL_R + 0.02, 'iron', segs=16)
+    yh = fore_mast_y(Z_GUN_DECK)
+    box('fore_mast_step', -0.45, 0.45, yh - 0.45, yh + 0.45, Z_GUN_DECK, Z_GUN_DECK + 0.18, 'trim')
 
 def outer_x(y, z):
     """Half width of the ship's outer surface at (y, z): side wall / castle / forecastle skirt where they reach
@@ -1786,6 +1801,9 @@ ring_o, ring_i = horseshoe(fc_radius((FC_Z_PLATFORM + Z_LIFT)), n=24), horseshoe
 for k in range(len(ring_o) - 1):
     convex_piece(bmb, [(x, y, z) for (x, y) in (ring_o[k], ring_o[k + 1], ring_i[k], ring_i[k + 1])
                        for z in ((Z_GUN_DECK + Z_LIFT), (FC_Z_PARAPET + Z_LIFT) + 0.1)])
+# fore mast heel (round enough for feet; the vanilla mast above it has its own body)
+convex_piece(bmb, [(FORE_HEEL_R * math.cos(a), fore_mast_y(z) + FORE_HEEL_R * math.sin(a), z + Z_LIFT)
+                   for z in (Z_GUN_DECK, FC_Z_PLATFORM - 0.15) for a in [k * math.pi / 4 for k in range(8)]])
 # cabin: walls with door gaps, poop deck slab, balustrade line, balcony slab
 # cabin floor in short slices (its walls taper; the gun-deck slab only reaches the box end; user: fell through)
 _ys = [SC_Y_AFT, -22.0, -20.0, -18.0, -16.0, SC_Y_FORE]
