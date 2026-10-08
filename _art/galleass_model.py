@@ -56,6 +56,9 @@ WING_Z0, WING_Z_FACE = -0.5, 0.95         # flare leaves the hull (just below th
 GUNPORTS_PER_SIDE = 5
 GP_SILL, GP_TOP, GP_W = 2.85, 3.45, 0.6
 WREATH_RY, WREATH_RZ = 0.56, 0.5           # gilded ring round each gunport (clears the sill ends)
+# stern chasers (user 2026-10-08): one gunport in each aft end wall of the box, beside the cabin, facing aft; centred
+# between the cabin side (x 3.56) and the gilt corner bead (from x ~5.7)
+STERN_GP_X = 4.65
 
 # forecastle: tapered horseshoe, five gun embrasures on the upper tier (0, +-45, +-90 deg)
 FC_CY = 21.6                             # centre of the round front
@@ -668,7 +671,12 @@ def build_sides():
                 bm.faces.new((front[j], back[j], back[jj], front[jj]))
             bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
             bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-            obj_from_bm(bm, 'end_wall', 'paint')
+            ew = obj_from_bm(bm, 'end_wall', 'paint')
+            if yend == Y0:                                     # stern chaser port, facing aft
+                zc = (GP_SILL + GP_TOP) / 2
+                subtract(ew, [cutter_box(side * STERN_GP_X, Y0, zc, GP_W, 0.8, GP_TOP - GP_SILL)])
+                lining('gunport_lining', (side * STERN_GP_X, Y0, zc), (0, -1, 0), GP_W, GP_TOP - GP_SILL, SIDE_T,
+                       sill_out=0.05)
             # flat gilded bead: from the gilt moulding down the outer corner, then curling inward into a volute
             # just above the rub rail (user's sketch)
             u0, R = 0.08, 0.22
@@ -702,9 +710,18 @@ def build_sides():
                     md = m.modifiers.new(f'hole{i}', 'BOOLEAN'); md.object = hole; md.operation = 'DIFFERENCE'; md.solver = 'EXACT'
             for yend, d in ((Y1, 1), (Y0, -1)):                    # across the end walls (outer face at yend)
                 xi = min(box_inner_x(yend) + 0.1, end_surface_x(yend, (z0 + z1) / 2) - 0.1)
-                box(name + '_end', *sorted((side * xi, side * (W + out - thick))),
+                me_ = box(name + '_end', *sorted((side * xi, side * (W + out - thick))),
                     *sorted((yend + d * out, yend + d * (out - (thick if name == 'cap_rail' else min(thick, SIDE_T))))),
                     z0, z1, role)   # the cap covers the end wall's whole top, like along the side
+                if name == 'moulding' and yend == Y0:              # stern chaser's ring, one band with the moulding
+                    hw = (z1 - z0) / 2
+                    gx, gz = side * STERN_GP_X, (GP_SILL + GP_TOP) / 2
+                    fn = lambda u, v, dd, gx=gx, gz=gz: (gx + u, Y0 - dd, gz + v)
+                    ring = flat_annulus('gunport_ring', fn, WREATH_RY - hw, WREATH_RZ - hw, WREATH_RY + hw,
+                                        WREATH_RZ + hw, out - thick, out, role, collection='cutters')
+                    md = me_.modifiers.new('ring', 'BOOLEAN'); md.object = ring; md.operation = 'UNION'; md.solver = 'EXACT'
+                    hole = flat_disc('ring_hole', fn, WREATH_RY - hw, WREATH_RZ - hw, out - thick - 0.05, out + 0.05)
+                    md = me_.modifiers.new('hole', 'BOOLEAN'); md.object = hole; md.operation = 'DIFFERENCE'; md.solver = 'EXACT'
     # strakes run on past the box ends along the hull/skirt, sweeping up in parallel S curves until they run in
     # under the rub rail (bow) / the balcony plate (stern) - same shape fore and aft
     for name, (z0, z1, out, thick, role) in STRAKES.items():
@@ -1970,6 +1987,7 @@ look('chk_side_row.png', (7.0, 22.0, 1.6), (4.3, 12.0, 1.7), lens=28)
 look('chk_side_row_aft.png', (7.0, -20.0, 1.8), (4.3, -10.0, 1.8), lens=28)
 look('chk_side_wall.png', (9.5, 3.0, 2.9), (4.4, 6.0, 1.6), lens=28)
 look('chk_gunport.png', (6.2, gunport_y(1) - 1.2, 3.3), (4.4, gunport_y(1), 3.15), lens=35)
+look('chk_stern_chaser.png', (8.0, WING_Y0 - 5.0, 5.6), (STERN_GP_X, WING_Y0, 3.15 + Z_LIFT), lens=35)
 look('chk_gunport_fore.png', (6.2, gunport_y(4) + 1.6, 3.3), (4.2, gunport_y(4), 3.15), lens=35)
 look('chk_fc_port.png', (2.5, 28.5, FC_PORT_Z + Z_LIFT + 0.05), (1.6, 25.2, FC_PORT_Z + Z_LIFT), lens=35)
 look('chk_sc_window.png', (6.5, -19.0, 5.0), (4.3, -20.5, 4.8), lens=35)
