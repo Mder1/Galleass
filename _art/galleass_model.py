@@ -96,9 +96,9 @@ SCW_Z0, SCW_Z1, SCW_ARCH = 4.4, 4.76, 0.13     # cabin side windows (smaller sin
 SCW_W, SCW_N = 0.36, 10                    # width (was 0.5) and number per side (was 6; user 2026-10-08)
 # cabin door beside the mizzen mast (the mast at y -13.7 stands on the centreline 0.8 m in front of the bulkhead)
 SC_DOOR_X, SC_DOOR_W = 1.35, 1.0
-# front windows: two small arched pairs, both on the wide side of the (off-centre) door, evenly between the port stairs
-# (x -2.75) and the door (from x 0.85) (user 2026-10-08)
-SC_FWIN_XS = tuple(c + d for c in (-1.85, -0.05) for d in (-0.22, 0.22))
+# front windows: two small arched pairs, both on the wide side of the (off-centre) door, close to the port stairs
+# (from x -2.75) so neither sits behind the mizzen mast on the centreline (user 2026-10-08)
+SC_FWIN_XS = tuple(c + d for c in (-2.2, -1.1) for d in (-0.22, 0.22))
 SC_WALL = 0.2                             # cabin wall thickness (cabin interior is walk-in)
 BALC_RY = 1.3                             # stern balcony depth (apex reaches the stern post's face); width = cabin's
 BALC_INSET = 0.08                         # balustrade set in from the floor edge
