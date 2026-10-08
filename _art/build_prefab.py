@@ -422,38 +422,61 @@ def deck_profile(spawn_holder):
 DECK_MEDITHEAVY = deck_profile(files['spawn_point_holder'])          # still the meditheavy's (stage 2 later)
 DECK_MEDITLIGHT = deck_profile(nav_file('meditlight_ship_nested', 'spawn_point_holder'))
 
-# --- oars: ONE bank of unmanned oars (the dromon's lower 8 m oars) at the model's ports (OARS_PER_SIDE) ------------
+# --- oars: ONE bank of unmanned oars at the model's ports (OARS_PER_SIDE), 11.5 m long (user 2026-10-08) ----------
+# Each oar is a copy of vanilla's standalone oar definition (oar_left/right_lower_8m: no links inside), so its mesh can
+# be swapped for ours (_art/make_oar.py) without the vanilla oar being rebuilt beside it (linked children that lose
+# their link no longer override the base's - the old oars showed up next to ours). The game reads the oar length
+# from the mesh's bounding box (ShipOarDeck.UpdateOarLength).
 oh = files['oars_holder']
 decks = {d.get('name'): d for d in kids(oh)}
 oh.find('children').remove(decks['oar_deck_upper'])                 # the meditheavy's manned upper bank
 dromon_oars = nav_file('dromon_ship_nested', 'oars_holder')
+def root_def(e):
+    while base(e) is not None:
+        e = base(e)
+    return e
 tmpl = {}
 for s, n in ((-1, 'oar_left_lower_8m'), (1, 'oar_right_lower_8m')):
-    tmpl[s] = next(e for e in dromon_oars.iter('entity') if re.fullmatch(n + r'_\d+', e.get('name') or ''))
+    inst = next(e for e in dromon_oars.iter('entity') if re.fullmatch(n + r'_\d+', e.get('name') or ''))
+    tmpl[s] = root_def(inst)
+    assert all(p.get('guid') == ZERO for p in tmpl[s].iter('prefab')), 'oar definition with links'
 OAR_X = W_OUT - SIDE_T / 2                                           # pivot in the middle of the wall
 OAR_Z = G['lift_z'](0.0, (G['OARPORT_Z0'] + G['OARPORT_Z1']) / 2) - 0.7              # the oar pivots 0.7 above its entity
-n_oars, n_mesh = 0, 0
 OAR_MESH_VANILLA, OAR_MESH = 'base_oar_8m', 'galleass_oar_11m'
+OAR_OUT, OAR_BLADE = 10.35, 2.0                                      # pivot -> blade tip, blade length (make_oar.py)
+# retracted: the oar slides inboard straight through its port until only the blade tip stays outside (the vanilla
+# dromon pulls its 8 m oars in 5.66 m; ours would have stood 4.7 m out - user 2026-10-08)
+OAR_RETRACT = OAR_OUT - 0.4
+n_oars, n_mesh = 0, 0
 for grp_name, s in (('left_oar_machines', -1), ('right_oar_machines', 1)):
     grp = next(c for c in kids(decks['oar_deck_lower']) if c.get('name') == grp_name)
     assert base(grp) is None and grp.find('children') is not None
     ch = grp.find('children'); ch[:] = []
     for i in range(G['OARS_PER_SIDE']):
         o = copy_regen(tmpl[s], 'galleass-oar/%d/%d/' % (s, i))
-        o.set('name', '%s_%d' % (tmpl[s].get('name').rsplit('_', 1)[0], i))
+        o.set('name', '%s_%d' % (tmpl[s].get('name'), i))
         write_tf(o, pos=(s * OAR_X, G['oar_y'](i), OAR_Z), rot=(0, 0, 0))
-        # our longer oar (user 2026-10-08: 11.5 m; _art/make_oar.py): the entities carrying the vanilla mesh are
-        # cut from their base and get only ours (a renamed linked component would add to the inherited one); the
-        # game reads the oar length from this mesh's bounding box
-        for c in o.iter('entity'):
-            if c.get('name') in ('base', 'retracted_frame') and OAR_MESH_VANILLA in inherited_meshes(c):
-                flatten(c); drop(c, 'components')
-                c.append(mesh_component('oar/%d/%d/%s' % (s, i, c.get('name')), OAR_MESH))
-                c[:] = sorted(c, key=lambda x: ORDER.index(x.tag) if x.tag in ORDER else len(ORDER))
-                n_mesh += 1
+        for m in o.iter('meta_mesh_component'):
+            if m.get('name') == OAR_MESH_VANILLA:
+                m.set('name', OAR_MESH); n_mesh += 1
+        rf = next(c for c in o.iter('entity') if c.get('name') == 'retracted_frame')
+        write_tf(rf, pos=(-s * OAR_RETRACT, 0.0, 0.7), rot=(0.0, 0.0, tf(rf)[1][2]))   # level, through the port
         ch.append(o); n_oars += 1
-report.append('oars: upper (manned) bank removed; %d unmanned oars (%s, %d meshes swapped) at x +-%.2f, pivot z %.2f, '
-              'y %.1f..%.1f' % (n_oars, OAR_MESH, n_mesh, OAR_X, OAR_Z + 0.7, G['oar_y'](0), G['oar_y'](G['OARS_PER_SIDE'] - 1)))
+# stroke (MissionOar: blade tip at OarLength along the oar, its dip angle = base + cos(phase) * amplitude): at the
+# deepest point the shaft meets the water where the blade begins, at the highest the tip clears it by ~0.3 m - only
+# the blade goes under (user 2026-10-08). Waterline z 0 (the floaters are tuned to it).
+OAR_H = OAR_Z + 0.7
+dip_max = math.degrees(math.asin(OAR_H / (OAR_OUT - OAR_BLADE)))
+dip_min = math.degrees(math.asin((OAR_H - 0.3) / OAR_OUT))
+od = next(sc for sc in decks['oar_deck_lower'].iter('script') if sc.get('name') == 'ShipOarDeck')
+for k, v in (('_verticalBaseAngle', (dip_max + dip_min) / 2), ('_verticalRotationAngle', (dip_max - dip_min) / 2)):
+    var = next(x for x in od.iter('variable') if x.get('name') == k)
+    var.set('value', '%.3f' % v)
+report.append('oars: upper (manned) bank removed; %d unmanned oars (%s, %d meshes) at x +-%.2f, pivot z %.2f, y %.1f..%.1f; '
+              'retract %.2f m inboard; dip %.1f..%.1f deg (blade tip %.2f above .. %.2f below the water)'
+              % (n_oars, OAR_MESH, n_mesh, OAR_X, OAR_H, G['oar_y'](0), G['oar_y'](G['OARS_PER_SIDE'] - 1), OAR_RETRACT,
+                 dip_min, dip_max, OAR_H - OAR_OUT * math.sin(math.radians(dip_min)),
+                 OAR_OUT * math.sin(math.radians(dip_max)) - OAR_H))
 
 # --- cleats (knot points) onto the cap rail; the meditheavy's hull-side cosmetic ropes go --------------------
 kh = files['knobs_holder']
