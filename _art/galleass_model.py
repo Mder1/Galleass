@@ -1246,9 +1246,14 @@ def build_stern_balcony():
     # awning frame (tendalino) over the after part of the poop: it carries the roof upgrades, so its beams follow the
     # roofs' base edge (roof_edge) and are flat at SC_Z_AWNING; the roofs rest on the beam tops (user 2026-10-07:
     # the roofs floated over the old hooped frame)
-    lys = [-7.2 + 7.4 * k / 24 for k in range(25)]
-    for side in (-1, 1):
-        sweep('awning_rail', [(side * roof_edge(roof_y(ly)), roof_y(ly), SC_Z_AWNING) for ly in lys], 0.05, 'trim', segs=12)
+    # ONE rail: up the starboard side along the roof outline, round the aft end (user 2026-10-08: the side rails
+    # stopped short of each other there) and back down the port side
+    lys = [-7.2 + 7.55 * k / 25 for k in range(26)]                       # to the roof base's aft end (local 0.35)
+    w = roof_edge(roof_y(0.35))
+    cap = [(0.6 * w, roof_y(0.52)), (0.0, roof_y(0.6))]                  # rounded end, 0.17 m aft of the base end
+    stbd = [(roof_edge(roof_y(ly)), roof_y(ly)) for ly in lys] + cap
+    path = stbd + [(-x, y) for x, y in reversed(stbd[:-1])]
+    sweep('awning_rail', [(x, y, SC_Z_AWNING) for x, y in catmull(path, 4 * len(path))], 0.05, 'trim', segs=12)
     for ly in (-7.0, -3.5, -0.3):
         y = roof_y(ly); w = roof_edge(y)
         for side in (-1, 1):
