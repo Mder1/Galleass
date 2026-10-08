@@ -1592,11 +1592,10 @@ rudder = build_rudder()
 build_spur()
 coll('cutters').hide_render = True; coll('cutters').hide_viewport = True
 
-# apply booleans and merge parts into one object per material role; the cabin interior (furniture, cabin floor)
-# goes into its own multi-material object so distant LODs can drop it
-INTERIOR = ('cabin_', 'sc_floor')
+# apply booleans and merge parts into one object per material role (the cabin floor is plain deck now: with the
+# furniture gone there is no separate interior mesh any more; 2026-10-08)
 dg = bpy.context.evaluated_depsgraph_get()
-by_role, interior = {}, []
+by_role = {}
 for o, role in PARTS:
     me = bpy.data.meshes.new_from_object(o.evaluated_get(dg))
     me.transform(o.matrix_world)
@@ -1606,31 +1605,15 @@ for o, role in PARTS:
             v.co.z = v.co.z + Z_LIFT if rigid else lift_z(v.co.y, v.co.z)
     me.update()
     add_uvs(me, role)
-    if o.name.startswith(INTERIOR):
-        interior.append((me, role))
-    else:
-        by_role.setdefault(role, []).append(me)
+    by_role.setdefault(role, []).append(me)
 for role, meshes in by_role.items():
     bm = bmesh.new()
     for me in meshes:
         bm.from_mesh(me); bpy.data.meshes.remove(me)
     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
     o = obj_from_bm(bm, f'galleass_{role}', role, 'final', smooth=True)
-    # smooth along planks and turned parts (6-sided = 60 deg), hard at box corners; glass panes stay flat
-    o.data.set_sharp_from_angle(angle=math.radians(30 if role == 'glass' else 65))
-for name, group in (('galleass_interior', interior),):
-    if not group:
-        continue
-    roles = sorted(set(r for _, r in group))
-    bm = bmesh.new()
-    for me, role in group:
-        for poly in me.polygons: poly.material_index = roles.index(role)
-        bm.from_mesh(me); bpy.data.meshes.remove(me)
-    mi = bpy.data.meshes.new(name); bm.to_mesh(mi); bm.free()
-    for r in roles: mi.materials.append(MATS[r])
-    for poly in mi.polygons: poly.use_smooth = True
-    mi.set_sharp_from_angle(angle=math.radians(65))
-    coll('final').objects.link(bpy.data.objects.new(name, mi))
+    # smooth along planks and turned parts (6-sided = 60 deg), hard at box corners
+    o.data.set_sharp_from_angle(angle=math.radians(65))
 coll('parts').hide_render = True; coll('parts').hide_viewport = True
 # faction paint: like vanilla's pattern stripes, a thin overlay 3 mm outside the painted planking. Its mesh gets the
 # 'faction_color' tag in the Kit, so the game sets mesh.Color to the owner's colours; the material (alpha-blended,
@@ -1712,7 +1695,7 @@ print('hull plate: %d faces per layer, z %.2f..%.2f' % (len(_pm.polygons) // 2, 
 # checked at import). Decimate (collapse) per mesh; the interior and small fittings drop out early; the faction
 # overlay is rebuilt from each decimated paint LOD so it always sits exactly on its base.
 LOD_RATIO = {1: 0.45, 2: 0.18, 3: 0.06}
-LOD_DROP = {'galleass_interior': 2, 'galleass_glass': 2, 'galleass_gilt': 3, 'galleass_iron': 3, 'galleass_dark': 3}
+LOD_DROP = {'galleass_gilt': 3, 'galleass_iron': 3, 'galleass_dark': 3}
 for o in list(coll('final').objects):
     if o.name in ('galleass_faction_paint',) or o.type != 'MESH':
         continue

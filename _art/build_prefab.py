@@ -138,8 +138,9 @@ hull.append(el('physics', None,
                el('move_to_batched_kinematic', {'type_name': 'bool', 'value': '1'})))
 hull.append(tags('body_mesh', 'rope_physics_body', 'hull_water_mesh'))
 hull.append(mobility())
-hull.append(mesh_component('hull', *['galleass_' + r for r in ('hull', 'paint', 'deck', 'trim', 'gilt', 'iron', 'dark', 'glass')],
-                           'galleass_interior'))
+# one mesh per material role, as the Kit imported galleass_hull.fbx (no glass since the open lantern, no interior
+# since the cabin floor joined the deck mesh)
+hull.append(mesh_component('hull', *['galleass_' + r for r in ('hull', 'paint', 'deck', 'trim', 'gilt', 'iron', 'dark')]))
 paint = new_entity('galleass_faction_paint', 'faction_paint')
 paint.append(tags('sail_mesh_entity')); paint.append(mobility()); paint.append(mesh_component('faction_paint', 'galleass_faction_paint'))
 water = new_entity('deckwater', 'deckwater')

@@ -42,11 +42,10 @@ def objs(base, lods=True):
     names = [base] + ([f'{base}_lod{i}' for i in (1, 2, 3)] if lods else [])
     return [bpy.data.objects[n] for n in names if n in bpy.data.objects]
 
-ROLES = ['hull', 'paint', 'deck', 'trim', 'gilt', 'iron', 'dark', 'glass']
+ROLES = ['hull', 'paint', 'deck', 'trim', 'gilt', 'iron', 'dark']
 GROUPS = {
     'galleass_hull': [o for r in ROLES for o in objs(f'galleass_{r}')],
     'galleass_faction_paint': objs('galleass_faction_paint'),
-    'galleass_interior': objs('galleass_interior'),
     'galleass_hull_plate': objs('galleass_hull_plate'),
     'galleass_rudder_a': objs('galleass_rudder_a'),
     'galleass_deckwater': objs('galleass_deckwater', False),
@@ -91,7 +90,7 @@ def split_composite(name, child_fmt):
 GROUPS['bo_composite_conv_galleass'] = split_composite('bo_composite_conv_galleass', 'bo_galleass_conv_part%d')
 
 # the painted planking is plain wood under the faction overlay: same material as the hull planking
-# (every mesh, also multi-material ones such as the interior)
+# (every mesh)
 for o in bpy.data.objects:
     if o.type == 'MESH':
         for i, m in enumerate(o.data.materials):
