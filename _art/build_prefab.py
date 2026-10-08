@@ -854,9 +854,12 @@ for holder in ('spawn_point_holder', 'barrier_holder'):
 report.append('meditheavy deck -> galleass deck: %s' % moved)
 
 # --- rope climbers (boarding nets, from boats up the hull) hang from the open stern platform's edge, one at each
-# rear quarter (user 2026-10-08). Climber frame: origin = top landing (climb_end), local +x outboard (rope 0.25 m
-# inboard of it, swimmers' points below), climb_point 0.7 m inboard where the climber steps onto the deck. The origin
-# stands 0.3 m outside the plate's edge so the rope clears the plate; the step-off point lands 0.4 m inside it.
+# rear quarter (user 2026-10-08). Climber frame: origin = top landing, local +x outboard, climb_point 0.7 m inboard
+# where the climber steps onto the deck. The net (ship_climbing_rope_large: flat, 1.7 m wide, top bar 2.1 above its
+# origin, plane 0..0.25 outboard of it, turned 90 deg) is placed on its own: its straight top bar is a chord of the
+# curved edge, tucked into the plate's rim below the deck surface (middle 0.1 inside the edge, ends ~0.1 outside;
+# user 2026-10-08: the nets did not meet the platform). Hanging plumb: the vanilla tilts were for a sloping hull side.
+NET_IN, NET_BAR_Z = 0.1, -0.15            # net plane middle inside the edge / bar top below the deck surface
 spots = []
 for e in kids(files['climbers_holder']):
     p, r, _ = tf(e)
@@ -864,8 +867,13 @@ for e in kids(files['climbers_holder']):
     ex, ey = -BALC_RX * math.cos(t), SC_Y0 - BALC_RY * math.sin(t)
     nx, ny = -math.cos(t) / BALC_RX, -math.sin(t) / BALC_RY
     nl = math.hypot(nx, ny); nx, ny = nx / nl, ny / nl
-    pos = (ex + 0.3 * nx, ey + 0.3 * ny, Z_DECK + 0.1)
-    write_tf(e, pos=pos, rot=(-0.162, -0.197, math.atan2(ny, nx)))   # vanilla starboard climber's tilts, turned
+    pos = (ex, ey, Z_DECK)                                            # landing on the deck at the edge
+    write_tf(e, pos=pos, rot=(0.0, 0.0, math.atan2(ny, nx)))
+    for c in kids(e):
+        if c.get('name') == 'ship_climbing_rope_large':               # plane middle = x + 0.125
+            write_tf(c, pos=(-NET_IN - 0.125, 0.004, NET_BAR_Z - 2.1), rot=(0.0, 0.0, 1.571))
+        elif c.get('name') == 'end_position':                         # finish the climb on the deck itself
+            write_tf(c, pos=(0.0, 0.0, 0.0))
     step = (pos[0] - 0.7 * nx, pos[1] - 0.7 * ny)
     assert any(x0 <= step[0] <= x1 and y0 <= step[1] <= y1 and all(on_platform(x, y) for x in (x0, x1) for y in (y0, y1))
                for y0, y1 in zip(Y_PLAT, Y_PLAT[1:]) for x0, x1 in zip(X_PLAT, X_PLAT[1:])), step   # on a navmesh cell
