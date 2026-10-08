@@ -61,6 +61,7 @@ WREATH_RY, WREATH_RZ = 0.56, 0.5           # gilded ring round each gunport (cle
 STERN_GP_X = 4.65
 # cabin broadside ports (user 2026-10-08): one in each cabin side wall aft of the box, at broadside height
 SC_GP_Y = -20.8
+SC_AGP_X = 1.1                             # the cabin's two stern ports, either side of the stern door
 
 # forecastle: tapered horseshoe, five gun embrasures on the upper tier (0, +-45, +-90 deg)
 FC_CY = 21.6                             # centre of the round front
@@ -1018,6 +1019,11 @@ def build_sterncastle():
                 bm.faces.new(tuple(reversed(f)) if flip else f)
             bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
             obj_from_bm(bm, 'sc_window_hood', 'trim')
+    # two stern ports either side of the door, facing aft across the open platform (user 2026-10-08)
+    for x in (-SC_AGP_X, SC_AGP_X):
+        c = (x, SC_Y_AFT, (GP_SILL + GP_TOP) / 2)
+        cuts.append(cutter_box(*c, GP_W, 0.8, GP_TOP - GP_SILL))
+        lining('gunport_lining', c, (0, -1, 0), GP_W, GP_TOP - GP_SILL, SC_WALL, sill_out=0.05)
     # broadside gunport in each cabin side (the cabin is a gun room now; user 2026-10-08)
     for side in (-1, 1):
         nrm = wall_normal(sc_hw, SC_GP_Y, side)
@@ -1088,23 +1094,9 @@ def build_stern_lantern():
     sweep('lantern_cross_v', [(x0, y0, zc), (x0, y0, zc + 0.6)], 0.03, 'gilt', square=True)
     sweep('lantern_cross_h', [(x0 - 0.16, y0, zc + 0.4), (x0 + 0.16, y0, zc + 0.4)], 0.03, 'gilt', square=True)
 
-# balcony balustrade line (shared by the model and its collision)
-BALC_T_WALL = 0.12                                       # rail ends just off the stern wall, room for the end posts
-BALC_Z_RAIL = 1.0                                        # rail top above the balcony floor (Z_GUN_DECK)
-def balc_edge_in(t):
-    """Balustrade line, BALC_INSET inside the balcony floor's edge; t: 0 = port end at the stern wall, pi = stbd."""
-    rx, ry = sc_hw(SC_Y_AFT) + 0.1 - BALC_INSET, BALC_RY - BALC_INSET
-    return (-rx * math.cos(t), SC_Y_AFT - ry * math.sin(t))
-
-def balc_rail_path(n=48):
-    """ONE rail along the whole curve (user 2026-10-08: the two halves ended either side of the post): it passes
-    across the stern post's front face (y -25.307 at rail height), pulled back 4 cm at the centre so it touches it."""
-    ts = [BALC_T_WALL + (math.pi - 2 * BALC_T_WALL) * k / n for k in range(n + 1)]
-    return [(x, y - 0.04 * math.sin(t) ** 16) for t in ts for x, y in [balc_edge_in(t)]]
-
 def build_stern_balcony():
-    """Half-oval balcony behind the stern door, at cabin-floor level, with a turned balustrade ending on the
-    stern post, carried by two carved knees."""
+    """Half-oval platform behind the stern door, at cabin-floor level (open: the railing went for the stern guns,
+    user 2026-10-08), plus the cabin's mouldings, poop deck and awning."""
     rx, ry = sc_hw(SC_Y_AFT) + 0.1, BALC_RY              # flush with the rub rail's outer face at the stern wall
     def edge(t):                                          # t: 0 = port end at the stern wall, pi = starboard end
         return (-rx * math.cos(t), SC_Y_AFT - ry * math.sin(t))
@@ -1122,24 +1114,7 @@ def build_stern_balcony():
     post = cutter_box(0, -25.40, 2.1, 0.3, 0.3, 1.2)
     post.rotation_euler = (math.atan2(0.1, 1.7), 0, 0)
     subtract(plate, [post])
-    # balustrade along the curved edge; the stern post stands at the aft centre, the rail ends on it
-    zb, zr = Z_GUN_DECK, Z_GUN_DECK + BALC_Z_RAIL
-    prof = [(r * 0.88, z) for r, z in BALUSTER]
-    prof = smooth_profile([(r, z * (zr - zb - 0.08) / 0.9) for r, z in prof])
-    # the balustrade stands BALC_INSET inside the floor edge, so nothing overhangs the plate (seen from below)
-    edge_in = balc_edge_in
-    x_stop = 0.28                                         # last baluster/curve point before the stern post
-    t_post = math.acos(x_stop / (rx - BALC_INSET))
-    t_wall = BALC_T_WALL
-    for ta, tb, sgn in ((t_wall, t_post, -1), (math.pi - t_post, math.pi - t_wall, 1)):
-        ts = [ta + (tb - ta) * k / 12 for k in range(13)]
-        for x, y in [edge_in(t) for t in ts][1:]:
-            lathe('balcony_baluster', prof, 'trim', at=(x, y, zb), segs=10)
-    sweep('balcony_rail', [(x, y, zr - 0.04) for x, y in balc_rail_path()], 0.06, 'trim', square=True)
-    for side in (-1, 1):                                  # square end posts set against the stern wall
-        x, y = edge_in(t_wall if side < 0 else math.pi - t_wall)
-        box('balcony_end_post', x - 0.08, x + 0.08, SC_Y_AFT - 0.16, SC_Y_AFT, zb, zr + 0.06, 'trim')
-        sweep('balcony_rail_end', [(x, SC_Y_AFT - 0.02, zr - 0.04), (x, y, zr - 0.04)], 0.06, 'trim', square=True)
+    # no balustrade: the cabin's two stern guns fire across the platform (user 2026-10-08)
     # mouldings: above the bulwark line, under the windows, under the poop deck
     sc_out = sc_hw(0) - side_hw(0)                       # cabin sides stand this far outside the ship's side line
     def wrap(name, z0, z1, out, thick, role, fore=None, aft=None, y_end=None):
@@ -1159,12 +1134,24 @@ def build_stern_balcony():
                 xa, xb = max(xa, -w), min(xb, w)
                 # gilt bands at the stern door: stop short and curl down into a volute (user's sketch)
                 dx = SC_DOOR_X if face_y == SC_Y_FORE else 0.0          # door centre on this face
-                curl = role == 'gilt' and segs in (door_a, door_f)
+                # (no curl on the stern face's moulding: the stern ports sit where it curled; user 2026-10-08)
+                curl = role == 'gilt' and segs in (door_a, door_f) and not (name == 'moulding' and face_y == SC_Y_AFT)
                 if curl and abs(xb - (dx - SC_DOOR_W / 2)) < 1e-6:
                     xb -= CURL_GAP; door_curl(name, xb, -1, z0, z1, o, t, face_y, sgn)
                 elif curl and abs(xa - (dx + SC_DOOR_W / 2)) < 1e-6:
                     xa += CURL_GAP; door_curl(name, xa, 1, z0, z1, o, t, face_y, sgn)
-                box(f'sc_{name}_face', xa, xb, *sorted((face_y + sgn * o, face_y + sgn * (o - t))), z0, z1, role)
+                fb = box(f'sc_{name}_face', xa, xb, *sorted((face_y + sgn * o, face_y + sgn * (o - t))), z0, z1, role)
+                if name == 'moulding' and face_y == SC_Y_AFT:   # the stern ports' gilt rings, one band with it
+                    hw = (z1 - z0) / 2
+                    for gx in (-SC_AGP_X, SC_AGP_X):
+                        if not xa < gx < xb:
+                            continue
+                        fn = lambda u, v, dd, gx=gx: (gx + u, SC_Y_AFT - dd, (GP_SILL + GP_TOP) / 2 + v)
+                        ring = flat_annulus('gunport_ring', fn, WREATH_RY - hw, WREATH_RZ - hw, WREATH_RY + hw,
+                                            WREATH_RZ + hw, o - t, o, role, collection='cutters')
+                        md = fb.modifiers.new('ring', 'BOOLEAN'); md.object = ring; md.operation = 'UNION'; md.solver = 'EXACT'
+                        hole = flat_disc('ring_hole', fn, WREATH_RY - hw, WREATH_RZ - hw, o - t - 0.05, o + 0.05)
+                        md = fb.modifiers.new('hole', 'BOOLEAN'); md.object = hole; md.operation = 'DIFFERENCE'; md.solver = 'EXACT'
     CURL_GAP = 0.4
     def door_curl(name, x_end, toward, z0, z1, o, t, face_y=SC_Y_AFT, sgn=-1):
         """From the band's end (x_end), bend down toward the door and curl back into a volute (flat gilt).
@@ -1860,15 +1847,6 @@ convex_piece(bmb, [(sd * (sc_hw(y) + 0.08), y, z) for y in (SC_Y_AFT - 0.3, SC_Y
 convex_piece(bmb, [(x, y, z) for x, y in [(-sc_hw(SC_Y_AFT) - 0.1, SC_Y_AFT), (sc_hw(SC_Y_AFT) + 0.1, SC_Y_AFT),
                                           (-1.0, SC_Y_AFT - BALC_RY), (1.0, SC_Y_AFT - BALC_RY)]
                    for z in ((Z_GUN_DECK + Z_LIFT) - 0.16, (Z_GUN_DECK + Z_LIFT))])
-# balcony balustrade (user 2026-10-08: walked through it): thin walls along the rail line, floor to rail top, and
-# the short end rails back to the stern wall
-_bz = ((Z_GUN_DECK + Z_LIFT), (Z_GUN_DECK + Z_LIFT) + BALC_Z_RAIL + 0.02)
-_bp = balc_rail_path(16)
-_ends = [((x, SC_Y_AFT), (x, y)) for x, y in (_bp[0], _bp[-1])]
-for (xa, ya), (xb, yb) in list(zip(_bp, _bp[1:])) + _ends:
-    L = math.hypot(xb - xa, yb - ya)
-    nx, ny = -(yb - ya) / L * 0.07, (xb - xa) / L * 0.07
-    convex_piece(bmb, [(x + sd * nx, y + sd * ny, z) for x, y in ((xa, ya), (xb, yb)) for sd in (-1, 1) for z in _bz])
 # stairs as ramps (agents' feet and missiles)
 run = ((SC_Z_FLOOR + Z_LIFT) - (Z_GUN_DECK + Z_LIFT)) / math.tan(math.radians(40))
 for sd in (-1, 1):
@@ -1997,6 +1975,7 @@ look('chk_side_row_aft.png', (7.0, -20.0, 1.8), (4.3, -10.0, 1.8), lens=28)
 look('chk_side_wall.png', (9.5, 3.0, 2.9), (4.4, 6.0, 1.6), lens=28)
 look('chk_gunport.png', (6.2, gunport_y(1) - 1.2, 3.3), (4.4, gunport_y(1), 3.15), lens=35)
 look('chk_stern_chaser.png', (8.0, WING_Y0 - 5.0, 5.6), (STERN_GP_X, WING_Y0, 3.15 + Z_LIFT), lens=35)
+look('chk_sc_stern_ports.png', (2.4, -29.0, 4.6), (0.0, -24.0, 3.15 + Z_LIFT), lens=30)
 look('chk_sc_gunport.png', (7.5, SC_GP_Y - 3.0, 5.0), (sc_hw(SC_GP_Y), SC_GP_Y, 3.15 + Z_LIFT), lens=35)
 look('chk_sc_gunroom.png', (-1.2, -15.6, 4.6), (1.5, -21.0, 4.1), lens=20)
 look('chk_gunport_fore.png', (6.2, gunport_y(4) + 1.6, 3.3), (4.2, gunport_y(4), 3.15), lens=35)
