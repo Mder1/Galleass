@@ -59,6 +59,8 @@ WREATH_RY, WREATH_RZ = 0.56, 0.5           # gilded ring round each gunport (cle
 # stern chasers (user 2026-10-08): one gunport in each aft end wall of the box, beside the cabin, facing aft; centred
 # between the cabin side (x 3.56) and the gilt corner bead (from x ~5.7)
 STERN_GP_X = 4.65
+# cabin broadside ports (user 2026-10-08): one in each cabin side wall aft of the box, at broadside height
+SC_GP_Y = -20.8
 
 # forecastle: tapered horseshoe, five gun embrasures on the upper tier (0, +-45, +-90 deg)
 FC_CY = 21.6                             # centre of the round front
@@ -1016,6 +1018,12 @@ def build_sterncastle():
                 bm.faces.new(tuple(reversed(f)) if flip else f)
             bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
             obj_from_bm(bm, 'sc_window_hood', 'trim')
+    # broadside gunport in each cabin side (the cabin is a gun room now; user 2026-10-08)
+    for side in (-1, 1):
+        nrm = wall_normal(sc_hw, SC_GP_Y, side)
+        c = (side * sc_hw(SC_GP_Y), SC_GP_Y, (GP_SILL + GP_TOP) / 2)
+        cuts.append(cutter_box(*c, 0.8, GP_W, GP_TOP - GP_SILL, math.atan2(nrm.y, nrm.x)))
+        lining('gunport_lining', c, nrm, GP_W, GP_TOP - GP_SILL, SC_WALL, sill_out=0.05)
     subtract(body, cuts)
     # cabin floor (planked, level with the gun deck) and door frames
     tapered_block('sc_floor', SC_Y_AFT + SC_WALL - 0.01, SC_Y_FORE - SC_WALL + 0.01, FC_Z_BASE, Z_GUN_DECK,
@@ -1024,18 +1032,7 @@ def build_sterncastle():
     for dx, dy, out in ((SC_DOOR_X, SC_Y_FORE, 1), (0.0, SC_Y_AFT, -1)):
         # frame stands as proud as the bands (8 cm), so the bands butt into it
         lining('sc_door_lining', (dx, dy, Z_GUN_DECK + 1.0), (0, out, 0), SC_DOOR_W, 2.0, SC_WALL, t=0.07, lip=0.08)
-    # a little furniture: table with benches, a chest against the forward bulkhead
-    ty = (SC_Y_AFT + SC_Y_FORE) / 2 - 1.0
-    box('cabin_table_top', -0.55, 0.55, ty - 1.0, ty + 1.0, Z_GUN_DECK + 0.72, Z_GUN_DECK + 0.78, 'trim')
-    for lx in (-0.42, 0.42):
-        for ly in (ty - 0.85, ty + 0.85):
-            box('cabin_table_leg', lx - 0.04, lx + 0.04, ly - 0.04, ly + 0.04, Z_GUN_DECK, Z_GUN_DECK + 0.72, 'trim')
-    for bx in (-1.05, 1.05):
-        box('cabin_bench', bx - 0.18, bx + 0.18, ty - 0.9, ty + 0.9, Z_GUN_DECK + 0.4, Z_GUN_DECK + 0.46, 'trim')
-        for ly in (ty - 0.75, ty + 0.75):
-            box('cabin_bench_leg', bx - 0.12, bx + 0.12, ly - 0.03, ly + 0.03, Z_GUN_DECK, Z_GUN_DECK + 0.4, 'trim')
-    box('cabin_chest', -1.9, -0.9, SC_Y_FORE - SC_WALL - 0.65, SC_Y_FORE - SC_WALL - 0.05, Z_GUN_DECK, Z_GUN_DECK + 0.6, 'trim')
-    box('cabin_chest_band', -1.92, -0.88, SC_Y_FORE - SC_WALL - 0.67, SC_Y_FORE - SC_WALL - 0.03, Z_GUN_DECK + 0.42, Z_GUN_DECK + 0.48, 'iron')
+    # no furniture: the cabin is a gun room (user 2026-10-08 removed table, benches and chest)
     build_stern_balcony()
 
 def build_stern_lantern():
@@ -1214,6 +1211,18 @@ def build_stern_balcony():
         # be stubs ending at the cabin front. They butt the box end wall's bands instead.
         wrap(name, z0, z1, out, thick, role, aft=None if name == 'rub_rail' else door_a,
              y_end=WING_Y0 - out + 0.001)
+    # the cabin side ports' gilt rings, one band with the cabin moulding (as on the box sides); the ring follows the
+    # tapering wall
+    z0, z1, out, thick, _ = BANDS['moulding']
+    o = out - sc_out; t = min(thick, o + SC_WALL - 0.03); hw = (z1 - z0) / 2
+    for side in (-1, 1):
+        m = bpy.data.objects[f'sc_moulding_{side}']
+        fn = lambda u, v, dd, side=side: (side * (sc_hw(SC_GP_Y + u) + dd), SC_GP_Y + u, (GP_SILL + GP_TOP) / 2 + v)
+        ring = flat_annulus('gunport_ring', fn, WREATH_RY - hw, WREATH_RZ - hw, WREATH_RY + hw, WREATH_RZ + hw,
+                            o - t, o, 'gilt', collection='cutters')
+        md = m.modifiers.new('ring', 'BOOLEAN'); md.object = ring; md.operation = 'UNION'; md.solver = 'EXACT'
+        hole = flat_disc('ring_hole', fn, WREATH_RY - hw, WREATH_RZ - hw, o - t - 0.05, o + 0.05)
+        md = m.modifiers.new('hole', 'BOOLEAN'); md.object = hole; md.operation = 'DIFFERENCE'; md.solver = 'EXACT'
     wrap('window_band', SCW_Z0 - 0.2, SCW_Z0 - 0.1, 0.06 + sc_out, 0.12, 'gilt', fore=door_f, aft=door_a)
     wrap('deck_line', SC_Z_FLOOR - 0.12, SC_Z_FLOOR, 0.06 + sc_out, 0.12, 'trim', fore=stairs_f, aft=[(-9, 9)])
     # poop deck and turned balustrade
@@ -1988,6 +1997,8 @@ look('chk_side_row_aft.png', (7.0, -20.0, 1.8), (4.3, -10.0, 1.8), lens=28)
 look('chk_side_wall.png', (9.5, 3.0, 2.9), (4.4, 6.0, 1.6), lens=28)
 look('chk_gunport.png', (6.2, gunport_y(1) - 1.2, 3.3), (4.4, gunport_y(1), 3.15), lens=35)
 look('chk_stern_chaser.png', (8.0, WING_Y0 - 5.0, 5.6), (STERN_GP_X, WING_Y0, 3.15 + Z_LIFT), lens=35)
+look('chk_sc_gunport.png', (7.5, SC_GP_Y - 3.0, 5.0), (sc_hw(SC_GP_Y), SC_GP_Y, 3.15 + Z_LIFT), lens=35)
+look('chk_sc_gunroom.png', (-1.2, -15.6, 4.6), (1.5, -21.0, 4.1), lens=20)
 look('chk_gunport_fore.png', (6.2, gunport_y(4) + 1.6, 3.3), (4.2, gunport_y(4), 3.15), lens=35)
 look('chk_fc_port.png', (2.5, 28.5, FC_PORT_Z + Z_LIFT + 0.05), (1.6, 25.2, FC_PORT_Z + Z_LIFT), lens=35)
 look('chk_sc_window.png', (6.5, -19.0, 5.0), (4.3, -20.5, 4.8), lens=35)
