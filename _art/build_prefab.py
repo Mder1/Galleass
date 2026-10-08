@@ -432,7 +432,8 @@ for s, n in ((-1, 'oar_left_lower_8m'), (1, 'oar_right_lower_8m')):
     tmpl[s] = next(e for e in dromon_oars.iter('entity') if re.fullmatch(n + r'_\d+', e.get('name') or ''))
 OAR_X = W_OUT - SIDE_T / 2                                           # pivot in the middle of the wall
 OAR_Z = G['lift_z'](0.0, (G['OARPORT_Z0'] + G['OARPORT_Z1']) / 2) - 0.7              # the oar pivots 0.7 above its entity
-n_oars = 0
+n_oars, n_mesh = 0, 0
+OAR_MESH_VANILLA, OAR_MESH = 'base_oar_8m', 'galleass_oar_11m'
 for grp_name, s in (('left_oar_machines', -1), ('right_oar_machines', 1)):
     grp = next(c for c in kids(decks['oar_deck_lower']) if c.get('name') == grp_name)
     assert base(grp) is None and grp.find('children') is not None
@@ -441,9 +442,18 @@ for grp_name, s in (('left_oar_machines', -1), ('right_oar_machines', 1)):
         o = copy_regen(tmpl[s], 'galleass-oar/%d/%d/' % (s, i))
         o.set('name', '%s_%d' % (tmpl[s].get('name').rsplit('_', 1)[0], i))
         write_tf(o, pos=(s * OAR_X, G['oar_y'](i), OAR_Z), rot=(0, 0, 0))
+        # our longer oar (user 2026-10-08: 11.5 m; _art/make_oar.py): the entities carrying the vanilla mesh are
+        # cut from their base and get only ours (a renamed linked component would add to the inherited one); the
+        # game reads the oar length from this mesh's bounding box
+        for c in o.iter('entity'):
+            if c.get('name') in ('base', 'retracted_frame') and OAR_MESH_VANILLA in inherited_meshes(c):
+                flatten(c); drop(c, 'components')
+                c.append(mesh_component('oar/%d/%d/%s' % (s, i, c.get('name')), OAR_MESH))
+                c[:] = sorted(c, key=lambda x: ORDER.index(x.tag) if x.tag in ORDER else len(ORDER))
+                n_mesh += 1
         ch.append(o); n_oars += 1
-report.append('oars: upper (manned) bank removed; %d unmanned 8 m oars at x +-%.2f, pivot z %.2f, y %.1f..%.1f'
-              % (n_oars, OAR_X, OAR_Z + 0.7, G['oar_y'](0), G['oar_y'](G['OARS_PER_SIDE'] - 1)))
+report.append('oars: upper (manned) bank removed; %d unmanned oars (%s, %d meshes swapped) at x +-%.2f, pivot z %.2f, '
+              'y %.1f..%.1f' % (n_oars, OAR_MESH, n_mesh, OAR_X, OAR_Z + 0.7, G['oar_y'](0), G['oar_y'](G['OARS_PER_SIDE'] - 1)))
 
 # --- cleats (knot points) onto the cap rail; the meditheavy's hull-side cosmetic ropes go --------------------
 kh = files['knobs_holder']
