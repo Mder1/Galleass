@@ -846,6 +846,35 @@ for y0, y1 in zip(Y_PLAT, Y_PLAT[1:]):
             cab_cell(x0, x1, y0, y1); n_plat += 1
 report.append('navmesh: cabin %d cells (incl. both door openings), stern platform %d cells' % (n_cab, n_plat))
 
+# the spur rams (user 2026-10-13): a permanent MissionShipRam (no upgrade slot - the cleanup only touches 'upgrade_slot'
+# entities) under a 'bow'-tagged holder (ShipWaterEffects reads the bow wave's reach from the ram under the first child
+# of ram_group tagged 'bow'). Its capsule (added to the ship's body; also the spur's ship-ship collision, which the
+# composite hull leaves out) runs along the spur's axis from where it leaves the stem to the bronze point; the rounded
+# end reaches the point. Entity forward (+y) = ram direction, scale 1 (vanilla scales the capsule with the entity).
+# Vanilla rams: radius 0.75..1.2 m (x their 1.9-2.0 scale), tier multiplier 1.0 on every one
+RAM_R, RAM_Y0 = 0.9, 25.6
+_zc = lambda y: G['spur_at'](y)[0] + LIFT
+_p1 = (0.0, RAM_Y0, _zc(RAM_Y0))
+_tip = (0.0, G['SPUR_TIP'][1], _zc(G['SPUR'][-1][0]))
+_d = [b - a for a, b in zip(_p1, _tip)]; _dl = math.sqrt(sum(v * v for v in _d)); _d = [v / _dl for v in _d]
+RAM_LEN = _dl - RAM_R
+ram = new_entity('galleass_ram', 'ram/galleass_ram')
+write_tf(ram, pos=_p1, rot=(math.atan2(_d[2], _d[1]), 0.0, 0.0))
+ram.append(mobility())
+ram.append(el('scripts', None, el('script', {'name': 'MissionShipRam'},
+    el('prefab_link', None, el('instance', {'guid': guid('ram/galleass_ram/script')}), el('prefab', {'guid': ZERO})),
+    el('variables', None, *[el('variable', {'name': k, 'type_name': t, 'value': v}) for k, t, v in (
+        ('_ramAttachmentPointOffset', 'vec3', '0.000, 0.000, 0.000'), ('NavMeshPrefabName', 'string', ''),
+        ('_ramLength', 'float', '%.3f' % RAM_LEN), ('_ramRadius', 'float', '%.3f' % RAM_R),
+        ('_ramTierDamageMultiplier', 'float', '1.000'))]))))
+bow = new_entity('galleass_bow', 'ram/galleass_bow')
+bow.append(tags('bow')); bow.append(mobility()); bow.append(el('children', None, ram))
+rg = files['ram_group']
+rg.append(el('children', None, bow))
+rg[:] = sorted(rg, key=lambda c: ORDER.index(c.tag) if c.tag in ORDER else len(ORDER))
+report.append('ram: MissionShipRam capsule from %s, length %.2f, radius %.2f, pitch %.1f deg (spur point at y %.1f)'
+              % (tuple(round(v, 2) for v in _p1), RAM_LEN, RAM_R, math.degrees(math.atan2(_d[2], _d[1])), _tip[1]))
+
 # --- boarding (user 2026-10-13): BOARDING_PER_SIDE pairs (attachment_machine_nested = thrower + its own attach point)
 # beside the forecastle (see BOARDING_Y); everything else goes. All kept pairs take the hanging look of the vanilla pair
 # whose grapnel hangs from the rail ring (the others lie in a coil meant for the floor; user 2026-10-13). The crewman
