@@ -104,6 +104,7 @@ BALC_RY = 1.3                             # stern balcony depth (apex reaches th
 BALC_INSET = 0.08                         # balustrade set in from the floor edge
 BALC_Z_BOT = FC_Z_BASE - 0.3              # plate reaches below the hull top: it closes the hull end behind the cabin
 POOP_INSET = 0.06                         # poop balustrade line inside the deck edge (posts never overhang)
+HATCH_YS = (-6.5, 12.0)                   # deck hatches (gratings), centre y
 SC_STAIR_X = 3.25                        # centre line of the two stairs up to the poop
 
 # LIFT (user 2026-10-07, in game the ship sat too low; a galleass's rowing level was ~1.5-2 m above the water):
@@ -780,7 +781,7 @@ def build_sides():
 
 def build_deck_fittings():
     # hatches (gratings) and mast partners
-    for y in (-6.5, 12.0):
+    for y in HATCH_YS:
         box('hatch_coaming', -0.9, 0.9, y - 0.75, y + 0.75, Z_GUN_DECK, Z_GUN_DECK + 0.2, 'trim')
         box('hatch_grating', -0.8, 0.8, y - 0.65, y + 0.65, Z_GUN_DECK + 0.05, Z_GUN_DECK + 0.18, 'dark')
         for k in range(7):
@@ -1901,7 +1902,11 @@ def sc_wall_x(y0, y1, sd, z0, z1):
     convex_piece(bmb, [(sd * (sc_hw(y) + dx), y, z) for y in (y0, y1) for dx in (0.0, -SC_WALL) for z in (z0, z1)])
 for sd in (-1, 1):
     sc_wall_x(SC_Y_AFT, SC_Y_FORE, sd, (Z_GUN_DECK + Z_LIFT), (SC_Z_FLOOR + Z_LIFT))
-    sc_wall_x(SC_Y_AFT - 0.3, SC_Y_FORE + 0.08, sd, (SC_Z_FLOOR + Z_LIFT) + 0.12, (SC_Z_RAIL + Z_LIFT))                         # poop rail
+    # poop side rails in short slices along the balustrade line (one straight slab cut the cabin side's curve)
+    _rs = [SC_Y_AFT - 0.3] + [SC_Y_AFT + (SC_Y_FORE - SC_Y_AFT) * k / 8 for k in range(1, 8)] + [SC_Y_FORE + 0.08]
+    for y0, y1 in zip(_rs, _rs[1:]):
+        convex_piece(bmb, [(sd * (sc_hw(y) - POOP_INSET + dx), y, z) for y in (y0, y1) for dx in (0.1, -0.1)
+                           for z in ((SC_Z_FLOOR + Z_LIFT) + 0.12, (SC_Z_RAIL + Z_LIFT) + 0.02)])
 for yf, d, dx in ((SC_Y_FORE, -1, SC_DOOR_X), (SC_Y_AFT, 1, 0.0)):
     wf = sc_hw(yf)
     for xa, xb in ((-wf, dx - SC_DOOR_W / 2), (dx + SC_DOOR_W / 2, wf)):
@@ -1912,6 +1917,18 @@ convex_piece(bmb, [(sd * (sc_hw(y) + 0.08), y, z) for y in (SC_Y_AFT - 0.3, SC_Y
 convex_piece(bmb, [(x, y, z) for x, y in [(-sc_hw(SC_Y_AFT) - 0.1, SC_Y_AFT), (sc_hw(SC_Y_AFT) + 0.1, SC_Y_AFT),
                                           (-1.0, SC_Y_AFT - BALC_RY), (1.0, SC_Y_AFT - BALC_RY)]
                    for z in ((Z_GUN_DECK + Z_LIFT) - 0.16, (Z_GUN_DECK + Z_LIFT))])
+# poop rails fore (gap for each stair) and aft, forecastle back rail (gaps for the stairs): thin walls to the rail top
+_w, _wf, _yf = sc_hw(SC_Y_AFT) - POOP_INSET, sc_hw(SC_Y_FORE) - POOP_INSET, SC_Y_FORE - POOP_INSET
+_zp = ((SC_Z_FLOOR + Z_LIFT) + 0.12, (SC_Z_RAIL + Z_LIFT) + 0.02)
+bx(-_w, _w, SC_Y_AFT - 0.1, SC_Y_AFT + 0.1, *_zp)
+for x0, x1 in ((-_wf, -SC_STAIR_X - 0.5), (-SC_STAIR_X + 0.5, SC_STAIR_X - 0.5), (SC_STAIR_X + 0.5, _wf)):
+    bx(x0 - 0.09, x1 + 0.09, _yf - 0.1, _yf + 0.1, *_zp)
+_r, _yb = fc_radius(FC_Z_PLATFORM) - 0.35, FC_Y_BACK + 0.05
+for x0, x1 in ((-_r, -FC_STAIR_X - 0.5), (-FC_STAIR_X + 0.5, FC_STAIR_X - 0.5), (FC_STAIR_X + 0.5, _r)):
+    bx(x0 - 0.05, x1 + 0.05, _yb - 0.08, _yb + 0.08, (FC_Z_PLATFORM + Z_LIFT), (FC_Z_PLATFORM + Z_LIFT) + 1.0)
+# hatches: coaming + grating as one low block (agents step over it, missiles stop)
+for y in HATCH_YS:
+    bx(-0.9, 0.9, y - 0.75, y + 0.75, (Z_GUN_DECK + Z_LIFT) - 0.05, (Z_GUN_DECK + Z_LIFT) + 0.2)
 # stairs as ramps (agents' feet and missiles)
 run = ((SC_Z_FLOOR + Z_LIFT) - (Z_GUN_DECK + Z_LIFT)) / math.tan(math.radians(40))
 for sd in (-1, 1):

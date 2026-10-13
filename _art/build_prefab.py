@@ -984,7 +984,7 @@ report.append('hull plating: %d upgrades -> galleass_hull_plate with %s' % (n, {
 # --- lanterns hang on the masts on vanilla's iron arms (nord_lantern_nested: hook 0.75 m from the mast's centre,
 # arm pointing out along the entity's +y): pairs either side of the main and mizzen masts, one on the fore mast
 # looking aft over the forecastle platform; LANTERN_H above each mast's deck (vanilla: 2.7 .. 3.5 m)
-LANTERN_H, LANTERN_ARM = 2.8, 0.75
+LANTERN_H, LANTERN_ARM = 3.2, 0.75       # 2.8 hung too low (user 2026-10-13)
 RAKES = {m: rk for _, m, _, rk, _ in RIGS}
 def mast_y(mast, z):
     deck = Z_FC if mast == 'fore' else Z_DECK
