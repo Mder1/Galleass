@@ -8,108 +8,19 @@ Local frame of every gun: barrel axis along +Y (muzzle forward), Z up, origin on
 centre; the axis is AXIS_H above the deck (the round ports are centred 0.8 m above the ground floor).
 Profiles are (y, r) with y from the rear face of the base ring forward (cascabel at negative y).
 """
-import bpy, bmesh, math, os, sys
+import bpy, bmesh, json, math, os, sys
 from mathutils import Vector, Matrix
 
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 OUT_BLEND = argv[0] if argv else None
 RENDER_DIR = argv[1] if len(argv) > 1 else None
 
-AXIS_H = 0.80
-
-# ---------------------------------------------------------------- culverin (colubrina da 14 libbre)
-# 14 Venetian pounds (libbra grossa 0.477 kg) of iron = 6.7 kg ball, 12.0 cm; bore 12.4 cm. Bore ~32 calibres
-# (Museo Storico Navale), so 4.05 m from the base ring to the muzzle; the ground floor takes it with 1 m recoil
-# (fc_gun_layout.py, layout_H). Trunnions at 0.44 of the length, on a raised ring (Alberghetti drawings).
-CV = dict(
-    bore=0.124,
-    length=4.05,                      # base ring rear face -> muzzle face
-    trunnion_y=0.44 * 4.05,
-    trunnion_r=0.062, trunnion_len=0.12, trunnion_dz=-0.01,
-    flutes=16, flute_depth=0.006,
-    # spiral on the first reinforce: dominant in the plates - 12 broad ribs, ~30 deg twist (0.75 turns), deep grooves
-    spiral_ribs=12, spiral_depth=0.016, spiral_turns=0.75,
-    # slender like the plates: ~3 calibres over the breech, ~2 at the muzzle (length / breech diameter ~11)
-    r_breech=0.190, r_reinforce_end=0.172, r_ring=0.186, r_chase_start=0.164, r_chase_end=0.124,
-)
-
-def culverin_profile():
-    L, ty = CV['length'], CV['trunnion_y']
-    rb, rt, rc, rm = CV['r_breech'], CV['r_reinforce_end'], CV['r_chase_start'], CV['r_chase_end']
-    rr = CV['r_ring']
-    return [
-        # cascabel: pear-shaped button on a neck, then the rounded breech (Gasparoni plates)
-        (-0.28, 0.0), (-0.28, 0.016), (-0.273, 0.030), (-0.258, 0.041), (-0.235, 0.047), (-0.21, 0.048),
-        (-0.188, 0.043), (-0.17, 0.034), (-0.156, 0.030), (-0.143, 0.032), (-0.134, 0.041), (-0.125, 0.041),
-        (-0.116, 0.055), (-0.093, 0.103), (-0.065, 0.145), (-0.035, 0.175), (-0.014, 0.190), (0.0, rb + 0.004),
-        # base ring: broad fillet, step, small astragal
-        (0.0, rb + 0.016), (0.042, rb + 0.016), (0.047, rb + 0.009), (0.07, rb + 0.009), (0.078, rb + 0.004),
-        (0.094, rb + 0.004), (0.099, rb),
-        # first reinforce (fluted) up to the trunnion ring
-        (ty - 0.10, rt),
-        (ty - 0.095, rr - 0.008), (ty - 0.07, rr - 0.008), (ty - 0.065, rr), (ty + 0.065, rr), (ty + 0.07, rr - 0.008),
-        (ty + 0.095, rr - 0.008), (ty + 0.10, rc),
-        # chase (fluted, plain band for the arms / inscription) to the muzzle astragal
-        (L - 0.25, rm),
-        (L - 0.245, rm + 0.010), (L - 0.218, rm + 0.010), (L - 0.213, rm + 0.003), (L - 0.195, rm + 0.001),
-        # muzzle: gentle swell (acanthus leaves) and lip
-        (L - 0.14, rm + 0.006), (L - 0.08, rm + 0.014), (L - 0.045, rm + 0.022), (L - 0.03, rm + 0.026),
-        (L - 0.026, rm + 0.030), (L, rm + 0.030), (L, CV['bore'] / 2 + 0.012), (L - 0.008, CV['bore'] / 2),
-    ]
-
-def smooth01(t):
-    t = min(max(t, 0.0), 1.0)
-    return t * t * (3 - 2 * t)
-
-def flute_cut(y, a, y0, y1, n, depth, turns=0.0, fade=0.035):
-    """Concave flutes between y0 and y1 (rounded ends), optionally spiralling 'turns' times over the zone."""
-    if y <= y0 or y >= y1:
-        return 0.0
-    u = (a / (2 * math.pi) + turns * (y - y0) / (y1 - y0)) * n
-    u -= math.floor(u)
-    land = 0.22                                            # fillet between the flutes, fraction of a pitch
-    if u > 1 - land:
-        return 0.0
-    s = math.sin(math.pi * u / (1 - land))
-    return depth * s ** 0.8 * smooth01((y - y0) / fade) * smooth01((y1 - y) / fade)
-
-def spiral_ribs(y, a, y0, y1, n, depth, turns, fade=0.05):
-    """Twisted convex ribs (rope-like spiral fluting of the colubrina da 30): broad rounded ribs, narrow deep
-    grooves between them; returns the cut below the profile radius (0 on the rib crests)."""
-    if y <= y0 or y >= y1:
-        return 0.0
-    u = (a / (2 * math.pi) + turns * (y - y0) / (y1 - y0)) * n
-    u -= math.floor(u)
-    rib = math.sin(math.pi * u) ** 0.6                  # 1 on the crest, 0 in the groove
-    return depth * (1 - rib) * smooth01((y - y0) / fade) * smooth01((y1 - y) / fade)
-
-def acanthus(y, a, y0, y1, n=8, height=0.009):
-    """Raised leaves rising up the muzzle flare: wide at the neck, pointed tips."""
-    if y <= y0 or y >= y1:
-        return 0.0
-    t = (y - y0) / (y1 - y0)
-    u = a / (2 * math.pi) * n
-    u = u - math.floor(u) - 0.5                            # -0.5..0.5 around a leaf's centre line
-    hw = 0.42 * (1 - t) ** 0.8 + 0.03
-    if abs(u) >= hw:
-        return 0.0
-    lobe = math.cos(math.pi / 2 * u / hw)
-    return height * lobe * math.sin(math.pi * min(t * 1.15, 1.0)) ** 0.6
-
-def culverin_mod(y, a, r):
-    L, ty = CV['length'], CV['trunnion_y']
-    if 0.16 < y < ty - 0.12:                               # first reinforce: spiral ribs (colubrina da 30, lower)
-        r -= spiral_ribs(y, a, 0.16, ty - 0.12, CV['spiral_ribs'], CV['spiral_depth'], CV['spiral_turns'])
-    elif ty + 0.12 < y < L - 0.29:                         # chase: straight flutes, plain band for the arms
-        band0, band1 = ty + 0.62, ty + 1.02
-        r -= flute_cut(y, a, ty + 0.12, band0, CV['flutes'], CV['flute_depth'] * 0.85)
-        r -= flute_cut(y, a, band1, L - 0.29, CV['flutes'], CV['flute_depth'] * 0.85)
-    elif L - 0.19 < y < L - 0.035:
-        r += acanthus(y, a, L - 0.19, L - 0.035, height=0.007)
-    return r
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gun_profiles import *                           # AXIS_H, CV, FALCON(ET), profiles, reliefs
+import rope_geom as rg
 
 # ---------------------------------------------------------------- Blender helpers
-ROLE_COL = {'fuse': (0.30, 0.22, 0.12, 1), 'bronze': (0.62, 0.45, 0.18, 1), 'wood': (0.36, 0.24, 0.14, 1), 'iron': (0.16, 0.16, 0.17, 1),
+ROLE_COL = {'fuse': (0.30, 0.22, 0.12, 1), 'bronze': (0.62, 0.45, 0.18, 1), 'bronze_trim': (0.62, 0.45, 0.18, 1), 'wood': (0.36, 0.24, 0.14, 1), 'iron': (0.16, 0.16, 0.17, 1), 'rope': (0.55, 0.45, 0.30, 1),
             'dark': (0.02, 0.02, 0.02, 1)}
 MATS = {}
 for _r, _c in ROLE_COL.items():
@@ -139,9 +50,11 @@ def resample(prof, step):
             out.append((y0 + (y1 - y0) * k / n, r0 + (r1 - r0) * k / n))
     return out
 
-def lathe_y(name, prof, role, at=(0, 0, 0), segs=32, mod=None, cap_end=False, twist=None):
+def lathe_y(name, prof, role, at=(0, 0, 0), segs=32, mod=None, cap_end=False, twist=None, inside=False):
     """Solid of revolution about the Y axis (prof: (y, r)); mod(y, angle, r) -> r adds flutes and reliefs;
-    twist(y) -> angle turns each ring so the mesh's edges follow a spiral relief (clean shading)."""
+    twist(y) -> angle turns each ring so the mesh's edges follow a spiral relief (clean shading).
+    inside: a bore seen from the muzzle - walls face the axis, the bottom faces +y (user 2026-10-13: open, outward
+    facing bores were culled, the sky showed through the barrel)."""
     bm = bmesh.new(); rings = []
     for y, r in prof:
         if r < 1e-6:
@@ -166,6 +79,13 @@ def lathe_y(name, prof, role, at=(0, 0, 0), segs=32, mod=None, cap_end=False, tw
     if cap_end and len(rings[-1]) > 1:
         bm.faces.new(rings[-1])
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    if inside:
+        for f in bm.faces:
+            c = f.calc_center_median(); f.normal_update()
+            radial = Vector((c.x - at[0], 0.0, c.z - at[2]))
+            want = -radial if radial.length > 1e-4 and abs(f.normal.y) < 0.7 else Vector((0, 1, 0))
+            if f.normal.dot(want) < 0:
+                f.normal_flip()
     return obj_from_bm(bm, name, role)
 
 def cyl_x(name, x0, x1, y, z, r, role, segs=24):
@@ -257,7 +177,7 @@ def vent_and_fuse(tag, parts, y, r_top, ah, scale, shift_y):
     bm = bmesh.new()
     bmesh.ops.create_cone(bm, cap_ends=True, segments=16, radius1=br, radius2=br * 0.85, depth=bh + 0.02)
     bmesh.ops.translate(bm, verts=bm.verts, vec=(0, y, zt + bh / 2 - 0.01))
-    parts.append(obj_from_bm(bm, f'{tag}_vent_boss', 'bronze', sharp=40))
+    parts.append(obj_from_bm(bm, f'{tag}_vent_boss', 'bronze_trim', sharp=40))
     bm = bmesh.new()
     bmesh.ops.create_cone(bm, cap_ends=True, segments=10, radius1=vr, radius2=vr, depth=0.06 * scale)
     bmesh.ops.translate(bm, verts=bm.verts, vec=(0, y, zt + bh - 0.03 * scale + 0.002))
@@ -287,6 +207,25 @@ def join(tag, parts, shift_y, collection):
     o = bpy.data.objects.new(tag, me); coll(collection).objects.link(o)
     return o
 
+def prof_r(prof, y):
+    """Largest profile radius at y (profiles have vertical steps)."""
+    best = 0.0
+    for (y0, r0), (y1, r1) in zip(prof, prof[1:]):
+        if abs(y1 - y0) < 1e-9:
+            if abs(y - y0) < 1e-9: best = max(best, r0, r1)
+        elif min(y0, y1) <= y <= max(y0, y1):
+            best = max(best, r0 + (r1 - r0) * (y - y0) / (y1 - y0))
+    return best
+
+def rope_part(name, build):
+    """One rope object from a bmesh builder (rope_geom calls); rope UVs are kept by export_guns.py."""
+    bm = bmesh.new(); build(bm)
+    return obj_from_bm(bm, name, 'rope', sharp=80)
+
+def rig_point(p, ty):
+    """Profile coordinates -> the exported gun frame (trunnions at y 0)."""
+    return [float(p[0]), float(p[1] - ty), float(p[2])]
+
 # ---------------------------------------------------------------- culverin barrel + sledge bed
 def build_culverin(tag='galleass_culverin'):
     L, ty, D = CV['length'], CV['trunnion_y'], CV['bore']
@@ -297,8 +236,8 @@ def build_culverin(tag='galleass_culverin'):
         return -2 * math.pi * CV['spiral_turns'] * min(max((y - y0s) / (y1s - y0s), 0.0), 1.0)
     parts = [lathe_y(f'{tag}_barrel', barrel_prof, 'bronze', at=(0, 0, AXIS_H), segs=96, mod=culverin_mod,
                      twist=twist)]
-    parts.append(lathe_y(f'{tag}_bore', [(L - 0.008, D / 2), (L - 0.6, D / 2), (L - 0.6, 0.0)], 'dark',
-                         at=(0, 0, AXIS_H), segs=32))
+    parts.append(lathe_y(f'{tag}_bore', [(L - 0.008, D / 2), (L - 0.6, D / 2), (L - 0.6, 0.0)], 'dark', inside=True,
+                         at=(0, 0, AXIS_H), segs=96))   # = barrel rings (no slivers at the muzzle)
     r_ring = CV['r_ring']
     tz = AXIS_H + CV['trunnion_dz']
 
@@ -309,7 +248,7 @@ def build_culverin(tag='galleass_culverin'):
     xi, xo = gap, gap + ct
     for s in (-1, 1):                                   # trunnions run through the cheek, ends flush with its face
         x_in, x_out = s * (r_ring - 0.02), s * (xo + 0.004)
-        parts.append(cyl_x(f'{tag}_trunnion', min(x_in, x_out), max(x_in, x_out), ty, tz, CV['trunnion_r'], 'bronze', segs=24))
+        parts.append(cyl_x(f'{tag}_trunnion', min(x_in, x_out), max(x_in, x_out), ty, tz, CV['trunnion_r'], 'bronze_trim', segs=24))
     y_front, y_rear = ty + 0.48, -0.34
     run_h = 0.11                                        # runner (skid) height
     seat_r = CV['trunnion_r'] + 0.004
@@ -338,8 +277,10 @@ def build_culverin(tag='galleass_culverin'):
         cap = [(ty + seat_r + 0.07, tz - 0.02)] + \
               [(ty + (seat_r + 0.004) * math.cos(math.pi * k / 10), tz + (seat_r + 0.004) * math.sin(math.pi * k / 10))
                for k in range(11)] + [(ty - seat_r - 0.07, tz - 0.02)]
-        parts.append(strap_yz(f'{tag}_capsquare', min(s * xi, s * xo) - 0.005, max(s * xi, s * xo) + 0.005,
-                              cap, 0.0, 0.012, 'iron'))
+        # cap squares are a little narrower than the cheek; the path runs front -> rear, so a negative thickness
+        # builds the strap outward (over the trunnion, on top of the cheek) instead of sunk into them
+        parts.append(strap_yz(f'{tag}_capsquare', min(s * xi, s * xo) + 0.008, max(s * xi, s * xo) - 0.008,
+                              cap, 0.0, -0.012, 'iron'))
         # iron bands round the cheek + runner
         for yb in (0.12, ty + 0.30):
             z_top = AXIS_H - 0.32 if yb < 0.48 else AXIS_H - 0.30
@@ -372,47 +313,39 @@ def build_culverin(tag='galleass_culverin'):
     parts.append(obj_from_bm(q, f'{tag}_quoin', 'wood', sharp=30))
     parts.append(box(f'{tag}_quoin_handle', -0.03, 0.03, -0.24, -0.12, under_base - 0.05, under_base - 0.01, 'wood'))
 
+    # cascabel lashing (user 2026-10-13: rigging that holds the gun in its bed): a seized collar round the cascabel
+    # neck, two turns down each side to ringbolts on the bed behind the quoin
+    yn, rl = -0.150, 0.011
+    rc = prof_r(prof, yn) + rl * 0.9
+    ring_R, y_rb = 0.032, -0.235
+    def lashing(bm):
+        rg.ring(bm, (0, yn, AXIS_H), (0, 1, 0), rc, rl, segs=14, tube=6)
+        for s in (-1, 1):
+            xb = s * 0.13
+            top = Vector((xb, y_rb, bed_top + 0.022 + 2 * ring_R))
+            for dy in (-0.011, 0.011):
+                p0 = Vector((s * rc * 0.75, yn + dy, AXIS_H - rc * 0.66))
+                rg.rope(bm, rg.catmull([p0, (p0 + top) / 2 + Vector((s * 0.015, 0, 0)), top + Vector((0, dy, 0))], 0.05),
+                        rl, segs=6)
+    parts.append(rope_part(f'{tag}_lashing', lashing))
+    for s in (-1, 1):
+        parts.append(lathe_y(f'{tag}_bed_eyebolt', [(-0.012, 0.0), (-0.012, 0.012), (0.03, 0.012), (0.03, 0.0)],
+                             'iron', at=(0, 0, 0), segs=8))
+        eb = parts[-1]; eb.rotation_euler = (math.pi / 2, 0, 0); eb.location = (s * 0.13, y_rb, bed_top)
+        bpy.context.view_layer.update(); eb.data.transform(eb.matrix_world); eb.matrix_world = Matrix()
+        parts.append(torus_x(f'{tag}_bed_ring', s * 0.13, y_rb, bed_top + 0.022 + ring_R, ring_R, 0.009, 'iron'))
+    # breeching: the sledge recoils as a whole, so the breeching takes the front side rings (gun_rigging.py)
+    rig = {'rope_r': 0.019, 'breech': {'p': rig_point((xo + 0.045, y_front - 0.22, AXIS_H - 0.47), ty), 'ring_r': 0.05},
+           'tackle': None}
+
     vent_and_fuse(tag, parts, 0.13, CV['r_breech'] - 0.0012, AXIS_H, 1.0, -ty)
     o = join(tag, parts, -ty, 'guns')
+    o['rig'] = json.dumps(rig)
     o['muzzle_y'] = L - ty; o['cascabel_y'] = -0.28 - ty
     o['front_y'] = y_front + 0.09 - ty; o['rear_y'] = y_rear - 0.06 - ty; o['half_w'] = xo + 0.1
     return o
 
-# ---------------------------------------------------------------- falcon / falconet (two-wheel carriage)
-# Plain service pieces after the Alberghetti drawings (user's reference 1, piece 1: ~2.85 m overall, trunnions at
-# ~47 % from the cascabel, one raised ring, plain chase, short muzzle band, conical cascabel button). Arms, founder's
-# initials (Z.A) and date go into the texture. Falcon da 6 (libbra sottile, ~1.8 kg ball): bore 8 cm, for the
-# broadside / stern / cabin ports (centred 0.85 m above the deck); the falconet is the same design scaled to fit the
-# forecastle platform and the cabin (layout_G: <= 2.2 m muzzle -> trail); axis 0.80 suits both the platform
-# embrasures (0.4..1.1 above the floor) and the cabin's gunports (0.55..1.15).
-FALCON = dict(bore=0.080, length=2.65, axis_h=0.85, k_len=1.0, k_r=1.0, wheel_r=0.36)
-FALCONET = dict(bore=0.056, length=1.62, axis_h=0.80, k_len=1.62 / 2.65, k_r=0.70, wheel_r=0.30)
-
-def falcon_profile(sp):
-    L, kl, kr = sp['length'], sp['k_len'], sp['k_r']
-    ty = 0.43 * L
-    rb, rt, rr, rc, rm = 0.112 * kr, 0.100 * kr, 0.110 * kr, 0.094 * kr, 0.072 * kr
-    def Y(v): return v * kl                                       # fixed details (fillets, button) scale with length
-    def R(v): return v * kr
-    prof = [
-        # conical cascabel button with a fillet, short neck, rounded breech
-        (Y(-0.20), 0.0), (Y(-0.20), R(0.026)), (Y(-0.194), R(0.032)), (Y(-0.118), R(0.050)), (Y(-0.112), R(0.054)),
-        (Y(-0.104), R(0.054)), (Y(-0.100), R(0.046)), (Y(-0.090), R(0.046)),
-        (Y(-0.080), R(0.064)), (Y(-0.058), R(0.086)), (Y(-0.034), R(0.101)), (Y(-0.013), R(0.110)), (0.0, rb + R(0.004)),
-        # base ring: flared fillet + step + astragal
-        (0.0, rb + R(0.015)), (Y(0.032), rb + R(0.015)), (Y(0.037), rb + R(0.009)), (Y(0.060), rb + R(0.009)),
-        (Y(0.065), rb + R(0.004)), (Y(0.076), rb + R(0.004)), (Y(0.080), rb),
-        # reinforce to the trunnion ring
-        (ty - Y(0.075), rt), (ty - Y(0.070), rr - R(0.006)), (ty - Y(0.050), rr - R(0.006)), (ty - Y(0.046), rr),
-        (ty + Y(0.046), rr), (ty + Y(0.050), rr - R(0.006)), (ty + Y(0.070), rr - R(0.006)), (ty + Y(0.075), rc),
-        # plain chase, muzzle astragal, slight swell, muzzle band
-        (L - Y(0.17), rm), (L - Y(0.165), rm + R(0.008)), (L - Y(0.145), rm + R(0.008)), (L - Y(0.140), rm + R(0.003)),
-        (L - Y(0.10), rm + R(0.004)), (L - Y(0.07), rm + R(0.008)), (L - Y(0.066), rm + R(0.017)),
-        (L - Y(0.012), rm + R(0.017)), (L - Y(0.006), rm + R(0.012)), (L, rm + R(0.012)),
-        (L, sp['bore'] / 2 + R(0.008)), (L - 0.006, sp['bore'] / 2),
-    ]
-    return prof, ty, dict(rb=rb, rr=rr, cascabel=Y(-0.20))
-
+# ---------------------------------------------------------------- falcon / falconet carriage (profiles in gun_profiles.py)
 def wheel_x(name, xc, y, z, r, w, role_wood='wood'):
     """Solid plank wheel (three planks, flats only in the texture) with an iron tyre and a hub boss."""
     parts = [cyl_x(name, xc - w / 2, xc + w / 2, y, z, r - 0.012, role_wood, segs=28)]
@@ -434,7 +367,7 @@ def build_falcon(sp, tag):
     ks = sp['axis_h'] / 0.85                                 # carriage timber scale
     parts = [lathe_y(f'{tag}_barrel', prof, 'bronze', at=(0, 0, ah), segs=36)]
     parts.append(lathe_y(f'{tag}_bore', [(L - 0.006, sp['bore'] / 2), (L - 0.4 * sp['k_len'], sp['bore'] / 2),
-                                         (L - 0.4 * sp['k_len'], 0.0)], 'dark', at=(0, 0, ah), segs=20))
+                                         (L - 0.4 * sp['k_len'], 0.0)], 'dark', at=(0, 0, ah), segs=36, inside=True))   # = barrel rings
     tr, tl = 0.042 * kr, 0.075 * kr                         # trunnion radius / length out of the ring
     tz = ah - 0.008 * kr
     # carriage: two cheeks from just ahead of the axle back to a trail on the deck, axletree + two solid wheels,
@@ -443,7 +376,7 @@ def build_falcon(sp, tag):
     xi = info['rr'] + tl - 0.06 * kr; xo = xi + ct
     for s in (-1, 1):                                        # trunnions through the cheek, ends flush with its face
         parts.append(cyl_x(f'{tag}_trunnion', min(s * (info['rr'] - 0.015), s * (xo + 0.004)),
-                           max(s * (info['rr'] - 0.015), s * (xo + 0.004)), ty, tz, tr, 'bronze', segs=16))
+                           max(s * (info['rr'] - 0.015), s * (xo + 0.004)), ty, tz, tr, 'bronze_trim', segs=16))
     wr = sp['wheel_r']; y_axle = ty + 0.04
     y_front = ty + 0.30 * ks
     y_trail = info['cascabel'] - 0.42 * ks                  # trail end on the deck behind the breech
@@ -484,14 +417,24 @@ def build_falcon(sp, tag):
         cap = [(ty + seat_r + 0.05 * ks, z_seat)] + \
               [(ty + (seat_r + 0.002) * math.cos(math.pi * k / 10), z_seat + (seat_r + 0.002) * math.sin(math.pi * k / 10))
                for k in range(11)] + [(ty - seat_r - 0.05 * ks, z_seat)]
-        parts.append(strap_yz(f'{tag}_capsquare', x0 - 0.004, x1 + 0.004, cap, 0.0, 0.009, 'iron'))
+        parts.append(strap_yz(f'{tag}_capsquare', x0 + 0.006, x1 - 0.006, cap, 0.0, -0.009, 'iron'))   # see culverin
         parts += wheel_x(f'{tag}_wheel', s * (xo + 0.015 + 0.045 * ks), y_axle, wr, wr, 0.09 * ks)
         parts.append(cyl_x(f'{tag}_linchpin', min(s * (xo + 0.11 * ks), s * (xo + 0.14 * ks)),
                            max(s * (xo + 0.11 * ks), s * (xo + 0.14 * ks)), y_axle, wr, 0.016, 'iron', segs=8))
-        # side ring for the run-out tackle, near the axle
+        # side ring for the run-out tackle: high on the cheek just behind the trunnion seat, above the wheel, so the
+        # tackle (gun_rigging.py) runs forward over the tyre (user 2026-10-13: the old low ring clipped the wheel)
+        z_eye = z_seat - 0.035 * ks
+        z_ring = z_eye - 0.04 * ks
+        y_eye = ty - seat_r - 0.06 * ks
+        while True:                                           # ring bottom 2 cm above the tyre at that y
+            dy = abs(y_eye - y_axle)
+            top = wr + math.sqrt(wr * wr - dy * dy) if dy < wr else 0.0
+            if z_ring - 0.04 * ks - 0.009 >= top + 0.02 or y_eye < ty - 0.12 * ks:
+                break
+            y_eye -= 0.01
         parts.append(cyl_x(f'{tag}_eyebolt', min(s * xo, s * (xo + 0.03)), max(s * xo, s * (xo + 0.03)),
-                           ty - 0.30 * ks, z_step - 0.08 * ks, 0.014, 'iron', segs=8))
-        parts.append(torus_x(f'{tag}_ring', s * (xo + 0.038), ty - 0.30 * ks, z_step - 0.12 * ks, 0.04 * ks, 0.009, 'iron'))
+                           y_eye, z_eye, 0.014, 'iron', segs=8))
+        parts.append(torus_x(f'{tag}_ring', s * (xo + 0.038), y_eye, z_ring, 0.04 * ks, 0.009, 'iron'))
     # axletree under the cheeks, transoms
     parts.append(box(f'{tag}_axletree', -(xo + 0.02), xo + 0.02, y_axle - 0.065 * ks, y_axle + 0.065 * ks,
                      wr - 0.06 * ks, wr + 0.06 * ks, 'wood'))
@@ -510,8 +453,41 @@ def build_falcon(sp, tag):
     parts.append(torus_x(f'{tag}_trail_ring', 0.0, y_trail - 0.035, depth * 0.45, 0.04 * ks, 0.009, 'iron'))
     yv = 0.115 * sp['k_len']
     rv = info['rb'] - (info['rb'] - 0.100 * kr) * (yv - 0.08 * sp['k_len']) / (ty - 0.155 * sp['k_len'])
+    # breeching collar round the cascabel neck; both legs hug the breech and leave beside the base ring toward the
+    # ringbolts at the port (gun_rigging.py); a lashing (two turns a side) ties the cascabel down to ringbolts on the
+    # cheeks' inner faces behind the stool bed (user 2026-10-13: rigging that holds the gun in its carriage)
+    kl = sp['k_len']
+    yn, rb_r, rl = -0.097 * kl, 0.016 * kr, 0.010 * kr
+    rc = prof_r(prof, yn) + rb_r * 0.9
+    y_out = 0.05 * kl
+    x_out = info['rb'] + 0.015 * kr + rb_r + 0.006
+    lash_R = 0.028 * ks
+    y_lr = y_drop - 0.035
+    z_le = z_step - 0.04 * ks
+    def collar(bm):
+        rg.ring(bm, (0, yn, ah), (0, 1, 0), rc, rb_r, segs=14, tube=6)
+        for s in (-1, 1):
+            pts = [Vector((s * rc, yn, ah))]
+            for k in range(1, 7):
+                y = yn + (y_out - yn) * k / 6
+                pts.append(Vector((s * max(prof_r(prof, y) + rb_r + 0.004, rc), y, ah)))
+            pts[-1] = Vector((s * x_out, y_out, ah))
+            rg.rope(bm, rg.catmull(pts, 0.03), rb_r, segs=6)
+            for dy in (-0.010 * ks, 0.010 * ks):
+                p0 = Vector((s * rc * 0.7, yn + dy, ah - rc * 0.7))
+                p1 = Vector((s * (xi - 0.035), y_lr + dy, z_le - 2 * lash_R))
+                rg.rope(bm, rg.catmull([p0, (p0 + p1) / 2 + Vector((s * 0.01, 0, 0)), p1], 0.04), rl, segs=6)
+    parts.append(rope_part(f'{tag}_breeching_collar', collar))
+    for s in (-1, 1):
+        parts.append(cyl_x(f'{tag}_lash_eyebolt', min(s * xi, s * (xi - 0.03)), max(s * xi, s * (xi - 0.03)),
+                           y_lr, z_le, 0.011, 'iron', segs=8))
+        parts.append(torus_x(f'{tag}_lash_ring', s * (xi - 0.035), y_lr, z_le - lash_R, lash_R, 0.007, 'iron'))
+    rig = {'rope_r': rb_r, 'breech': {'p': rig_point((x_out, y_out, ah), ty), 'ring_r': 0.0},
+           'tackle': {'p': rig_point((xo + 0.038, y_eye, z_ring), ty), 'ring_r': 0.04 * ks}}
+
     vent_and_fuse(tag, parts, yv, rv - 0.001, ah, 0.55 + 0.45 * kr, -ty)
     o = join(tag, parts, -ty, 'guns')
+    o['rig'] = json.dumps(rig)
     o['muzzle_y'] = L - ty; o['cascabel_y'] = info['cascabel'] - ty; o['axis_h'] = ah
     o['front_y'] = y_front - ty; o['rear_y'] = y_trail - 0.08 - ty; o['half_w'] = xo + 0.15 * ks
     return o
@@ -584,9 +560,9 @@ if __name__ == '__main__':
     if RENDER_DIR:
         render_views([(cv, 'cv'), (fa, 'fa'), (ft, 'ft')], RENDER_DIR)
     if OUT_BLEND:
-        import json                                   # gun dimensions for gun_layout.py (preview + prefab)
+        # gun dimensions for gun_layout.py (preview + prefab) and the rigging anchors for gun_rigging.py
         json.dump({o.name: {k: float(o[k]) for k in ('muzzle_y', 'cascabel_y', 'front_y', 'rear_y', 'half_w')}
-                   | {'axis_h': float(o.get('axis_h', AXIS_H))} for o in (cv, fa, ft)},
+                   | {'axis_h': float(o.get('axis_h', AXIS_H)), 'rig': json.loads(o['rig'])} for o in (cv, fa, ft)},
                   open(os.path.splitext(OUT_BLEND)[0] + '.json', 'w'), indent=1)
         bpy.ops.wm.save_as_mainfile(filepath=OUT_BLEND)
     print('guns done')

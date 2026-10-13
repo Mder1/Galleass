@@ -2,8 +2,9 @@
 
     blender -b ref/galleass_guns.blend --python export_guns.py -- ../AssetSources/export
 
-Kit materials are the galleass's own (no new textures): bronze -> galleass_gilt (vanilla ram_bronze), wood and the
-fuse cord -> galleass_trim, iron -> galleass_iron, bore/vent -> galleass_dark. Settings as export_fbx.py (metres,
+Kit materials: bronze (barrel + trunnions/vent boss) -> galleass_gun_bronze (own atlas, gun_uv.py / gun_texture.py:
+arms, initials, date), wood and the fuse cord -> galleass_trim, lashings / breeching collar -> galleass_rope (UVs from
+rope_geom.py), iron -> galleass_iron, bore/vent -> galleass_dark. Settings as export_fbx.py (metres,
 forward Y, up Z, '<name>_lodN' objects in the same FBX, no dots in names, import from the export/ subfolder).
 
 Per gun: galleass_<gun>.fbx (+ _lod1.._lod3), galleass_<gun>_fuse.fbx (separate so the game can hide it after a
@@ -11,13 +12,15 @@ shot), bo_galleass_<gun>.fbx (2 convex pieces: carriage, barrel; physics materia
 """
 import bpy, bmesh, math, os, sys
 from mathutils import Vector
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gun_uv
 
 out = sys.argv[sys.argv.index('--') + 1]
 os.makedirs(out, exist_ok=True)
 
-KIT_MAT = {'galleass_gun_bronze': 'galleass_gilt', 'galleass_gun_wood': 'galleass_trim',
-           'galleass_gun_fuse': 'galleass_trim', 'galleass_gun_iron': 'galleass_iron', 'galleass_gun_dark': 'galleass_dark'}
-UV_S = {'galleass_gilt': 0.5, 'galleass_iron': 0.5, 'galleass_trim': 0.135, 'galleass_dark': 0.135}   # as the hull
+KIT_MAT = {'galleass_gun_bronze': 'galleass_gun_bronze', 'galleass_gun_bronze_trim': 'galleass_gun_bronze', 'galleass_gun_wood': 'galleass_trim',
+           'galleass_gun_fuse': 'galleass_trim', 'galleass_gun_iron': 'galleass_iron', 'galleass_gun_rope': 'galleass_rope', 'galleass_gun_dark': 'galleass_dark'}
+UV_S = {'galleass_iron': 0.5, 'galleass_trim': 0.135, 'galleass_dark': 0.135}   # as the hull
 LOD_RATIO = {1: 0.40, 2: 0.15, 3: 0.05}
 GUNS = ['galleass_culverin', 'galleass_falcon', 'galleass_falconet']
 
@@ -30,28 +33,43 @@ def remap_materials(me):
     for i, m in enumerate(me.materials):
         if m is not None and m.name in KIT_MAT:
             me.materials[i] = kit_mat(KIT_MAT[m.name])
+    uniq = []                                                  # one slot per Kit material (bronze + bronze_trim)
+    for m in me.materials:
+        if m not in uniq: uniq.append(m)
+    idx = [uniq.index(m) for m in me.materials]
+    old = [p.material_index for p in me.polygons]
+    me.materials.clear()
+    for m in uniq: me.materials.append(m)
+    for p, i in zip(me.polygons, old): p.material_index = idx[i]
 
 def add_uvs(o):
-    """Bronze barrel faces: cylindrical about the barrel axis (u around in metres of arc, v along the barrel) so the
-    metal reads continuous; everything else per-face planar with U along the part's long direction (the hull's way)."""
+    """Bronze: the barrel's lathe faces go into the gun's strip of the bronze atlas (gun_uv.py: unrolled round the
+    bore, seam underneath), trunnions / vent boss / faces across the axis into the atlas's plain misc strip. Everything
+    else per-face planar with U along the part's long direction (the hull's way). Call before remap_materials."""
     me = o.data; ah = o.get('axis_h', 0.8)
     uv = me.uv_layers.new(name='UVMap') if not me.uv_layers else me.uv_layers[0]
     for poly in me.polygons:
         mat = me.materials[poly.material_index].name
-        s = UV_S.get(mat, 0.5)
         n = poly.normal
         pts = [me.vertices[me.loops[li].vertex_index].co for li in poly.loop_indices]
-        if mat == 'galleass_gilt' and abs(n.x) < 0.95:
+        if mat == 'galleass_gun_rope':                             # lashings / breeching collar: rope_geom's UVs
+            continue
+        if mat == 'galleass_gun_bronze' and abs(n.y) <= 0.85:
             c = sum(pts, Vector()) / len(pts)
-            r_ref = 0.18
             a0 = math.atan2(c.x, c.z - ah)
             for li, p in zip(poly.loop_indices, pts):
-                a = math.atan2(p.x, p.z - ah)
-                while a - a0 > math.pi: a -= 2 * math.pi       # no wrap inside a face (seam)
-                while a - a0 < -math.pi: a += 2 * math.pi
-                uv.data[li].uv = (a * r_ref * s, p.y * s)
+                if math.hypot(p.x, p.z - ah) < 1e-4:               # cascabel tip: no angle of its own
+                    p = Vector((math.sin(a0) * 1e-3, p.y, ah + math.cos(a0) * 1e-3))
+                uv.data[li].uv = gun_uv.gun_barrel_uv(o.name, p.x, p.y, p.z, ref_angle=a0)
             continue
-        a = Vector((0, 1, 0))                                  # grain along the gun, else across
+        if mat in ('galleass_gun_bronze', 'galleass_gun_bronze_trim'):
+            ax = max(range(3), key=lambda i: abs(n[i]))            # project along the dominant normal axis
+            i, j = [k for k in range(3) if k != ax]
+            for li, p in zip(poly.loop_indices, pts):
+                uv.data[li].uv = gun_uv.misc_uv(p[i], p[j] - (ah if j == 2 else 0.0))
+            continue
+        s = UV_S.get(KIT_MAT.get(mat, mat), 0.5)
+        a = Vector((0, 1, 0))                                # grain along the gun, else across
         u = a - n * a.dot(n)
         if u.length < 0.3:
             for alt in (Vector((1, 0, 0)), Vector((0, 0, 1))):
@@ -88,7 +106,9 @@ def body(o):
     groups = {'carriage': [], 'barrel': []}
     for poly in me.polygons:
         mat = me.materials[poly.material_index].name
-        key = 'barrel' if mat in ('galleass_gilt', 'galleass_dark') else 'carriage'
+        if mat == 'galleass_rope':
+            continue
+        key = 'barrel' if mat in ('galleass_gun_bronze', 'galleass_dark') else 'carriage'
         groups[key].extend(me.vertices[i].co.copy() for i in poly.vertices)
     bm = bmesh.new()
     for key, pts in groups.items():
@@ -128,13 +148,13 @@ for c in bpy.data.collections:
 for g in GUNS:
     o = bpy.data.objects[g]
     o.hide_set(False); o.location = (0, 0, 0)
-    remap_materials(o.data); add_uvs(o)
+    add_uvs(o); remap_materials(o.data)
     # the guns' masters keep auto-smooth sharp edges from cannon_model; the FBX carries face smoothing
     lods = make_lods(o)
     export(g, [o] + lods)
     f = bpy.data.objects[g + '_fuse']
     f.hide_set(False); f.location = (0, 0, 0)
-    remap_materials(f.data); add_uvs(f)
+    add_uvs(f); remap_materials(f.data)
     export(g + '_fuse', [f])
     bo = body(o)
     export(bo.name, [bo])

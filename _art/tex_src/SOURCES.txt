@@ -1,0 +1,7 @@
+lion_of_st_mark.png
+  "Lion of St Mark.svg" by Patrick87, Wikimedia Commons, PUBLIC DOMAIN (released by the author;
+  extracted from "Flag of Most Serene Republic of Venice.svg").
+  https://commons.wikimedia.org/wiki/File:Lion_of_St_Mark.svg
+  Raster: the Commons 1920 px rendering of that SVG. Used as the relief of the Lion of St Mark on the guns.
+
+Lettering (founder's initials, date): Noto Serif (SIL Open Font License), rendered into the height map.

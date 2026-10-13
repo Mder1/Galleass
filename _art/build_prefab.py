@@ -1189,7 +1189,13 @@ def gun_entity(g):
     return e
 GUN_PLACES = gun_layout.placements(G, GUN_DIMS)
 gg = new_entity('galleass_guns', 'guns')
-gg.append(mobility()); gg.append(el('children', None, *[gun_entity(g) for g in GUN_PLACES]))
+# ship-side rigging of all 24 guns (gun_rigging.py: breechings, side tackles, ringbolts), one mesh in the ship's
+# frame, no collision; tagged so the gun add-on can hide it and rig the guns live
+rig = new_entity('gun_rigging', 'guns/rigging')
+write_tf(rig, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0))
+rig.append(tags('galleass_gun_rigging')); rig.append(mobility())
+rig.append(mesh_component('guns/rigging', 'galleass_gun_rigging'))
+gg.append(mobility()); gg.append(el('children', None, *[gun_entity(g) for g in GUN_PLACES], rig))
 files['torch_holder'].find('children').append(gg)          # ship frame (like the banners)
 from collections import Counter
 report.append('guns: %d (%s)' % (len(GUN_PLACES), ', '.join('%s %d' % kv for kv in sorted(Counter(g['kind'] for g in GUN_PLACES).items()))))
