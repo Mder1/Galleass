@@ -1167,6 +1167,33 @@ os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'renders'),
 json.dump([(b.get('name'), tf(b)[0], tf(b)[1], float(b.find('transform/scale').get('value').split(',')[0])) for b in bl],
           open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'renders', 'banners.json'), 'w'))
 
+# --- guns (cannon project, 2026-10-13): static models for now - 24 guns at their ports (gun_layout.py, shared with the
+# Blender preview), each with its collision body (bo_galleass_<gun>: carriage + barrel hulls) and the priming fuse as a
+# child entity (tag gun_fuse; the gun DLL may hide it after a shot). No mission code: firing comes with the DLL.
+import gun_layout
+GUN_DIMS = gun_layout.load_dims()
+def gun_entity(g):
+    mesh = 'galleass_' + g['kind']
+    e = new_entity('gun_' + g['name'], 'gun/' + g['name'])
+    write_tf(e, pos=g['pos'], rot=(0.0, 0.0, g['rot_z']))
+    e.append(el('physics', None,
+                el('shape', {'type_name': 'string', 'value': 'bo_' + mesh}),
+                el('body_flags', None, el('body_flag', {'name': 'moveable'})),
+                el('move_to_batched_kinematic', {'type_name': 'bool', 'value': '1'})))
+    e.append(tags('galleass_gun', 'galleass_gun_' + g['kind']))
+    e.append(mobility()); e.append(mesh_component('gun/' + g['name'], mesh))
+    fz = new_entity('fuse', 'gun/%s/fuse' % g['name'])
+    write_tf(fz, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0))
+    fz.append(tags('gun_fuse')); fz.append(mobility()); fz.append(mesh_component('gun/%s/fuse' % g['name'], mesh + '_fuse'))
+    e.append(el('children', None, fz))
+    return e
+GUN_PLACES = gun_layout.placements(G, GUN_DIMS)
+gg = new_entity('galleass_guns', 'guns')
+gg.append(mobility()); gg.append(el('children', None, *[gun_entity(g) for g in GUN_PLACES]))
+files['torch_holder'].find('children').append(gg)          # ship frame (like the banners)
+from collections import Counter
+report.append('guns: %d (%s)' % (len(GUN_PLACES), ', '.join('%s %d' % kv for kv in sorted(Counter(g['kind'] for g in GUN_PLACES).items()))))
+
 # --- write --------------------------------------------------------------------------------------------------------
 ET.indent(folder, '\t', level=1)
 body = ET.tostring(folder, encoding='unicode').replace(' />', '/>')   # the editor's style

@@ -75,7 +75,10 @@ FC_Z_PLATFORM, FC_Z_PARAPET, FC_Z_RAIL = 3.9 + FC_RAISE, 5.3 + FC_RAISE, 6.0 + F
 FC_EMB_SILL, FC_EMB_TOP, FC_EMB_W = 4.3 + FC_RAISE, 5.0 + FC_RAISE, 0.8
 FC_PORT_Z = 3.1                          # round ports of the ground floor (rings stay under the gilt moulding)
 FC_GUN_DEGS = (-90, -45, 0, 45, 90)
-FC_LOWER_PORT_DEGS = (-40, 0, 40)        # round decorative ports on the lower tier
+# round gun ports of the lower tier: (bearing on the wall, gun heading), deg, + = starboard. The three culverins stand
+# side by side, nearly parallel (2026-10-13, fc_gun_layout.py layout_H: radial guns collide), so the side ports are
+# cut along the gun's axis, 20 deg off the wall normal
+FC_LOWER_PORTS = ((-30, -10), (0, 0), (30, 10))
 FC_STAIR_X = 2.4                         # centre line of the two stairs up to the platform
 
 # sterncastle: cabin with windows, poop deck with turned balustrade, awning frame, lantern
@@ -150,7 +153,9 @@ def unlift_z(y, z):
 
 # masts (vanilla lateen rigs go here later): mizzen, main, fore
 # fore mast at 20.9 (was 22.5): behind the forecastle's ring of five guns (user 2026-10-07)
-MASTS = {'mizzen': -13.7, 'main': 5.5, 'fore': 20.9}
+# fore mast at 19.0 (was 20.9, before 22.5): at the platform's rear edge, guns forward of it (user 2026-10-13: it stays
+# in the forecastle as in all galleass drawings; reconstructions put it at or just behind the platform's rear edge)
+MASTS = {'mizzen': -13.7, 'main': 5.5, 'fore': 19.0}
 FORE_RAKE = 0.157                          # fore mast leans forward (prefab: rig rotation x = -FORE_RAKE)
 MAST_RAKE = {'main': 0.10, 'mizzen': 0.157, 'fore': FORE_RAKE}     # all lean forward; the prefab's rigs use these
 MAST_R = {'main': 0.27, 'mizzen': 0.24, 'fore': 0.235}             # vanilla mast radius at banner height
@@ -245,13 +250,14 @@ def lining(name, c, n, w, h, d, lip=0.02, t=0.04, sill_out=0.0, role='trim', cur
     small lip proud of the outer face; sill_out makes the sill project as a ledge. c = opening centre on the
     outer face, n = outward normal, w/h = cut width/height. Boards sit inside the cut (no overlap with wall)."""
     M = _basis(c, n)
+    boards = []
     def lbox(x0, x1, y0, y1, z0, z1):
         bm = bmesh.new()
         bmesh.ops.create_cube(bm, size=1)
         for v in bm.verts:
             v.co = M @ Vector((x0 if v.co.x < 0 else x1, y0 if v.co.y < 0 else y1, z0 if v.co.z < 0 else z1))
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-        obj_from_bm(bm, name, role)
+        boards.append(obj_from_bm(bm, name, role))
     # the same 2 cm lip shows outside AND inside; on a curved (round) wall the boards are lengthened by the
     # wall's sag over half the opening width, so the lip is the same at the edges as in the middle
     sag_o = sag_i = 0.0
@@ -267,6 +273,7 @@ def lining(name, c, n, w, h, d, lip=0.02, t=0.04, sill_out=0.0, role='trim', cur
     lbox(-w / 2, w / 2, y0, y1, -h / 2, -h / 2 + t)                     # sill board, frame width
     if sill_out:                                                         # projecting ledge: outside only
         lbox(-w / 2 - 0.05, w / 2 + 0.05, -sag_o, lip + sill_out, -h / 2 - 0.02, -h / 2 + t)
+    return boards
 
 def round_lining(name, c, n, r, d, lip=0.02, t=0.03, role='trim'):
     """Round timber sleeve lining a round port through a wall of depth d."""
@@ -789,7 +796,13 @@ def build_deck_fittings():
             box('grating_bar', -0.8, 0.8, yy - 0.03, yy + 0.03, Z_GUN_DECK + 0.15, Z_GUN_DECK + 0.2, 'trim')
     for name, y in MASTS.items():
         z = Z_GUN_DECK if name != 'fore' else FC_Z_PLATFORM
-        lathe(f'mast_partner_{name}', [(0.62, 0), (0.62, 0.12), (0.5, 0.3), (0.5, 0.32)], 'trim', at=(0, y, z), segs=10)
+        partner = lathe(f'mast_partner_{name}', [(0.62, 0), (0.62, 0.12), (0.5, 0.3), (0.5, 0.32)], 'trim', at=(0, y, z),
+                        segs=10)
+        if name == 'fore':
+            # the fore mast stands at the platform's rear edge (2026-10-13): cut the partner off flush in front of
+            # the back rail's posts so it doesn't overhang the edge (user)
+            y_cut = FC_Y_BACK + 0.05 + 0.05
+            subtract(partner, [cutter_box(0.0, y_cut - 1.0, z + 0.16, 2.0, 2.0, 1.0)])
     # fore mast heel in the forecastle's ground floor (user 2026-10-08: the mast did not reach the floor)
     z0, z1 = Z_GUN_DECK - 0.05, FC_Z_PLATFORM - 0.02
     sweep('fore_heel', [(0, fore_mast_y(z0), z0), (0, fore_mast_y(z1), z1)], FORE_HEEL_R, 'trim', segs=16)
@@ -872,11 +885,20 @@ def stairs(name, x0, x1, y_bottom, z_bottom, y_top, z_top, role='trim', step=0.2
 def build_forecastle():
     lower = horseshoe_wall('fc_lower', FC_Z_BASE, FC_Z_PLATFORM, 0.35, 'paint')
     cuts = []
-    for deg in FC_LOWER_PORT_DEGS:
-        x, y = fc_point(deg, fc_radius(FC_PORT_Z))
+    for deg, heading in FC_LOWER_PORTS:
+        x, y = fc_point(deg, fc_radius(FC_PORT_Z))       # where the gun's axis leaves the wall's outer face
         a = math.radians(90 - deg)
-        cuts.append(cutter_cyl(x, y, FC_PORT_Z, 0.22, 1.2, (math.pi / 2, 0, a - math.pi / 2)))
-        round_lining('fc_port_lining', (x, y, FC_PORT_Z), (math.cos(a), math.sin(a), 0), 0.22, 0.35)
+        ah = math.radians(90 - heading)
+        cuts.append(cutter_cyl(x, y, FC_PORT_Z, 0.22, 1.2, (math.pi / 2, 0, ah - math.pi / 2)))
+        # sleeve along the gun axis, made long and trimmed to the wall's volume: both ends flush with the wall faces
+        # whatever the skew (user 2026-10-13: the set-back sleeve stuck out into the room)
+        n = (math.cos(ah), math.sin(ah), 0)
+        sl = round_lining('fc_port_lining', (x + n[0] * 0.3, y + n[1] * 0.3, FC_PORT_Z), n, 0.22, 0.35 + 0.6, lip=0.0)
+        vol = horseshoe_wall('fc_port_wall_volume', FC_PORT_Z - 0.4, FC_PORT_Z + 0.4, 0.35, 'dark')
+        for c in list(vol.users_collection): c.objects.unlink(vol)
+        coll('cutters').objects.link(vol)
+        PARTS[:] = [pr for pr in PARTS if pr[0] is not vol]      # a helper volume, not a model part
+        m = sl.modifiers.new('trim', 'BOOLEAN'); m.object = vol; m.operation = 'INTERSECT'; m.solver = 'EXACT'
         R = fc_radius(FC_PORT_Z)
         fn = lambda u, v, dd, a=a: ((R + dd) * math.cos(a + u / R), FC_CY + (R + dd) * math.sin(a + u / R), FC_PORT_Z + v)
         flat_annulus('fc_port_ring', fn, 0.29, 0.29, 0.35, 0.35, -0.01, 0.05, 'gilt')
@@ -1058,11 +1080,17 @@ def build_sterncastle():
     c = cuts[-1]
     for col in c.users_collection: col.objects.unlink(c)
     coll('cutters').objects.link(c)
+    hollow = c
+    def flush_inside(boards):
+        """The walls taper, so boards running along the slanted normal reach past the inner face: cut them off at
+        the cabin's inner volume (flush inside; user 2026-10-13 in-game screenshot)."""
+        for b in boards:
+            subtract(b, [hollow])
     def arched_window(c, nrm):
         """Small arched cabin window: opening, lining with a sill, and a wooden arched hood on top of the frame (a
         flat half-elliptical board in the wall plane whose inner edge continues the jambs' inner faces)."""
         cuts.append(cutter_box(*c, 0.6, SCW_W, SCW_Z1 - SCW_Z0, math.atan2(nrm.y, nrm.x)))
-        lining('sc_window_lining', c, nrm, SCW_W, SCW_Z1 - SCW_Z0, SC_WALL, sill_out=0.04)
+        flush_inside(lining('sc_window_lining', c, nrm, SCW_W, SCW_Z1 - SCW_Z0, SC_WALL, sill_out=0.04))
         M = _basis(Vector((c[0], c[1], SCW_Z1)), nrm)
         ai, ao = SCW_W / 2 - 0.04, SCW_W / 2                # same width as the jamb boards: the frame curving over
         bi, bo = SCW_ARCH, SCW_ARCH + 0.04
@@ -1100,13 +1128,13 @@ def build_sterncastle():
     for x in (-SC_AGP_X, SC_AGP_X):
         c = (x, SC_Y_AFT, (GP_SILL + GP_TOP) / 2)
         cuts.append(cutter_box(*c, GP_W, 0.8, GP_TOP - GP_SILL))
-        lining('gunport_lining', c, (0, -1, 0), GP_W, GP_TOP - GP_SILL, SC_WALL)
+        flush_inside(lining('gunport_lining', c, (0, -1, 0), GP_W, GP_TOP - GP_SILL, SC_WALL))
     # broadside gunport in each cabin side (the cabin is a gun room now; user 2026-10-08)
     for side in (-1, 1):
         nrm = wall_normal(sc_hw, SC_GP_Y, side)
         c = (side * sc_hw(SC_GP_Y), SC_GP_Y, (GP_SILL + GP_TOP) / 2)
         cuts.append(cutter_box(*c, 0.8, GP_W, GP_TOP - GP_SILL, math.atan2(nrm.y, nrm.x)))
-        lining('gunport_lining', c, nrm, GP_W, GP_TOP - GP_SILL, SC_WALL)
+        flush_inside(lining('gunport_lining', c, nrm, GP_W, GP_TOP - GP_SILL, SC_WALL))
     subtract(body, cuts)
     # cabin floor (planked, level with the gun deck) and door frames
     tapered_block('sc_floor', SC_Y_AFT + SC_WALL - 0.01, SC_Y_FORE - SC_WALL + 0.01, FC_Z_BASE, Z_GUN_DECK,
@@ -1114,7 +1142,8 @@ def build_sterncastle():
     # door linings (posts, lintel, low threshold) inside the openings, like the windows: no coplanar faces
     for dx, dy, out in ((SC_DOOR_X, SC_Y_FORE, 1), (0.0, SC_Y_AFT, -1)):
         # frame stands as proud as the bands (8 cm), so the bands butt into it
-        lining('sc_door_lining', (dx, dy, Z_GUN_DECK + 1.0), (0, out, 0), SC_DOOR_W, 2.0, SC_WALL, t=0.07, lip=0.08)
+        flush_inside(lining('sc_door_lining', (dx, dy, Z_GUN_DECK + 1.0), (0, out, 0), SC_DOOR_W, 2.0, SC_WALL, t=0.07,
+                            lip=0.08))                   # frame proud outside only (user 2026-10-13)
     # no furniture: the cabin is a gun room (user 2026-10-08 removed table, benches and chest)
     build_stern_balcony()
 

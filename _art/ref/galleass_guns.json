@@ -1,0 +1,26 @@
+{
+ "galleass_culverin": {
+  "muzzle_y": 2.268,
+  "cascabel_y": -2.0620000000000003,
+  "front_y": 0.5699999999999998,
+  "rear_y": -2.182,
+  "half_w": 0.44099999999999995,
+  "axis_h": 0.8
+ },
+ "galleass_falcon": {
+  "muzzle_y": 1.5105,
+  "cascabel_y": -1.3395,
+  "front_y": 0.30000000000000004,
+  "rear_y": -1.8395,
+  "half_w": 0.375,
+  "axis_h": 0.85
+ },
+ "galleass_falconet": {
+  "muzzle_y": 0.9234000000000001,
+  "cascabel_y": -0.8188641509433963,
+  "front_y": 0.2823529411764706,
+  "rear_y": -1.2941582685904551,
+  "half_w": 0.32338235294117645,
+  "axis_h": 0.8
+ }
+}
