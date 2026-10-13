@@ -294,13 +294,13 @@ def clear_of_boarding(y, gap=0.6):
 
 def rail_point(y, side):
     """Top surface where a rope from aloft is made fast on the ship's side (a cleat goes there): the box's cap
-    rail, else the poop balustrade's rail or the forecastle parapet's cap."""
+    rail, else the poop deck inside its balustrade or the forecastle parapet's cap."""
     y = min(max(y, SHIP_Y0), SHIP_Y1)
     if BOX_Y0 + 0.2 <= y <= BOX_Y1 - 0.2:
         return (side * X_CAP, clear_of_boarding(y), Z_CAP)
-    if y < BOX_Y0:
-        y = max(y, SC_Y0 + 0.4)
-        return (side * (sc_hw(y) - 0.06), y, G['SC_Z_RAIL'] + LIFT)
+    if y < BOX_Y0:                       # poop: on the deck just inside the balustrade - its cap rail is too thin
+        y = max(y, SC_Y0 + 0.4)          # for a cleat (they overhung it into the balusters, user 2026-10-13)
+        return (side * (sc_hw(y) - 0.40), y, Z_POOP_TOP)
     return (side * max(fc_half(y) - 0.2, 0.3), y, G['FC_Z_PARAPET'] + LIFT + 0.1)
 
 MASTS_AT = []                                                 # (y, deck z) of the mast steps, filled with the rigs
@@ -558,6 +558,120 @@ for t in small.iter('tag'):
         t.set('name', 'sail_center_2')
 sh.find('children').append(small)
 MASTS = G['MASTS']
+# our masts (mast_model.py: woolding, calcese, main gabbia) replace the vanilla mast meshes in the same frames; the
+# vanilla component tints its greyscale bw_oar_wood_a per sub-mesh (factor_color) -> the same tint on our wood
+# sub-meshes, read from the Kit's mesh package (so the prefab is only built once the Kit has the masts)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tpac_tools'))
+import meshinfo
+MAST_WOOD = '22df0162-6ee6-42a5-8218-aebb65cffd30'              # bw_oar_wood_a (vanilla mast + oar material)
+def kit_submeshes(mesh, material):
+    pkg = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'Assets', mesh + '_geo.tpac')
+    if not os.path.exists(pkg):
+        raise SystemExit('Kit mesh %s missing (%s) - import it in the Modding Kit first' % (mesh, pkg))
+    for tg, g, name, meta in meshinfo.assets(pkg):
+        if name == mesh and str(tg).startswith('a08f8b97'):
+            return [m['name'] for m in meshinfo.meshes(meta) if material is None or m['material'] == material]
+    raise SystemExit('no metamesh %s in %s' % (mesh, pkg))
+
+MAST_TINT = '0.192, 0.110, 0.063, 1.000'                        # meditheavy wood; the mizzen (from the meditlight)
+                                                                # was grey - one tint for all masts and yards
+def swap_mast(rig):
+    for mmc in rig.iter('meta_mesh_component'):                 # the yards: same tint as the masts
+        if (mmc.get('name') or '').startswith('ship_yard_lateen'):
+            for f in mmc.iter('factor_color'):
+                f.set('value', MAST_TINT)
+    me = next(e for e in rig.iter('entity') if e.get('name') == 'mast_mesh')
+    mmc = me.find('components/meta_mesh_component')
+    size = mmc.get('name').rsplit('_', 1)[1]                        # ship_mast_lateen_a_<size>
+    tint = MAST_TINT
+    ours = 'galleass_mast_' + size
+    mmc.set('name', ours)
+    mmc.find('prefab_link/prefab').set('guid', ZERO)               # own component, no vanilla link
+    ch = mmc.find('children')
+    if ch is None:
+        ch = ET.SubElement(mmc, 'children')
+    ch[:] = []
+    for sub in kit_submeshes(ours, MAST_WOOD):
+        m = ET.SubElement(ch, 'mesh', name=sub)
+        ET.SubElement(ET.SubElement(m, 'misc'), 'factor_color', type_name='vec4', value=tint)
+    report.append('mast %s -> %s (wood tint %s on %d sub-meshes)' % (rig.get('name'), ours, tint, len(ch)))
+
+# --- re-rig phase 3 (user 2026-10-13, rope plan approved): lateen galleys carried no stays -> the vanilla big_rope
+# stays go (the long ropes across the ship, two of them through the other masts' sails); the vanilla shrouds (static
+# ropes with no yard end) go too - ours come with the standing rig (shrouds abaft the yard, with tackles). One stay per
+# mast becomes the TIE (amante): from the yard's hoist (yard_axis_shift_entity, end tagged attached_to_yard so it follows
+# the yard) up to the calcese, leaving the lower sheave on the yard's side (+x). Yard lifts, flag halyard, sheets and
+# braces stay vanilla.
+import mast_dims as MD
+def own_tags(e):
+    t = inh(e, 'tags')
+    return [x.get('name') for x in t.iter('tag')] if t is not None else []
+
+def add_tag(e, name):
+    t = e.find('tags')
+    if t is None:
+        src = inh(e, 'tags')
+        t = copy.deepcopy(src) if src is not None else tags()
+        e.insert(len([c for c in e if c.tag in ('prefab_link', 'transform')]), t)
+    inner = t.find('tags')
+    if name not in [x.get('name') for x in inner.iter('tag')]:
+        ET.SubElement(inner, 'tag', name=name)
+
+def rerig_ropes(rig, deck_z):
+    srp = next(e for e in rig.iter('entity') if e.get('name') == 'static_ropes_parent')
+    W = {id(e): (wm, wp, pm, pp) for e, wm, wp, pm, pp in walk(rig)}
+    mm = next(e for e in rig.iter('entity') if e.get('name') == 'mast_mesh')
+    size = mm.find('components/meta_mesh_component').get('name').rsplit('_', 1)[1]
+    sp = MD.MASTS[size]
+    yard = next(e for e in rig.iter('entity') if e.get('name') == 'yard_axis_shift_entity')   # the yard's hoist
+    stays, shrouds = [], []
+    for c in kids(srp):
+        ends = [x for x in c.iter('entity') if x.get('name') in ('rope_start', 'rope_end')]
+        on_yard = any('attached_to_yard' in own_tags(x) for x in ends)
+        if 'big_rope' in own_tags(c):
+            stays.append(c)
+        elif not on_yard:
+            shrouds.append(c)
+    tie = stays[0]
+    ch = srp.find('children')
+    for c in stays[1:] + shrouds:
+        ch.remove(c)
+    wm, wp = W[id(mm)][0], W[id(mm)][1]
+    hx, _ = MD.calcese_half(sp)
+    loc = (hx + 0.03, 0.0, MD.sheaves(sp)[0] - 0.05)
+    top = [wp[i] + mvec(wm, loc)[i] for i in range(3)]
+    low = W[id(yard)][1]
+    for x in tie.iter('entity'):
+        if x.get('name') == 'rope_start':
+            set_world_pos(x, W[id(x)][2], W[id(x)][3], top)
+        elif x.get('name') == 'rope_end':
+            set_world_pos(x, W[id(x)][2], W[id(x)][3], low)
+            add_tag(x, 'attached_to_yard')
+    # flag halyard: lower end down to the deck by the mast foot (standing_rig.py heaps it there); the vanilla rope pile
+    # mesh on its start (a 1.5 m heap) goes
+    hx_, hy_ = MD.HALYARD_FOOT[size]
+    zl = deck_z - wp[2]
+    foot = [wp[i] + mvec(wm, (hx_, hy_, zl))[i] for i in range(3)]
+    foot[2] = deck_z + MD.HALYARD_DZ
+    hal = next(c for c in rig.iter('entity') if 'flag_capture_rope' in own_tags(c))
+    for x in hal.iter('entity'):
+        if x.get('name') == 'rope_start':
+            set_world_pos(x, W[id(x)][2], W[id(x)][3], foot)
+            drop(x, 'components')
+    report.append('%s flag halyard down to (%.2f, %.2f, %.2f)' % (rig.get('name'), *foot))
+    # the mizzen's clew lies beyond our stern: its two stability ropes (sheets, dynamic, to the clew bone) crossed the
+    # stern lantern and hung in mid-air with the sail furled (user 2026-10-13); the rotator pulleys still sheet it
+    n_sheets = 0
+    if size == 'small':
+        stp = next(e for e in rig.iter('entity') if e.get('name') == 'stability_ropes_parent')
+        for c in kids(stp):
+            if 'simple_rope' in own_tags(c):
+                stp.find('children').remove(c); n_sheets += 1
+    if n_sheets:
+        report.append('%s: %d stability ropes (sheets to the clew beyond the stern) removed' % (rig.get('name'), n_sheets))
+    report.append('%s ropes: %d stays + %d shrouds removed; tie from the yard (%.2f, %.2f, %.2f) to the calcese '
+                  '(%.2f, %.2f, %.2f)' % (rig.get('name'), len(stays) - 1, len(shrouds), *low, *top))
+
 RIGS = [  # (rig entity, mast, deck crossing z, rake, vanilla deck profile of the ship it came from)
     (rigs['lateen_sail_large_nested'], 'main', Z_DECK, -G['MAST_RAKE']['main'], DECK_MEDITHEAVY),
     (rigs['lateen_sail_medium_nested'], 'fore', Z_FC, -G['MAST_RAKE']['fore'], DECK_MEDITHEAVY),
@@ -574,6 +688,7 @@ for rig, mast, zd, rake, vdeck in RIGS:
     P = (0.0, MASTS[mast] - t * a[1], zd - t * a[2])
     MASTS_AT.append((MASTS[mast], zd))
     write_tf(rig, pos=P, rot=(rake, 0.0, 0.0))
+    swap_mast(rig)
     new = {id(e): (wm, wp, pm, pp) for e, wm, wp, pm, pp in walk(rig)}
     moved = []
     done = set()
@@ -620,6 +735,7 @@ for rig, mast, zd, rake, vdeck in RIGS:
     report.append('%s mast: %s through (0, %.1f, %.2f), rake %.3f, rig origin (0, %.2f, %.2f); %d rope ends re-anchored %s'
                   % (mast, rig.get('name'), MASTS[mast], zd, rake, P[1], P[2], len(moved),
                      dict(sorted({m: moved.count(m) for m in moved}.items()))))
+    rerig_ropes(rig, zd)
 
 # new cleats where the rigs' rope ends are made fast (rails and decks)
 for i, (x, y, z) in enumerate(FASTENERS[N_RAIL_CLEATS:]):
@@ -1196,6 +1312,15 @@ write_tf(rig, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0))
 rig.append(tags('galleass_gun_rigging')); rig.append(mobility())
 rig.append(mesh_component('guns/rigging', 'galleass_gun_rigging'))
 gg.append(mobility()); gg.append(el('children', None, *[gun_entity(g) for g in GUN_PLACES], rig))
+
+# standing rigging (re-rig phase 2, standing_rig.py): shrouds abaft the masts with tackles + the tie tackles, one mesh
+# in the ship's frame, no collision
+kit_submeshes('galleass_standing_rigging', None)                # refuses to build before the Kit has the mesh
+srig = new_entity('galleass_standing_rigging', 'rig/standing')
+write_tf(srig, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0))
+srig.append(tags('galleass_standing_rigging')); srig.append(mobility())
+srig.append(mesh_component('rig/standing', 'galleass_standing_rigging'))
+files['torch_holder'].find('children').append(srig)
 files['torch_holder'].find('children').append(gg)          # ship frame (like the banners)
 from collections import Counter
 report.append('guns: %d (%s)' % (len(GUN_PLACES), ', '.join('%s %d' % kv for kv in sorted(Counter(g['kind'] for g in GUN_PLACES).items()))))

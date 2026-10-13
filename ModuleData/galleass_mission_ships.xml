@@ -32,7 +32,8 @@
 		<deployment_area
 			width="12.10"
 			length="59.93" />
-		<!-- sail i = prefab rig tagged sail_center_i: 0 main (large lateen), 1 fore (medium), 2 mizzen (small) -->
+		<!-- sail i = prefab rig tagged sail_center_i: 0 main (large lateen), 1 fore (medium), 2 mizzen (small).
+		     Mizzen left limit 150 (not 170): pointing aft its lower yard end ran through the stern lantern (user 2026-10-13) -->
 		<sails>
 			<sail
 				type="lateen"
@@ -49,7 +50,7 @@
 			<sail
 				type="lateen"
 				force_multiplier="3"
-				left_rotation_limit="170"
+				left_rotation_limit="150"
 				right_rotation_limit="5"
 				rotation_rate="16" />
 		</sails>

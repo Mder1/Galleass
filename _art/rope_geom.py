@@ -45,9 +45,10 @@ def sag_span(p0, p1, sag, n=10):
     p0, p1 = Vector(p0), Vector(p1)
     return [p0.lerp(p1, k / n) - Vector((0, 0, sag * 4 * (k / n) * (1 - k / n))) for k in range(n + 1)]
 
-def rope(bm, pts, r, segs=6, caps=True, v0=0.0):
-    """Tube along pts (Vectors) with parallel-transported frames (no twisting) and rope UVs. Returns the V at the end
-    (to continue a rope seamlessly)."""
+def rope(bm, pts, r, segs=6, caps=True, v0=0.0, u_range=None, vpm=None):
+    """Tube along pts (Vectors) with parallel-transported frames (no twisting) and rope UVs (u_range: the texture's
+    rope strip, default ROPE_U; vpm: V per metre along the rope, default v_per_m(r)). Returns the V at the end (to
+    continue a rope seamlessly)."""
     uvl = uv_layer(bm)
     pts = [Vector(p) for p in pts]
     n = len(pts)
@@ -58,7 +59,7 @@ def rope(bm, pts, r, segs=6, caps=True, v0=0.0):
     ref = Vector((0, 0, 1)) if abs(tans[0].z) < 0.9 else Vector((1, 0, 0))
     u = (ref - tans[0] * ref.dot(tans[0])).normalized()
     rings, vs = [], []
-    v = v0; vpm = v_per_m(r)
+    v = v0; vpm = vpm if vpm is not None else v_per_m(r)
     for i, p in enumerate(pts):
         if i:
             t0, t1 = tans[i - 1], tans[i]
@@ -73,7 +74,7 @@ def rope(bm, pts, r, segs=6, caps=True, v0=0.0):
         rings.append([bm.verts.new(p + (u * math.cos(2 * math.pi * k / segs) + w * math.sin(2 * math.pi * k / segs)) * r)
                       for k in range(segs)])
         vs.append(v)
-    u0, u1 = ROPE_U
+    u0, u1 = u_range or ROPE_U
     for i in range(n - 1):
         ra, rb = rings[i], rings[i + 1]
         for k in range(segs):
@@ -88,7 +89,7 @@ def rope(bm, pts, r, segs=6, caps=True, v0=0.0):
                 loop[uvl].uv = (u0 + 0.02, vv)
     return v
 
-def ring(bm, c, axis, R, r, segs=12, tube=6, role_uv='rope'):
+def ring(bm, c, axis, R, r, segs=12, tube=6, role_uv='rope', u_range=None, vpm=None):
     """Torus centred at c, its axis 'axis' (normal of the ring's plane), radius R, tube radius r. role_uv 'rope':
     rope UVs (a seized rope collar); anything else: planar-ish UVs (iron ring, the export remaps them)."""
     c, axis = Vector(c), Vector(axis).normalized()
@@ -97,7 +98,7 @@ def ring(bm, c, axis, R, r, segs=12, tube=6, role_uv='rope'):
     pts = [c + (e1 * math.cos(2 * math.pi * i / segs) + e2 * math.sin(2 * math.pi * i / segs)) * R for i in range(segs)]
     pts.append(pts[0])
     if role_uv == 'rope':
-        rope(bm, catmull(pts, 2 * math.pi * R / segs), r, segs=tube, caps=False)
+        rope(bm, catmull(pts, 2 * math.pi * R / segs), r, segs=tube, caps=False, u_range=u_range, vpm=vpm)
     else:
         rope(bm, pts, r, segs=tube, caps=False)
 

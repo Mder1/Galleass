@@ -3,19 +3,25 @@ prefabs, resolving prefab inheritance (an entity without its own transform/tags/
 from the base entity its <prefab guid> points to). Rotation order follows TaleWorlds
 Mat3.ApplyEulerAngles (z, then x, then y).
 
-usage: python3 prefab_layout.py <packed xml> <ship prefab> <out json>
+usage: python3 prefab_layout.py <packed xml>[,<base packed xml>...] <ship prefab> <out json>
+(several packed files, comma separated: the first holds the ship, the others resolve its base prefabs - e.g. our
+galleass prefab on top of NavalDLC's)
 """
 import json, math, re, sys
 import xml.etree.ElementTree as ET
 
 packed, ship, out = sys.argv[1:4]
-s = re.sub(r'^<\?xml[^>]*\?>', '', open(packed, encoding='utf-8').read())
-root = ET.fromstring('<r>' + s + '</r>')
+roots = []
+for path in packed.split(','):
+    s = re.sub(r'^<\?xml[^>]*\?>', '', open(path, encoding='utf-8').read())
+    roots.append(ET.fromstring('<r>' + s + '</r>'))
+root = roots[0]
 by_guid = {}
-for e in root.iter('entity'):
-    g = e.find('prefab_link/instance')
-    if g is not None:
-        by_guid[g.get('guid')] = e
+for r in reversed(roots):                     # the ship's own file wins
+    for e in r.iter('entity'):
+        g = e.find('prefab_link/instance')
+        if g is not None:
+            by_guid[g.get('guid')] = e
 
 ZERO = '{00000000-0000-0000-0000-000000000000}'
 def base(e):
@@ -82,7 +88,8 @@ def walk(e, path, wm, wp, depth=0):
     name = e.get('name') or (base(e).get('name') if base(e) is not None else '?')
     fwd = [wm[0][1], wm[1][1], wm[2][1]]
     rows.append({'path': path + '/' + name, 'name': name, 'pos': [round(v, 3) for v in wp],
-                 'fwd': [round(v, 3) for v in fwd], 'tags': tags(e), 'scripts': scripts(e), 'meshes': meshes(e)})
+                 'fwd': [round(v, 3) for v in fwd], 'mat': [[round(v, 5) for v in row] for row in wm],
+                 'tags': tags(e), 'scripts': scripts(e), 'meshes': meshes(e)})
     if depth < 12:
         for c in children(e):
             walk(c, path + '/' + name, wm, wp, depth + 1)

@@ -1811,6 +1811,7 @@ print('hull plate: %d faces per layer, z %.2f..%.2f' % (len(_pm.polygons) // 2, 
 # overlay is rebuilt from each decimated paint LOD so it always sits exactly on its base.
 LOD_RATIO = {1: 0.45, 2: 0.18, 3: 0.06}
 LOD_DROP = {'galleass_gilt': 3, 'galleass_iron': 3, 'galleass_dark': 3}
+PAINT_LODS = {0: bpy.data.objects['galleass_paint'].data}
 for o in list(coll('final').objects):
     if o.name in ('galleass_faction_paint',) or o.type != 'MESH':
         continue
@@ -1830,12 +1831,40 @@ for o in list(coll('final').objects):
         # big structural surfaces keep their silhouette: never collapse them below 70% of the dissolved mesh
         floor_r = 0.7 if o.name in ('galleass_hull', 'galleass_paint', 'galleass_deck', 'galleass_rudder', 'galleass_dark') else 0.0
         md = lo.modifiers.new('dec', 'DECIMATE'); md.ratio = min(1.0, max(ratio * n0 / max(n1, 1), floor_r)); md.use_collapse_triangulate = True
+        if o.name == 'galleass_paint':                      # painted planking (~5.8k tris) stays exact under its
+            d1.angle_limit = math.radians(0.1)                  # overlay at LOD1/2 (no curve cut through the paint),
+            md.ratio = 1.0 if lvl < 3 else 0.5                  # LOD3 halved
         dg2 = bpy.context.evaluated_depsgraph_get()
         nm = bpy.data.meshes.new_from_object(lo.evaluated_get(dg2))
         lo.modifiers.clear(); old = lo.data; lo.data = nm; nm.name = me.name; bpy.data.meshes.remove(old)
         if o.name == 'galleass_paint':
-            fo = bpy.data.objects.new(f'galleass_faction_paint.lod{lvl}', faction_overlay(nm, f'galleass_faction_paint.lod{lvl}'))
-            coll('lods').objects.link(fo)
+            PAINT_LODS[lvl] = nm
+# faction overlay per paint LOD. The game picks the LOD of the hull and of the overlay separately (different bounds),
+# so a coarse overlay can be drawn over finer planking; on the round forecastle the decimated overlay cut the curves
+# and the planking showed through in triangles (user 2026-10-13). So the paint keeps its full geometry at LOD1/2
+# (above), and each overlay LOD k sits D_k out: 6 mm plus how far the finer paint LODs reach outside paint LOD k
+# (99.9th percentile; only LOD3 is decimated, seen from far).
+from mathutils.bvhtree import BVHTree
+def _outside(fine, coarse):
+    bvh = BVHTree.FromPolygons([v.co for v in coarse.vertices], [p.vertices[:] for p in coarse.polygons])
+    outs = []
+    for v in fine.vertices:
+        loc, nor, idx, dist = bvh.find_nearest(v.co, 0.5)
+        if loc is not None:
+            outs.append(max((v.co - loc).dot(nor), 0.0))
+    outs.sort()
+    q = lambda f: outs[min(int(f * len(outs)), len(outs) - 1)] if outs else 0.0
+    print('  paint lod outside: n %d  p50 %.1f p90 %.1f p99 %.1f p99.9 %.1f max %.1f mm'
+          % (len(outs), q(0.5) * 1e3, q(0.9) * 1e3, q(0.99) * 1e3, q(0.999) * 1e3, q(1.0) * 1e3))
+    return q(0.999)
+for lvl in sorted(PAINT_LODS):
+    if lvl == 0:
+        continue
+    d = 0.006 + max(_outside(PAINT_LODS[j], PAINT_LODS[lvl]) for j in PAINT_LODS if j < lvl)
+    fo = bpy.data.objects.new(f'galleass_faction_paint.lod{lvl}',
+                              faction_overlay(PAINT_LODS[lvl], f'galleass_faction_paint.lod{lvl}', D=d))
+    coll('lods').objects.link(fo)
+    print('faction overlay lod%d: %.1f mm out' % (lvl, d * 1000))
 coll('lods').hide_render = True; coll('lods').hide_viewport = True
 lod_tris = {}
 for o in coll('lods').objects:
