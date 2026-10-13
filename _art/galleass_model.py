@@ -949,7 +949,10 @@ def roof_edge(y):
 BANNER_W, BANNER_H = 0.7, 1.16
 BANNER_ARM = 0.5                                          # wall holders: crossbar this far out from the wall
 AWNING_BANNER_SCALE = 1.4                                 # stern castle banners (their loops set the awning rail's size)
-MAST_ARM = 0.6                                            # mast holders: crossbar this far ahead of the mast face
+# mast holders: crossbar this far ahead of the mast face. Cloth has no collision with the mast, so a fore wind swings
+# the banner back into it once sin(swing) > arm / height (user 2026-10-13: 0.6 m with 1.62 m banners clipped at ~22
+# deg); 1.0 m with 1.16 m banners clears ~60 deg
+MAST_ARM, MAST_BANNER_SCALE = 1.0, 1.0
 def banner_mounts():
     m = []
     zc = Z_BULWARK_TOP + 0.1 + 0.03                       # on the cap rail
@@ -976,7 +979,7 @@ def banner_mounts():
         deck = FC_Z_PLATFORM if mast == 'fore' else Z_GUN_DECK
         z = deck + 6.3
         m.append(dict(name='banner_mast_' + mast, pin=(0.0, mast_axis_y(mast, z) + MAST_R[mast] + MAST_ARM, z),
-                      normal=(0.0, 1.0), scale=1.4, kind='mast', mast=mast))
+                      normal=(0.0, 1.0), scale=MAST_BANNER_SCALE, kind='mast', mast=mast))
     return m
 
 def banner_loop_r(scale):
