@@ -277,13 +277,17 @@ def lines(lo, hi, step, keep=()):
 
 Y_DECK = lines(DECK_Y0, DECK_Y1, 1.5, keep=[SC_Y1, SC_STAIR_Y[0], FC_STAIR_Y[0], FC_YB])
 
-# boarding (user 2026-10-13): BOARDING_PER_SIDE hook-thrower pairs per side on the deck rows in front of the foremost
-# gunport (the waist stays free for the guns); rope cleats keep clear of their hooks, AI barriers of their crewmen
-BOARDING_PER_SIDE = 3
-GUN_FORE = max(G['gunport_y'](i) for i in range(G['GUNPORTS_PER_SIDE']))
-BOARDING_ROWS = [(y0, y1) for y0, y1 in zip(Y_DECK, Y_DECK[1:]) if y0 >= GUN_FORE + 1.3][:BOARDING_PER_SIDE]
-BOARDING_Y = [(y0 + y1) / 2 for y0, y1 in BOARDING_ROWS]
-BOARDING_X = (DECK_X + 4.75) / 2                       # crewman on the deck edge column
+# boarding (user 2026-10-13): ONE hook-thrower pair per side (a galleass was hard to board), on the forecastle platform
+# at the aft end of its straight side (between the side banner's holder, y 19.0..19.9, and the +-90 deg embrasure from
+# y 20.6): we board from up there, and it is the only place an enemy can hook on (a thrower always brings its own attach
+# point - the game builds the bridge from that point's children). Rope cleats keep clear of the hooks, AI barriers of
+# the crewmen
+BOARDING_PER_SIDE = 1
+FC_IN = G['fc_radius'](G['FC_Z_PARAPET']) - 0.35          # parapet inner face (half width)
+BOARDING_X = FC_IN - 0.75                                # crewman 0.85 m inside the wall, as on the waist rail
+BOARDING_Y = [20.2]
+BOARDING_OUT = 0.35 - SIDE_T                             # parapet thicker than the bulwark: hook point further out
+Z_FC_CAP = G['FC_Z_PARAPET'] + LIFT + 0.1
 def clear_of_boarding(y, gap=0.6):
     """y moved off the boarding hooks on the cap rail: to the nearest spot >= gap from all of them."""
     if all(abs(y - b) >= gap for b in BOARDING_Y):
@@ -296,11 +300,11 @@ def rail_point(y, side):
     rail, else the poop balustrade's rail or the forecastle parapet's cap."""
     y = min(max(y, SHIP_Y0), SHIP_Y1)
     if BOX_Y0 + 0.2 <= y <= BOX_Y1 - 0.2:
-        return (side * X_CAP, clear_of_boarding(y), Z_CAP)
+        return (side * X_CAP, y, Z_CAP)
     if y < BOX_Y0:
         y = max(y, SC_Y0 + 0.4)
         return (side * (sc_hw(y) - 0.06), y, G['SC_Z_RAIL'] + LIFT)
-    return (side * max(fc_half(y) - 0.2, 0.3), y, G['FC_Z_PARAPET'] + LIFT + 0.1)
+    return (side * max(fc_half(y) - 0.2, 0.3), clear_of_boarding(y), Z_FC_CAP)
 
 MASTS_AT = []                                                 # (y, deck z) of the mast steps, filled with the rigs
 HATCHES = [(-6.5, 0.75, 0.9), (12.0, 0.75, 0.9)]              # (y, half length, half width): the model's gratings
@@ -349,7 +353,7 @@ def fasten(surface):
             return (f[0], f[1], f[2] + KNOT_H)
     while any(abs(f[2] - z) < 0.05 and math.hypot(f[0] - x, f[1] - y) < 0.45 for f in FASTENERS):
         y += 0.45                                             # neighbours along a rail: spread out
-        if abs(z - Z_CAP) < 0.05:
+        if abs(z - Z_FC_CAP) < 0.05:
             y = clear_of_boarding(y)
     FASTENERS.append((x, y, z))
     return (x, y, z + KNOT_H)
@@ -536,7 +540,7 @@ for e, wm, wp, pm, pp in walk(kh)[1:]:
     if e.get('name') != 'cleat_a':
         continue
     side = 1 if wp[0] > 0 else -1
-    y = clear_of_boarding(min(max(wp[1], BOX_Y0 + 0.4), BOX_Y1 - 0.4))
+    y = min(max(wp[1], BOX_Y0 + 0.4), BOX_Y1 - 0.4)
     set_world_pos(e, pm, pp, (side * X_CAP, y, Z_CAP))
     write_tf(e, rot=(0.0, 0.0, tf(e)[1][2]))
     FASTENERS.append((side * X_CAP, y, Z_CAP))
@@ -845,14 +849,15 @@ for y0, y1 in zip(Y_PLAT, Y_PLAT[1:]):
             cab_cell(x0, x1, y0, y1); n_plat += 1
 report.append('navmesh: cabin %d cells (incl. both door openings), stern platform %d cells' % (n_cab, n_plat))
 
-# --- boarding (user 2026-10-13): only hook-thrower pairs (attachment_machine_nested = thrower + its own attach point),
-# BOARDING_PER_SIDE per side on the deck rows in front of the foremost gunport, so the waist stays free for the guns.
-# The game needs no minimum (it collects whatever the ship has; reach 40 m in a +-65 deg cone, the ropes pull the ships
-# together). The point-only entities and the other pairs go. Each kept pair gets its own navmesh id face at the deck
-# edge. The crewman (pilot) stays on deck; hook, rope pile, rail fitting and hook point go up BOARDING_DZ to our cap
-# rail (vanilla roundship raises the same children for its taller sides)
+# --- boarding (user 2026-10-13): BOARDING_PER_SIDE pairs (attachment_machine_nested = thrower + its own attach point) on
+# the forecastle (see BOARDING_Y); everything else goes. All kept pairs take the hanging look of the vanilla pair whose
+# grapnel hangs from the rail ring (the others lie in a coil meant for the floor; user 2026-10-13). The crewman stays
+# on the platform; hook, rope pile, rail fitting and hook point go up BOARDING_DZ onto the parapet cap (vanilla
+# roundship raises the same children for its taller sides). Each pair gets its own navmesh id face under the crewman
 BOARDING_DZ = (G['Z_BULWARK_TOP'] + 0.1 - G['Z_GUN_DECK']) - 0.69       # vanilla rail fitting ('visual') sits 0.69 up
+assert abs((Z_FC_CAP - Z_FC) - (G['Z_BULWARK_TOP'] + 0.1 - G['Z_GUN_DECK'])) < 0.01   # parapet cap = rail height
 BOARDING_RAISE = {'hook', 'pile_holder', 'focus_object', 'visual', 'hook_attach_point', 'capsule_physics_a'}
+BOARDING_OUTER = {'hook_attach_point', 'capsule_physics_a'}
 V_med, _, F_med = navmesh.read(os.path.join(os.path.dirname(nav_path), '..', 'NavMeshPrefabs', 'meditheavy_ship_navmesh.bin'))
 med_ids = {fid: [sum(V_med[v][k] for v in vs) / len(vs) for k in range(3)] for vs, _, fid in F_med if fid}
 ah = files['attachment_machine_holder']
@@ -862,30 +867,51 @@ for e in kids(ah):
     p, r, _ = tf(e)
     fid = ids[0] if ids else min(med_ids, key=lambda i: math.dist(med_ids[i][:2], p[:2]))
     att.append((e, fid, p, r))
-edge_cols = {1: (4.75, DECK_X), -1: (-DECK_X, -4.75)}
-dropped = 0
+def ancestors(root, target):
+    """Entities from root's children down to target's parent."""
+    def go(e, path):
+        for c in kids(e):
+            if c is target:
+                return path
+            r = go(c, path + [c])
+            if r is not None:
+                return r
+        return None
+    return go(root, []) or []
+def sub_kids(e):
+    return {(sub.get('name'), c.get('name')): c for sub in kids(e) for c in kids(sub)}
+pairs = [a for a in att if a[0].get('name').startswith('attachment_machine')]
+tmpl = max(pairs, key=lambda a: tf(sub_kids(a[0])[('attachment_machine', 'hook')])[0][2])[0]
+TMPL = {k: tf(c)[:2] for k, c in sub_kids(tmpl).items()}
 kept = []
 for side in (-1, 1):
-    pairs = [a for a in att if (a[2][0] > 0) == (side > 0) and a[0].get('name').startswith('attachment_machine')]
-    rows = [rw for rw in BOARDING_ROWS if (('deck',) + edge_cols[side] + rw) in cells]
-    assert len(pairs) >= BOARDING_PER_SIDE and len(rows) == BOARDING_PER_SIDE, (len(pairs), rows)
-    for (e, fid, p, r), (y0, y1) in zip(pairs, rows):
-        key = ('deck',) + edge_cols[side] + (y0, y1)
+    mine = [a for a in pairs if (a[2][0] > 0) == (side > 0)]
+    for (e, fid, p, r), y in zip(mine, BOARDING_Y):
+        x = side * BOARDING_X
+        key = next(k for k in cells if k[0] == 'fc' and min(k[1], k[2]) <= x - side * 0.1 <= max(k[1], k[2])
+                   and k[3] <= y <= k[4])
         vs, _ = faces[cells[key]]; faces[cells[key]] = (vs, fid)
-        write_tf(e, pos=(side * BOARDING_X, (y0 + y1) / 2, Z_DECK), rot=(0.0, 0.0, -side * math.pi / 2))
-        for sub in [e] + kids(e):
-            for c in kids(sub):
-                if c.get('name') in BOARDING_RAISE:
-                    cp = tf(c)[0]
-                    write_tf(c, pos=(cp[0], cp[1], cp[2] + BOARDING_DZ))
-        kept.append((e, fid, round((y0 + y1) / 2, 2)))
+        write_tf(e, pos=(x, y, Z_FC), rot=(0.0, 0.0, -side * math.pi / 2))
+        for k, c in sub_kids(e).items():
+            cp, cr = TMPL.get(k, tf(c)[:2])
+            if k[1] in BOARDING_RAISE:
+                cp = (cp[0], cp[1] + (BOARDING_OUT if k[1] in BOARDING_OUTER else 0.0), cp[2] + BOARDING_DZ)
+            write_tf(c, pos=cp, rot=cr)
+        # the raised children carry vanilla floor dressing (crates, sacks, rope coils, the grapnel's floor coil): back down
+        for c, wm, wp, pm, pp in walk(e)[1:]:
+            if c.get('name') not in BOARDING_RAISE and wp[2] - Z_FC - BOARDING_DZ < 0.45 \
+                    and any(a.get('name') in BOARDING_RAISE for a in ancestors(e, c)):
+                set_world_pos(c, pm, pp, (wp[0], wp[1], wp[2] - BOARDING_DZ))
+        kept.append((e, fid, y))
 keep = {id(k[0]) for k in kept}
 ch = ah.find('children')
+dropped = 0
 for e in list(ch):
     if id(e) not in keep:
         ch.remove(e); dropped += 1
-report.append('boarding: %d thrower pairs at the fore rail (y %s, ids %s), %d others removed, hooks raised %.2f' % (
-    len(kept), sorted({k[2] for k in kept}), sorted(k[1] for k in kept), dropped, BOARDING_DZ))
+report.append('boarding: %d thrower pairs on the forecastle (x +-%.2f, y %s, ids %s, look of %s), %d others removed, '
+              'hooks raised %.2f' % (len(kept), BOARDING_X, BOARDING_Y, sorted(k[1] for k in kept),
+                                     [round(v, 2) for v in tf(tmpl)[0]], dropped, BOARDING_DZ))
 
 os.makedirs(NAV_DIR, exist_ok=True)
 nv, ne, nf = navmesh.write(os.path.join(NAV_DIR, NAVMESH + '.bin'), verts, faces)
