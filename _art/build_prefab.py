@@ -268,12 +268,35 @@ STAIRS = [(s * SC_STAIR_X - 0.5, s * SC_STAIR_X + 0.5, SC_STAIR_Y[0], SC_STAIR_Y
          [(s * FC_STAIR_X - 0.5, s * FC_STAIR_X + 0.5, FC_STAIR_Y[0], FC_STAIR_Y[1], 'fc') for s in (-1, 1)]
 LEVEL_Z = {'deck': Z_DECK, 'poop': Z_POOP_TOP, 'fc': Z_FC}
 
+def lines(lo, hi, step, keep=()):
+    """Grid lines from lo to hi about step apart, with the 'keep' lines exactly (others too close to them dropped)."""
+    n = max(int(round((hi - lo) / step)), 1)
+    base = [lo + (hi - lo) * k / n for k in range(n + 1)]
+    keep = [k for k in keep if lo - 1e-6 <= k <= hi + 1e-6]
+    return sorted(set(round(v, 4) for v in keep + [b for b in base if all(abs(b - k) > 0.4 for k in keep)]))
+
+Y_DECK = lines(DECK_Y0, DECK_Y1, 1.5, keep=[SC_Y1, SC_STAIR_Y[0], FC_STAIR_Y[0], FC_YB])
+
+# boarding (user 2026-10-13): BOARDING_PER_SIDE hook-thrower pairs per side on the deck rows in front of the foremost
+# gunport (the waist stays free for the guns); rope cleats keep clear of their hooks, AI barriers of their crewmen
+BOARDING_PER_SIDE = 3
+GUN_FORE = max(G['gunport_y'](i) for i in range(G['GUNPORTS_PER_SIDE']))
+BOARDING_ROWS = [(y0, y1) for y0, y1 in zip(Y_DECK, Y_DECK[1:]) if y0 >= GUN_FORE + 1.3][:BOARDING_PER_SIDE]
+BOARDING_Y = [(y0 + y1) / 2 for y0, y1 in BOARDING_ROWS]
+BOARDING_X = (DECK_X + 4.75) / 2                       # crewman on the deck edge column
+def clear_of_boarding(y, gap=0.6):
+    """y moved off the boarding hooks on the cap rail: to the nearest spot >= gap from all of them."""
+    if all(abs(y - b) >= gap for b in BOARDING_Y):
+        return y
+    cand = [(a + b) / 2 for a, b in zip(BOARDING_Y, BOARDING_Y[1:])] + [BOARDING_Y[0] - gap, BOARDING_Y[-1] + gap]
+    return min((c for c in cand if all(abs(c - b) >= gap - 1e-6 for b in BOARDING_Y)), key=lambda c: abs(c - y))
+
 def rail_point(y, side):
     """Top surface where a rope from aloft is made fast on the ship's side (a cleat goes there): the box's cap
     rail, else the poop balustrade's rail or the forecastle parapet's cap."""
     y = min(max(y, SHIP_Y0), SHIP_Y1)
     if BOX_Y0 + 0.2 <= y <= BOX_Y1 - 0.2:
-        return (side * X_CAP, y, Z_CAP)
+        return (side * X_CAP, clear_of_boarding(y), Z_CAP)
     if y < BOX_Y0:
         y = max(y, SC_Y0 + 0.4)
         return (side * (sc_hw(y) - 0.06), y, G['SC_Z_RAIL'] + LIFT)
@@ -326,6 +349,8 @@ def fasten(surface):
             return (f[0], f[1], f[2] + KNOT_H)
     while any(abs(f[2] - z) < 0.05 and math.hypot(f[0] - x, f[1] - y) < 0.45 for f in FASTENERS):
         y += 0.45                                             # neighbours along a rail: spread out
+        if abs(z - Z_CAP) < 0.05:
+            y = clear_of_boarding(y)
     FASTENERS.append((x, y, z))
     return (x, y, z + KNOT_H)
 
@@ -511,7 +536,7 @@ for e, wm, wp, pm, pp in walk(kh)[1:]:
     if e.get('name') != 'cleat_a':
         continue
     side = 1 if wp[0] > 0 else -1
-    y = min(max(wp[1], BOX_Y0 + 0.4), BOX_Y1 - 0.4)
+    y = clear_of_boarding(min(max(wp[1], BOX_Y0 + 0.4), BOX_Y1 - 0.4))
     set_world_pos(e, pm, pp, (side * X_CAP, y, Z_CAP))
     write_tf(e, rot=(0.0, 0.0, tf(e)[1][2]))
     FASTENERS.append((side * X_CAP, y, Z_CAP))
@@ -608,8 +633,8 @@ report.append('rope_cosmetics_holder: %d meditheavy hull-side ropes/cleats remov
 
 # --- arrow braziers: clamped to the bulwark (box) / poop balustrade, standing on the deck --------------------
 # ship_brazier_b reaches 0.65 m outboard of its origin, foot 0.69 m below it (mesh bounds)
-BRAZIER_Y = [-16.3, -13.0, -11.0, -6.1, -0.65, 4.75, 10.2, 15.0, 17.3, 19.6]          # clear of the gunports
-BRAZIER_POOP_Y = [-20.0]
+BRAZIER_Y = [-16.3, -13.0, -11.0, -6.1, -0.65, 4.75, 10.2, 19.6]          # clear of the gunports and boarding
+BRAZIER_POOP_Y = [-23.0, -20.0, -16.0]          # between the awning posts (y -17.2, -19.7, -21.9)
 bh = files['brazier_holder']
 by_side = {-1: [], 1: []}
 for c in kids(bh):
@@ -721,16 +746,8 @@ import navmesh
 NAVMESH = 'galleass_ship_navmesh'
 NAV_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'NavMeshPrefabs')
 
-def lines(lo, hi, step, keep=()):
-    """Grid lines from lo to hi about step apart, with the 'keep' lines exactly (others too close to them dropped)."""
-    n = max(int(round((hi - lo) / step)), 1)
-    base = [lo + (hi - lo) * k / n for k in range(n + 1)]
-    keep = [k for k in keep if lo - 1e-6 <= k <= hi + 1e-6]
-    return sorted(set(round(v, 4) for v in keep + [b for b in base if all(abs(b - k) > 0.4 for k in keep)]))
-
 xs_half = [0.0, 0.4, 0.95, 1.75] + sorted({abs(a) for a, b, *_ in STAIRS} | {abs(b) for a, b, *_ in STAIRS}) + [4.1, 4.75, DECK_X]
 X_LINES = sorted({-x for x in xs_half} | set(xs_half))
-Y_DECK = lines(DECK_Y0, DECK_Y1, 1.5, keep=[SC_Y1, SC_STAIR_Y[0], FC_STAIR_Y[0], FC_YB])
 Y_POOP = lines(SC_Y0 + 0.3, SC_Y1, 1.5)
 Y_FC = lines(FC_YB, FC_CY + FC_R_IN, 1.0, keep=[FC_CY])
 
@@ -828,7 +845,14 @@ for y0, y1 in zip(Y_PLAT, Y_PLAT[1:]):
             cab_cell(x0, x1, y0, y1); n_plat += 1
 report.append('navmesh: cabin %d cells (incl. both door openings), stern platform %d cells' % (n_cab, n_plat))
 
-# --- boarding: attachment points/grapnels to our rail, each on its own id face at the deck edge -----------------
+# --- boarding (user 2026-10-13): only hook-thrower pairs (attachment_machine_nested = thrower + its own attach point),
+# BOARDING_PER_SIDE per side on the deck rows in front of the foremost gunport, so the waist stays free for the guns.
+# The game needs no minimum (it collects whatever the ship has; reach 40 m in a +-65 deg cone, the ropes pull the ships
+# together). The point-only entities and the other pairs go. Each kept pair gets its own navmesh id face at the deck
+# edge. The crewman (pilot) stays on deck; hook, rope pile, rail fitting and hook point go up BOARDING_DZ to our cap
+# rail (vanilla roundship raises the same children for its taller sides)
+BOARDING_DZ = (G['Z_BULWARK_TOP'] + 0.1 - G['Z_GUN_DECK']) - 0.69       # vanilla rail fitting ('visual') sits 0.69 up
+BOARDING_RAISE = {'hook', 'pile_holder', 'focus_object', 'visual', 'hook_attach_point', 'capsule_physics_a'}
 V_med, _, F_med = navmesh.read(os.path.join(os.path.dirname(nav_path), '..', 'NavMeshPrefabs', 'meditheavy_ship_navmesh.bin'))
 med_ids = {fid: [sum(V_med[v][k] for v in vs) / len(vs) for k in range(3)] for vs, _, fid in F_med if fid}
 ah = files['attachment_machine_holder']
@@ -839,20 +863,29 @@ for e in kids(ah):
     fid = ids[0] if ids else min(med_ids, key=lambda i: math.dist(med_ids[i][:2], p[:2]))
     att.append((e, fid, p, r))
 edge_cols = {1: (4.75, DECK_X), -1: (-DECK_X, -4.75)}
-used = set()
+dropped = 0
+kept = []
 for side in (-1, 1):
-    pts = sorted((a for a in att if (a[2][0] > 0) == (side > 0)), key=lambda a: a[2][1])
-    ylo, yhi = min(a[2][1] for a in pts), max(a[2][1] for a in pts)
-    rows = [(y0, y1) for y0, y1 in zip(Y_DECK, Y_DECK[1:]) if (('deck',) + edge_cols[side] + (y0, y1)) in cells]
-    for e, fid, p, r in pts:
-        want = -15.5 + (p[1] - ylo) / (yhi - ylo) * (18.5 + 15.5)          # spread over our longer deck
-        y0, y1 = min((rw for rw in rows if (side, rw) not in used), key=lambda rw: abs((rw[0] + rw[1]) / 2 - want))
-        used.add((side, (y0, y1)))
+    pairs = [a for a in att if (a[2][0] > 0) == (side > 0) and a[0].get('name').startswith('attachment_machine')]
+    rows = [rw for rw in BOARDING_ROWS if (('deck',) + edge_cols[side] + rw) in cells]
+    assert len(pairs) >= BOARDING_PER_SIDE and len(rows) == BOARDING_PER_SIDE, (len(pairs), rows)
+    for (e, fid, p, r), (y0, y1) in zip(pairs, rows):
         key = ('deck',) + edge_cols[side] + (y0, y1)
         vs, _ = faces[cells[key]]; faces[cells[key]] = (vs, fid)
-        write_tf(e, pos=(side * (DECK_X + 4.75) / 2, (y0 + y1) / 2, Z_DECK + max(p[2] - DECK_MEDITHEAVY(p[1]), 0.0)),
-                 rot=r)
-report.append('boarding: %d attachment machines on the rail, id faces %s' % (len(att), sorted(a[1] for a in att)))
+        write_tf(e, pos=(side * BOARDING_X, (y0 + y1) / 2, Z_DECK), rot=(0.0, 0.0, -side * math.pi / 2))
+        for sub in [e] + kids(e):
+            for c in kids(sub):
+                if c.get('name') in BOARDING_RAISE:
+                    cp = tf(c)[0]
+                    write_tf(c, pos=(cp[0], cp[1], cp[2] + BOARDING_DZ))
+        kept.append((e, fid, round((y0 + y1) / 2, 2)))
+keep = {id(k[0]) for k in kept}
+ch = ah.find('children')
+for e in list(ch):
+    if id(e) not in keep:
+        ch.remove(e); dropped += 1
+report.append('boarding: %d thrower pairs at the fore rail (y %s, ids %s), %d others removed, hooks raised %.2f' % (
+    len(kept), sorted({k[2] for k in kept}), sorted(k[1] for k in kept), dropped, BOARDING_DZ))
 
 os.makedirs(NAV_DIR, exist_ok=True)
 nv, ne, nf = navmesh.write(os.path.join(NAV_DIR, NAVMESH + '.bin'), verts, faces)
@@ -910,6 +943,13 @@ for holder in ('spawn_point_holder', 'barrier_holder'):
         p, r, _ = tf(e)
         write_tf(e, pos=remap(p), rot=r)
         moved[holder] = moved.get(holder, 0) + 1
+# the meditheavy's AI limiter walls (invisible, AI only) that land on the fore boarding spots would fence the crewmen
+# off; our 1.4 m bulwark keeps everyone aboard there anyway
+bch = files['barrier_holder'].find('children')
+cut = [e for e in list(bch) if any(math.hypot(abs(tf(e)[0][0]) - BOARDING_X, tf(e)[0][1] - by) < 2.5 for by in BOARDING_Y)]
+for e in cut:
+    bch.remove(e)
+report.append('barrier_holder: %d AI barriers at the boarding spots removed' % len(cut))
 report.append('meditheavy deck -> galleass deck: %s' % moved)
 
 # --- rope climbers (boarding nets, from boats up the hull) hang from the open stern platform's edge, one at each
