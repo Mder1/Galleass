@@ -54,9 +54,13 @@ WING_Z0, WING_Z_FACE = -0.5, 0.95         # flare leaves the hull (just below th
 
 # broadside gunports in the gun-deck bulwark (cannons)
 GUNPORTS_PER_SIDE = 5
-GP_SILL, GP_TOP, GP_W = 2.85, 3.45, 0.6
+GP_SILL, GP_TOP, GP_W = 2.85, 3.45, 0.6   # the cabin's falconet ports
+# the falcons' ports (broadside + stern chasers) enlarged for the traversing guns (user 2026-10-15: too small in
+# game): 0.9 x 0.75, top kept under the gilt moulding, sill lowered; ring stays under the bulwark top (3.7)
+FA_GP_SILL, FA_GP_TOP, FA_GP_W = 2.70, GP_TOP, 0.90
 # gunport linings: a plain frame inside the port, no projecting window sill (user 2026-10-08)
-WREATH_RY, WREATH_RZ = 0.56, 0.5           # gilded ring round each gunport (clears the sill ends)
+WREATH_RY, WREATH_RZ = 0.76, 0.57          # gilded ring round each falcon port (clears the corners)
+SC_WREATH_RY, SC_WREATH_RZ = 0.56, 0.5     # the cabin's (falconet) port rings, as before
 # stern chasers (user 2026-10-08): one gunport in each aft end wall of the box, beside the cabin, facing aft; centred
 # between the cabin side (x 3.56) and the gilt corner bead (from x ~5.7)
 STERN_GP_X = 4.65
@@ -659,9 +663,9 @@ def build_sides():
             box('oarport_back', *sorted((xb, xb - side * 0.05)), y - OARPORT_W, y + OARPORT_W,
                 OARPORT_Z0 - 0.1, OARPORT_Z1 + 0.1, 'dark')
         for i in range(GUNPORTS_PER_SIDE):
-            y = gunport_y(i); zc = (GP_SILL + GP_TOP) / 2
-            cuts.append(cutter_box(side * W, y, zc, 0.8, GP_W, GP_TOP - GP_SILL))
-            lining('gunport_lining', (side * W, y, zc), (side, 0, 0), GP_W, GP_TOP - GP_SILL, SIDE_T)
+            y = gunport_y(i); zc = (FA_GP_SILL + FA_GP_TOP) / 2
+            cuts.append(cutter_box(side * W, y, zc, 0.8, FA_GP_W, FA_GP_TOP - FA_GP_SILL))
+            lining('gunport_lining', (side * W, y, zc), (side, 0, 0), FA_GP_W, FA_GP_TOP - FA_GP_SILL, SIDE_T)
         subtract(wall, cuts)
         # end walls against the castles, lower edge on the cove
         for yend, d in ((Y1, -1), (Y0, 1)):
@@ -692,9 +696,9 @@ def build_sides():
             bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
             ew = obj_from_bm(bm, 'end_wall', 'paint')
             if yend == Y0:                                     # stern chaser port, facing aft
-                zc = (GP_SILL + GP_TOP) / 2
-                subtract(ew, [cutter_box(side * STERN_GP_X, Y0, zc, GP_W, 0.8, GP_TOP - GP_SILL)])
-                lining('gunport_lining', (side * STERN_GP_X, Y0, zc), (0, -1, 0), GP_W, GP_TOP - GP_SILL, SIDE_T)
+                zc = (FA_GP_SILL + FA_GP_TOP) / 2
+                subtract(ew, [cutter_box(side * STERN_GP_X, Y0, zc, FA_GP_W, 0.8, FA_GP_TOP - FA_GP_SILL)])
+                lining('gunport_lining', (side * STERN_GP_X, Y0, zc), (0, -1, 0), FA_GP_W, FA_GP_TOP - FA_GP_SILL, SIDE_T)
             # flat gilded bead: from the gilt moulding down the outer corner, then curling inward into a volute
             # just above the rub rail (user's sketch)
             u0, R = 0.08, 0.22
@@ -719,7 +723,7 @@ def build_sides():
                 # the gilded moulding and the gunport rings are ONE flat band: rings unioned in, ring openings cut
                 hw = (z1 - z0) / 2
                 for i in range(GUNPORTS_PER_SIDE):
-                    gy, gz = gunport_y(i), (GP_SILL + GP_TOP) / 2
+                    gy, gz = gunport_y(i), (FA_GP_SILL + FA_GP_TOP) / 2
                     fn = lambda u, v, dd, gy=gy, gz=gz: (side * (W + dd), gy + u, gz + v)
                     ring = flat_annulus('gunport_ring', fn, WREATH_RY - hw, WREATH_RZ - hw, WREATH_RY + hw, WREATH_RZ + hw,
                                         out - thick, out, role, collection='cutters')
@@ -733,7 +737,7 @@ def build_sides():
                     z0, z1, role)   # the cap covers the end wall's whole top, like along the side
                 if name == 'moulding' and yend == Y0:              # stern chaser's ring, one band with the moulding
                     hw = (z1 - z0) / 2
-                    gx, gz = side * STERN_GP_X, (GP_SILL + GP_TOP) / 2
+                    gx, gz = side * STERN_GP_X, (FA_GP_SILL + FA_GP_TOP) / 2
                     fn = lambda u, v, dd, gx=gx, gz=gz: (gx + u, Y0 - dd, gz + v)
                     ring = flat_annulus('gunport_ring', fn, WREATH_RY - hw, WREATH_RZ - hw, WREATH_RY + hw,
                                         WREATH_RZ + hw, out - thick, out, role, collection='cutters')
@@ -781,7 +785,7 @@ def build_sides():
         # stanchions on the inside of the bulwark
         for k in range(int((Y1 - Y0) / 1.6)):
             y = Y0 + 0.5 + k * 1.6
-            if any(abs(y - gunport_y(i)) < 0.6 for i in range(GUNPORTS_PER_SIDE)) or y > Y1 - 0.4:
+            if any(abs(y - gunport_y(i)) < FA_GP_W / 2 + 0.3 for i in range(GUNPORTS_PER_SIDE)) or y > Y1 - 0.4:
                 continue
             w = W - SIDE_T
             box('stanchion', *sorted((side * (w + 0.01), side * (w - 0.07))), y - 0.07, y + 0.07, Z_GUN_DECK, Z_BULWARK_TOP, 'trim')
@@ -1253,10 +1257,10 @@ def build_stern_balcony():
                         if not xa < gx < xb:
                             continue
                         fn = lambda u, v, dd, gx=gx: (gx + u, SC_Y_AFT - dd, (GP_SILL + GP_TOP) / 2 + v)
-                        ring = flat_annulus('gunport_ring', fn, WREATH_RY - hw, WREATH_RZ - hw, WREATH_RY + hw,
-                                            WREATH_RZ + hw, o - t, o, role, collection='cutters')
+                        ring = flat_annulus('gunport_ring', fn, SC_WREATH_RY - hw, SC_WREATH_RZ - hw, SC_WREATH_RY + hw,
+                                            SC_WREATH_RZ + hw, o - t, o, role, collection='cutters')
                         md = fb.modifiers.new('ring', 'BOOLEAN'); md.object = ring; md.operation = 'UNION'; md.solver = 'EXACT'
-                        hole = flat_disc('ring_hole', fn, WREATH_RY - hw, WREATH_RZ - hw, o - t - 0.05, o + 0.05)
+                        hole = flat_disc('ring_hole', fn, SC_WREATH_RY - hw, SC_WREATH_RZ - hw, o - t - 0.05, o + 0.05)
                         md = fb.modifiers.new('hole', 'BOOLEAN'); md.object = hole; md.operation = 'DIFFERENCE'; md.solver = 'EXACT'
     CURL_GAP = 0.4
     def door_curl(name, x_end, toward, z0, z1, o, t, face_y=SC_Y_AFT, sgn=-1):
@@ -1311,10 +1315,10 @@ def build_stern_balcony():
     for side in (-1, 1):
         m = bpy.data.objects[f'sc_moulding_{side}']
         fn = lambda u, v, dd, side=side: (side * (sc_hw(SC_GP_Y + u) + dd), SC_GP_Y + u, (GP_SILL + GP_TOP) / 2 + v)
-        ring = flat_annulus('gunport_ring', fn, WREATH_RY - hw, WREATH_RZ - hw, WREATH_RY + hw, WREATH_RZ + hw,
+        ring = flat_annulus('gunport_ring', fn, SC_WREATH_RY - hw, SC_WREATH_RZ - hw, SC_WREATH_RY + hw, SC_WREATH_RZ + hw,
                             o - t, o, 'gilt', collection='cutters')
         md = m.modifiers.new('ring', 'BOOLEAN'); md.object = ring; md.operation = 'UNION'; md.solver = 'EXACT'
-        hole = flat_disc('ring_hole', fn, WREATH_RY - hw, WREATH_RZ - hw, o - t - 0.05, o + 0.05)
+        hole = flat_disc('ring_hole', fn, SC_WREATH_RY - hw, SC_WREATH_RZ - hw, o - t - 0.05, o + 0.05)
         md = m.modifiers.new('hole', 'BOOLEAN'); md.object = hole; md.operation = 'DIFFERENCE'; md.solver = 'EXACT'
     wrap('window_band', SCW_Z0 - 0.2, SCW_Z0 - 0.1, 0.06 + sc_out, 0.12, 'gilt', fore=door_f, aft=door_a)
     wrap('deck_line', SC_Z_FLOOR - 0.12, SC_Z_FLOOR, 0.06 + sc_out, 0.12, 'trim', fore=stairs_f, aft=[(-9, 9)])

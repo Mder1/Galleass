@@ -1,8 +1,15 @@
 """Ship-side gun rigging (user 2026-10-13): for every one of the 24 guns, the breeching from the gun to two ringbolts
 beside its port, and (falcons, falconets) a side tackle each side from the carriage's side ring to a ringbolt further
-out. Static, in the run-out position: the breeching hangs slack, the tackle falls are taut. One mesh in the ship's
-frame, galleass_gun_rigging (+ _lod1.._lod3), placed by build_prefab.py in the 'galleass_guns' group (tag
-galleass_gun_rigging) - the gunnery add-on can hide it and rig the guns live.
+out, in the run-out position: the breeching hangs slack, the tackle falls are taut.
+
+LIVE ROPES (user 2026-10-15: "ropes like the sails'"): the parts that must follow the gun (breechings, tackle falls,
+the running block on the carriage) are no longer mesh. They go to ref/galleass_gun_ropes.json and build_prefab.py
+makes them vanilla rope entities (rope_segment between a static start and an end, ship_ropes material) plus a block
+entity on the gun; the gunnery add-on re-points every rope end at an attachment entity on the gun (or barrel), so the
+ropes follow recoil, traverse and elevation. Static still, one mesh in the ship's frame galleass_gun_rigging
+(+ _lod1.._lod3, tag galleass_gun_rigging): ringbolts, the standing blocks with their strops, hauling parts and their
+deck heaps. galleass_tackle_block.fbx = the running block (+ its strop) in its own frame (y = towards the carriage
+ring), scaled per gun.
 
     blender -b ref/galleass_model.blend --python gun_rigging.py -- ref/galleass_guns.blend ../AssetSources/export renders/rig
 
@@ -20,7 +27,7 @@ argv = sys.argv[sys.argv.index('--') + 1:]
 GUNS_BLEND, OUT, RENDERS = argv[0], argv[1], (argv[2] if len(argv) > 2 else None)
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import model_geom, gun_layout
+import model_geom, gun_layout, json
 import rope_geom as rg
 
 G = model_geom.load()
@@ -176,7 +183,13 @@ def build(level):
             W, N, pts = res
             if level < 3: ringbolt(bms['iron'], W, N, max(k, 0.75))
             OTHER_ROPES[:] = [(pts, r_b)]                  # the tackle must keep clear of this side's breeching
-            rg.rope(bms['rope'], rg.catmull(pts, 0.14 if level == 0 else 0.25), r_b, segs=segs)
+            if level == 0:                                  # live rope: wall ring -> leg end (barrel) / sledge ring
+                span = (pts[-1] - pts[0]).length
+                sag = max(0.0, max(((pts[0] + (pts[-1] - pts[0]) * (i / (len(pts) - 1))) - q).z for i, q in enumerate(pts)))
+                on_barrel = not Rb                          # falcons: the legs hug the barrel; culverin: sledge ring
+                LIVE.append({'gun': 'gun_' + g['name'], 'name': 'breech_%+d' % s, 'start': list(pts[-1]),
+                             'end': list(A), 'end_local': list(a_loc), 'on_barrel': on_barrel,
+                             'radius': r_b, 'loose': round(max(0.02, 8 * sag * sag / (3 * max(span, 0.1))), 4)})
             report.append('%s side %+d: breeching to bolt %.2f m out' % (g['name'], s, (W - Vector(g['pos'])).dot(rt) * s))
             # side tackle (wheeled carriages): ring on the cheek -> wall bolt further out; two blocks, three falls
             if rig['tackle'] is None:
@@ -200,16 +213,21 @@ def build(level):
             up = (up if up.length > 1e-6 else Vector((1, 0, 0))).normalized()
             if level < 3:
                 ringbolt(bms['iron'], W2, N2, max(k, 0.75))
-                for c in (b1, b2):
-                    rg.block(bms['wood'], c, d, up, bl, bl * 0.62, bl * 0.42)
-                # strops: block to ring
+                rg.block(bms['wood'], b1, d, up, bl, bl * 0.62, bl * 0.42)    # standing block (static)
                 rg.rope(bms['rope'], [ring_pt, b1 - d * bl * 0.45], r_t, segs=segs)
-                rg.rope(bms['rope'], [b2 + d * bl * 0.45, T], r_t, segs=segs)
             off = up.cross(d).normalized()
-            for o2 in (-1.2, 0.0, 1.2):                     # falls between the sheaves
+            Minv = M.inverted(); R3 = Minv.to_3x3()
+            if level == 0:                                  # running block on the carriage ring: an entity on the gun
+                LIVE_BLOCKS.append({'gun': 'gun_' + g['name'], 'name': 'block_%+d' % s, 'pos_local': list(Minv @ b2),
+                                    'along_local': list((R3 @ d).normalized()), 'across_local': list((R3 @ up).normalized()),
+                                    'scale': k})
+            for j, o2 in enumerate((-1.2, 0.0, 1.2)):      # falls between the sheaves: live ropes
                 q0 = b1 + off * o2 * r_t * 1.8 + d * bl * 0.3
                 q1 = b2 + off * o2 * r_t * 1.8 - d * bl * 0.3
-                rg.rope(bms['rope'], [q0, q1], r_t, segs=max(segs - 1, 3))
+                if level == 0:
+                    LIVE.append({'gun': 'gun_' + g['name'], 'name': 'fall_%+d_%d' % (s, j), 'start': list(q0),
+                                 'end': list(q1), 'end_local': list(Minv @ q1), 'on_barrel': False,
+                                 'radius': r_t, 'loose': 0.005})
             # hauling part: from the standing block down to the deck, left in a loose heap inboard of the bolt
             floor = g['pos'][2]
             inb = Vector((N2.x, N2.y, 0)).normalized()          # N2 faces back into the ship
@@ -255,6 +273,7 @@ def to_object(bms, name):
     o = bpy.data.objects.new(name, me); bpy.context.scene.collection.objects.link(o)
     return o
 
+LIVE, LIVE_BLOCKS = [], []
 objs = []
 for lvl in range(4):
     bms, report = build(lvl)
@@ -273,6 +292,27 @@ bpy.ops.export_scene.fbx(filepath=os.path.join(OUT, 'galleass_gun_rigging.fbx'),
                          axis_forward='Y', axis_up='Z', apply_unit_scale=True, global_scale=1.0, bake_anim=False,
                          path_mode='STRIP', add_leaf_bones=False)
 print('RIG exported', os.path.join(OUT, 'galleass_gun_rigging.fbx'))
+pz = {k: v['elev']['pivot_z'] for k, v in DIMS.items()}
+for r in LIVE:                                              # barrel ends in the barrel's frame (origin on the trunnions)
+    if r['on_barrel']:
+        kind = 'galleass_' + next(g['kind'] for g in PLACES if 'gun_' + g['name'] == r['gun'])
+        r['end_local'][2] -= pz[kind]
+json.dump({'ropes': LIVE, 'blocks': LIVE_BLOCKS}, open(os.path.join(HERE, 'ref', 'galleass_gun_ropes.json'), 'w'), indent=1)
+print('RIG live: %d ropes, %d running blocks -> ref/galleass_gun_ropes.json' % (len(LIVE), len(LIVE_BLOCKS)))
+
+# the running block in its own frame: y = 'along' (towards the carriage ring), x = 'across' (sheave axis), scale 1 =
+# a falcon's block (bl 0.15); its strop runs on to the ring (0.05 beyond the block's end)
+bl = 0.15
+bmw, bmr = bmesh.new(), bmesh.new()
+rg.block(bmw, Vector((0, 0, 0)), Vector((0, 1, 0)), Vector((1, 0, 0)), bl, bl * 0.62, bl * 0.42)
+rg.rope(bmr, [Vector((0, bl * 0.45, 0)), Vector((0, bl / 2 + 0.05, 0))], 0.016 * 0.6, segs=5)
+blk = to_object({'wood': bmw, 'rope': bmr}, 'galleass_tackle_block')
+bpy.ops.object.select_all(action='DESELECT'); blk.select_set(True); bpy.context.view_layer.objects.active = blk
+bpy.ops.export_scene.fbx(filepath=os.path.join(OUT, 'galleass_tackle_block.fbx'), use_selection=True,
+                         object_types={'MESH'}, use_mesh_modifiers=True, mesh_smooth_type='FACE', use_tspace=False,
+                         axis_forward='Y', axis_up='Z', apply_unit_scale=True, global_scale=1.0, bake_anim=False,
+                         path_mode='STRIP', add_leaf_bones=False)
+print('RIG exported galleass_tackle_block.fbx: %d tris' % sum(len(p.vertices) - 2 for p in blk.data.polygons))
 
 # ---------------------------------------------------------------- check renders
 if RENDERS:

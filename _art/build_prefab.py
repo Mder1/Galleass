@@ -1295,6 +1295,46 @@ for _k in ('culverin', 'falcon', 'falconet'):                   # refuses to bui
     for _suf in ('', '_barrel', '_quoin', '_lashing', '_fuse'):   # (GALLEASS_TEST_BUILD=1: test build without them)
         if not os.environ.get('GALLEASS_TEST_BUILD'):
             kit_submeshes('galleass_' + _k + _suf, None)
+if not os.environ.get('GALLEASS_TEST_BUILD'):
+    kit_submeshes('galleass_tackle_block', None)
+# live gun ropes (gun_rigging.py -> ref/galleass_gun_ropes.json, 2026-10-15): vanilla rope entities between a static start
+# (wall ring / standing block) and an end at the gun's rest position; on the gun an attachment entity 'rope_att_<rope>'
+# (gun root or barrel) the gunnery add-on points the rope's end at, so the rope follows recoil, traverse and elevation
+GUN_ROPES = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ref', 'galleass_gun_ropes.json')))
+ROPE_TINT, ROPE_ARG2 = '0.932, 0.851, 0.666, 1.000', ('0.232', '0.170', '0.762')
+
+def euler_from_axes(s_, f_):
+    """Bannerlord rotation_euler (Mat3.GetEulerAngles) for local x = s_, y = f_ (parent coordinates)."""
+    u_ = [s_[1] * f_[2] - s_[2] * f_[1], s_[2] * f_[0] - s_[0] * f_[2], s_[0] * f_[1] - s_[1] * f_[0]]
+    n = math.sqrt(sum(v * v for v in u_)); u_ = [v / n for v in u_]
+    s2 = [f_[1] * u_[2] - f_[2] * u_[1], f_[2] * u_[0] - f_[0] * u_[2], f_[0] * u_[1] - f_[1] * u_[0]]   # s = f x u
+    return (math.asin(max(-1.0, min(1.0, f_[2]))), math.atan2(-s2[2], u_[2]), math.atan2(-f_[0], f_[1]))
+
+def rope_entity(gun, r):
+    seed = 'gunrope/%s/%s' % (gun, r['name'])
+    grp = new_entity('gunrope_%s__%s' % (gun, r['name']), seed)
+    st = new_entity('rope_start', seed + '/start'); write_tf(st, pos=r['start'], rot=(0.0, 0.0, 0.0))
+    st.append(tags('simple_rope_start', 'gun_rope_start')); st.append(mobility())
+    st.append(el('scripts', None, el('script', {'name': 'rope_segment'},
+        el('prefab_link', None, el('instance', {'guid': guid(seed + '/script')}), el('prefab', {'guid': ZERO})),
+        el('variables', None, *[el('variable', {'name': k, 'type_name': t, 'value': v}) for k, t, v in (
+            ('Default Rope Length', 'float', '25.900'), ('Is Fixed', 'bool', '1'), ('Loose Amount', 'float', '%.3f' % r['loose']),
+            ('Segment Index', 'int', '0'), ('Uses Physics Body', 'bool', '0'), ('Swing Multiplier', 'float', '0.300'))]))))
+    length = math.dist(r['start'], r['end'])
+    misc = el('misc', None, el('material', {'type_name': 'string', 'value': 'ship_ropes'}),
+              el('factor_color', {'type_name': 'vec4', 'value': ROPE_TINT}),
+              el('vector_argument_x', {'type_name': 'float', 'value': '%.3f' % length}),
+              el('vector_argument_y', {'type_name': 'float', 'value': '25.900'}),
+              el('vector_argument_z', {'type_name': 'float', 'value': '1.000'}),
+              el('vector_argument_w', {'type_name': 'float', 'value': '%.3f' % r['radius']}),
+              *[el('vector_argument_2_' + a, {'type_name': 'float', 'value': v}) for a, v in zip('xyz', ROPE_ARG2)])
+    st.append(el('components', None, el('meta_mesh_component', {'name': 'sail_rope_pile'},
+        el('prefab_link', None, el('instance', {'guid': guid(seed + '/mmc')}), el('prefab', {'guid': ZERO})),
+        el('children', None, el('mesh', {'name': 'sail_rope_pile'}, misc)))))
+    en = new_entity('rope_end', seed + '/end'); write_tf(en, pos=r['end'], rot=(0.0, 0.0, 0.0))
+    en.append(tags('simple_rope_end', 'gun_rope_end')); en.append(mobility())
+    grp.append(mobility()); grp.append(el('children', None, st, en))
+    return grp
 def gun_part(g, name, tag, mesh, pos, children=()):
     p = new_entity(name, 'gun/%s/%s' % (g['name'], name))
     write_tf(p, pos=pos, rot=(0.0, 0.0, 0.0))
@@ -1312,11 +1352,30 @@ def gun_entity(g):
                 el('move_to_batched_kinematic', {'type_name': 'bool', 'value': '1'})))
     e.append(tags('galleass_gun', 'galleass_gun_' + g['kind']))
     e.append(mobility()); e.append(mesh_component('gun/' + g['name'], mesh))
+    ent = 'gun_' + g['name']
+    def att(r):                                                # rope end attachment (no mesh)
+        a = new_entity('rope_att_' + r['name'], 'gun/%s/att/%s' % (g['name'], r['name']))
+        write_tf(a, pos=r['end_local'], rot=(0.0, 0.0, 0.0)); a.append(tags('gun_rope_att')); a.append(mobility())
+        return a
+    ropes = [r for r in GUN_ROPES['ropes'] if r['gun'] == ent]
     fz = gun_part(g, 'fuse', 'gun_fuse', mesh + '_fuse', (0.0, 0.0, 0.0))
-    barrel = gun_part(g, 'barrel', 'gun_barrel', mesh + '_barrel', (0.0, 0.0, GUN_DIMS[mesh]['elev']['pivot_z']), [fz])
+    barrel = gun_part(g, 'barrel', 'gun_barrel', mesh + '_barrel', (0.0, 0.0, GUN_DIMS[mesh]['elev']['pivot_z']),
+                      [fz] + [att(r) for r in ropes if r['on_barrel']])
     quoin = gun_part(g, 'quoin', 'gun_quoin', mesh + '_quoin', (0.0, 0.0, 0.0))
     lashing = gun_part(g, 'lashing', 'gun_lashing', mesh + '_lashing', (0.0, 0.0, 0.0))
-    e.append(el('children', None, barrel, quoin, lashing))
+    blocks = []
+    for b in [b for b in GUN_ROPES['blocks'] if b['gun'] == ent]:   # running tackle blocks ride the carriage
+        be = new_entity(b['name'], 'gun/%s/%s' % (g['name'], b['name']))
+        t = ET.Element('transform')
+        ET.SubElement(t, 'position', type_name='vec3', value='%.3f, %.3f, %.3f' % tuple(b['pos_local']))
+        ET.SubElement(t, 'rotation_euler', type_name='vec3',
+                      value='%.4f, %.4f, %.4f' % euler_from_axes(b['across_local'], b['along_local']))
+        ET.SubElement(t, 'scale', type_name='vec3', value='%.3f, %.3f, %.3f' % ((b['scale'],) * 3))
+        be.insert(1, t)
+        be.append(tags('gun_tackle_block')); be.append(mobility())
+        be.append(mesh_component('gun/%s/%s' % (g['name'], b['name']), 'galleass_tackle_block'))
+        blocks.append(be)
+    e.append(el('children', None, barrel, quoin, lashing, *blocks, *[att(r) for r in ropes if not r['on_barrel']]))
     return e
 GUN_PLACES = gun_layout.placements(G, GUN_DIMS)
 gg = new_entity('galleass_guns', 'guns')
@@ -1326,7 +1385,16 @@ rig = new_entity('gun_rigging', 'guns/rigging')
 write_tf(rig, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0))
 rig.append(tags('galleass_gun_rigging')); rig.append(mobility())
 rig.append(mesh_component('guns/rigging', 'galleass_gun_rigging'))
-gg.append(mobility()); gg.append(el('children', None, *[gun_entity(g) for g in GUN_PLACES], rig))
+# the live ropes, in the ship's frame under one holder; vanilla's CosmeticRopeManager hides them beyond 100 m and
+# draws them straight beyond 45 m (as for the ships' own cosmetic ropes)
+gropes = new_entity('galleass_gun_ropes', 'guns/ropes')
+write_tf(gropes, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0))
+gropes.append(tags('galleass_gun_ropes')); gropes.append(mobility())
+gropes.append(el('scripts', None, el('script', {'name': 'CosmeticRopeManager'},
+    el('prefab_link', None, el('instance', {'guid': guid('guns/ropes/script')}), el('prefab', {'guid': ZERO})))))
+gropes.append(el('children', None, *[rope_entity(r['gun'], r) for r in GUN_ROPES['ropes']]))
+gg.append(mobility()); gg.append(el('children', None, *[gun_entity(g) for g in GUN_PLACES], rig, gropes))
+report.append('gun ropes: %d live ropes, %d running blocks' % (len(GUN_ROPES['ropes']), len(GUN_ROPES['blocks'])))
 
 # standing rigging (re-rig phase 2, standing_rig.py): shrouds abaft the masts with tackles + the tie tackles, one mesh
 # in the ship's frame, no collision
