@@ -1,16 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- No shield upgrades on the galleass: a 16th-century galleass has high bulwarks instead of shield rows.
-     galleass_side = vanilla 'side' minus the northern/southern shields (arrow brazier only);
+     No side slot any more (2026-10-15): the fire-arrow brazier went with the arrow crates to free the deck for the
+     guns' powder kegs and shot racks (user); galleass_deck = vanilla 'deck' minus the arrow / bolt / javelin crates.
      No fore slot (ballistas/siphon) and no aft slot (battlements): the galleass's guns come from the separate
      cannon project (three batteries, user 2026-10-07). -->
 <ShipSlots>
 	<ShipSlot
-		id="galleass_side"
-		type_id="side"
+		id="galleass_deck"
+		type_id="deck"
 		prefab_id="wood">
 		<ShipUpgradePieces>
 			<ShipUpgradePiece
-				id="side_brazier" />
+				id="deck_tent_lvl1" />
+			<ShipUpgradePiece
+				id="deck_tent_lvl2" />
+			<ShipUpgradePiece
+				id="deck_tent_lvl3" />
+			<ShipUpgradePiece
+				id="deck_storm_cover_lvl2" />
+			<ShipUpgradePiece
+				id="deck_heavy_storm_cover_lvl3" />
+			<ShipUpgradePiece
+				id="deck_boarding_weapons_lvl1" />
+			<ShipUpgradePiece
+				id="deck_boarding_weapons_lvl2" />
+			<ShipUpgradePiece
+				id="deck_boarding_weapons_lvl3" />
 		</ShipUpgradePieces>
 	</ShipSlot>
 </ShipSlots>

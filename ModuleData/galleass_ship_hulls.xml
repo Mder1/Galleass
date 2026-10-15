@@ -28,10 +28,7 @@
 				id="hull"
 				tag_id="hull" />
 			<ShipSlot
-				id="galleass_side"
-				tag_id="side" />
-			<ShipSlot
-				id="deck"
+				id="galleass_deck"
 				tag_id="deck" />
 			<ShipSlot
 				id="oars"
