@@ -8,11 +8,11 @@ the add-on only interpolates a table. Profile coordinates: y from the base ring'
 
 QUOIN per gun: zb = bed top under the quoin (culverin: a stool block on its bed plank; falcons: under_base - zb_below), s = slope of
 the wedge's top (rise per metre towards the thick end), L = length, yt = thick end's y at zero elevation, elevation
-range in degrees (culverin: the round port leaves only ~+-2.3 deg; falcons: carriage clearance)."""
+range in degrees (culverin: -3..+6 since its ports became tall slots, 2026-10-15; falcons: carriage clearance)."""
 import math
 
 QUOIN = {
-    'galleass_culverin': dict(zb=0.45, s=0.30, L=0.55, yt=-0.22, emin=-2.0, emax=2.0),
+    'galleass_culverin': dict(zb=0.38, s=0.60, L=0.45, yt=-0.18, emin=-3.0, emax=6.0),   # stadium ports (2026-10-15)
     'galleass_falcon': dict(zb_below=0.11, s=0.35, L=0.40, yt=-0.16, emin=-2.0, emax=4.0),
     'galleass_falconet': dict(zb_below=0.098, s=0.35, L=0.30, yt=-0.10, emin=-2.0, emax=5.0),
 }

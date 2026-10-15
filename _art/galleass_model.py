@@ -77,7 +77,10 @@ FC_Z_BASE = 2.15
 FC_RAISE = 0.9
 FC_Z_PLATFORM, FC_Z_PARAPET, FC_Z_RAIL = 3.9 + FC_RAISE, 5.3 + FC_RAISE, 6.0 + FC_RAISE
 FC_EMB_SILL, FC_EMB_TOP, FC_EMB_W = 4.3 + FC_RAISE, 5.0 + FC_RAISE, 0.8
-FC_PORT_Z = 3.1                          # round ports of the ground floor (rings stay under the gilt moulding)
+FC_PORT_Z = 3.1                          # culverin axis height at the ground-floor ports
+# culverin ports (user 2026-10-15): tall rounded slots (stadium) for elevations -3..+6 deg - the barrel through the
+# 0.35 m wall needs -0.30..+0.42 about the axis and +-0.23 across; top 3.52 stays just under the gilt moulding (3.53)
+FC_PORT_W, FC_PORT_H, FC_PORT_DZ = 0.46, 0.72, 0.06   # width, height, centre above the axis
 FC_GUN_DEGS = (-90, -45, 0, 45, 90)
 # round gun ports of the lower tier: (bearing on the wall, gun heading), deg, + = starboard. The three culverins stand
 # side by side, nearly parallel (2026-10-13, fc_gun_layout.py layout_H: radial guns collide), so the side ports are
@@ -306,6 +309,41 @@ def flat_annulus(name, fn, ry_i, rz_i, ry_o, rz_o, d0, d1, role, K=64, collectio
                       ((ry_i, rz_i, d0), (ry_o, rz_o, d0), (ry_o, rz_o, d1), (ry_i, rz_i, d1))])
     for k in range(K):
         a, b = rings[k], rings[(k + 1) % K]
+        for j in range(4):
+            bm.faces.new((a[j], a[(j + 1) % 4], b[(j + 1) % 4], b[j]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return obj_from_bm(bm, name, role, collection)
+
+def stadium_pts(w2, h2, K=48):
+    """Outline (u, v) of a stadium (rounded slot) of half width w2, half height h2 >= w2, counter-clockwise."""
+    pts, c = [], h2 - w2
+    for k in range(K // 2 + 1):                            # top half circle, right -> left
+        a = math.pi * k / (K // 2)
+        pts.append((w2 * math.cos(a), c + w2 * math.sin(a)))
+    for k in range(K // 2 + 1):                            # bottom half circle, left -> right
+        a = math.pi + math.pi * k / (K // 2)
+        pts.append((w2 * math.cos(a), -c + w2 * math.sin(a)))
+    return pts
+
+def stadium_prism(name, fn, w2, h2, d0, d1, role='dark', collection='cutters'):
+    """Solid stadium prism, fn(u, v, d) as for flat_annulus (d = along the prism's axis)."""
+    bm = bmesh.new(); out = stadium_pts(w2, h2)
+    lo = [bm.verts.new(fn(u, v, d0)) for u, v in out]; hi = [bm.verts.new(fn(u, v, d1)) for u, v in out]
+    bm.faces.new(lo); bm.faces.new(list(reversed(hi)))
+    for k in range(len(out)):
+        bm.faces.new((lo[k], hi[k], hi[(k + 1) % len(out)], lo[(k + 1) % len(out)]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return obj_from_bm(bm, name, role, collection)
+
+def stadium_band(name, fn, w2, h2, o_in, o_out, d0, d1, role, collection='parts'):
+    """Flat band round a stadium outline, from o_in to o_out outside it, spanning d0..d1 (a tube when d0..d1 runs
+    along the axis: lining sleeve; a flat ring when it is a thin depth: gilt ring)."""
+    bm = bmesh.new()
+    a_in, a_out = stadium_pts(w2 + o_in, h2 + o_in), stadium_pts(w2 + o_out, h2 + o_out)
+    rings = [[bm.verts.new(fn(*p, d)) for p, d in ((a_in[k], d0), (a_out[k], d0), (a_out[k], d1), (a_in[k], d1))]
+             for k in range(len(a_in))]
+    for k in range(len(rings)):
+        a, b = rings[k], rings[(k + 1) % len(rings)]
         for j in range(4):
             bm.faces.new((a[j], a[(j + 1) % 4], b[(j + 1) % 4], b[j]))
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
@@ -886,6 +924,7 @@ def stairs(name, x0, x1, y_bottom, z_bottom, y_top, z_top, role='trim', step=0.2
             y = y_bottom + (y_top - y_bottom) * t; z = z_bottom + (z_top - z_bottom) * t
             box(f'{name}_post', x - 0.04, x + 0.04, y - 0.04, y + 0.04, z, z + 0.95, role)
 
+FC_RINGS = []
 def build_forecastle():
     lower = horseshoe_wall('fc_lower', FC_Z_BASE, FC_Z_PLATFORM, 0.35, 'paint')
     cuts = []
@@ -893,19 +932,26 @@ def build_forecastle():
         x, y = fc_point(deg, fc_radius(FC_PORT_Z))       # where the gun's axis leaves the wall's outer face
         a = math.radians(90 - deg)
         ah = math.radians(90 - heading)
-        cuts.append(cutter_cyl(x, y, FC_PORT_Z, 0.22, 1.2, (math.pi / 2, 0, ah - math.pi / 2)))
+        n = (math.cos(ah), math.sin(ah), 0)
+        u_ax = (n[1], -n[0], 0.0)                         # across the gun axis, horizontal
+        zc = FC_PORT_Z + FC_PORT_DZ
+        along = lambda u, v, d, x=x, y=y, n=n, u_ax=u_ax, zc=zc: (x + u_ax[0] * u + n[0] * d, y + u_ax[1] * u + n[1] * d, zc + v)
+        w2, h2 = FC_PORT_W / 2, FC_PORT_H / 2
+        cuts.append(stadium_prism('cut', along, w2, h2, -0.6, 0.6))
         # sleeve along the gun axis, made long and trimmed to the wall's volume: both ends flush with the wall faces
         # whatever the skew (user 2026-10-13: the set-back sleeve stuck out into the room)
-        n = (math.cos(ah), math.sin(ah), 0)
-        sl = round_lining('fc_port_lining', (x + n[0] * 0.3, y + n[1] * 0.3, FC_PORT_Z), n, 0.22, 0.35 + 0.6, lip=0.0)
-        vol = horseshoe_wall('fc_port_wall_volume', FC_PORT_Z - 0.4, FC_PORT_Z + 0.4, 0.35, 'dark')
+        sl = stadium_band('fc_port_lining', along, w2, h2, -0.03, 0.0, -0.95 + 0.3, 0.3, 'trim')
+        vol = horseshoe_wall('fc_port_wall_volume', zc - h2 - 0.1, zc + h2 + 0.1, 0.35, 'dark')
         for c in list(vol.users_collection): c.objects.unlink(vol)
         coll('cutters').objects.link(vol)
         PARTS[:] = [pr for pr in PARTS if pr[0] is not vol]      # a helper volume, not a model part
         m = sl.modifiers.new('trim', 'BOOLEAN'); m.object = vol; m.operation = 'INTERSECT'; m.solver = 'EXACT'
         R = fc_radius(FC_PORT_Z)
-        fn = lambda u, v, dd, a=a: ((R + dd) * math.cos(a + u / R), FC_CY + (R + dd) * math.sin(a + u / R), FC_PORT_Z + v)
-        flat_annulus('fc_port_ring', fn, 0.29, 0.29, 0.35, 0.35, -0.01, 0.05, 'gilt')
+        fn = lambda u, v, dd, a=a, zc=zc: ((R + dd) * math.cos(a + u / R), FC_CY + (R + dd) * math.sin(a + u / R), zc + v)
+        # gilt ring round the slot (in the wall's own surface, so it follows the curve), joined with the moulding
+        # where it crosses it (FC_RING below)
+        FC_RINGS.append((stadium_band('fc_port_ring', fn, w2, h2, 0.07, 0.13, -0.01, 0.05, 'gilt', 'cutters'),
+                         stadium_prism('fc_ring_hole', fn, w2 + 0.07, h2 + 0.07, -0.06, 0.1)))
     subtract(lower, cuts)
     horseshoe_slab('fc_floor_low', fc_radius(FC_Z_BASE) - 0.35, FC_Z_BASE + 0.01, Z_GUN_DECK, 'deck')   # inside the wall, 1 cm up: no shared plane
     horseshoe_slab('fc_platform', fc_radius(FC_Z_PLATFORM) - 0.05, FC_Z_PLATFORM - 0.15, FC_Z_PLATFORM, 'deck')
@@ -926,7 +972,12 @@ def build_forecastle():
     # mouldings: band at the platform level and cap of the parapet (no railing on top, user 2026-10-06)
     for name, (z0, z1, out, thick, role) in BANDS.items():   # same lines as along the side
         # start at the box end wall's band (butt joint, no overlapping band volumes)
-        horseshoe_wall(f'fc_{name}', z0, z1, thick, role, grow=out, y_back=WING_Y1 + out)
+        band = horseshoe_wall(f'fc_{name}', z0, z1, thick, role, grow=out, y_back=WING_Y1 + out)
+        if name == 'moulding':                           # culverin port rings: one gilt band with the moulding
+            for i, (ring, hole) in enumerate(FC_RINGS):
+                md = band.modifiers.new(f'ring{i}', 'BOOLEAN'); md.object = ring; md.operation = 'UNION'; md.solver = 'EXACT'
+                md = band.modifiers.new(f'hole{i}', 'BOOLEAN'); md.object = hole; md.operation = 'DIFFERENCE'; md.solver = 'EXACT'
+            FC_RINGS.clear()
     # soffit: one plain timber underside of the overhang, from the hull out to the rub rail's outer face,
     # just below the rail (hides the wall bottom and the skirt edge)
     rz0 = BANDS['rub_rail'][0]

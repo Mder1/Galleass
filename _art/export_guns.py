@@ -196,19 +196,21 @@ for g in GUNS:
     export(bo.name, [bo])
     for x in done + [f]:
         x.data.name = x.name                                   # FBX geometry names = datablock names, no dots
-# round shot for the gunnery add-on's cannonball item (one mesh for all calibres - in flight nobody sees the size):
-# iron ball r 0.06 (falcon da 6 ~7.6 cm, culverin da 14 ~12 cm), material galleass_iron
-bm = bmesh.new(); bmesh.ops.create_uvsphere(bm, u_segments=16, v_segments=10, radius=0.06)
-me = bpy.data.meshes.new('galleass_shot'); bm.to_mesh(me); bm.free()
-me.materials.append(kit_mat('galleass_iron'))
-uv = me.uv_layers.new(name='UVMap')
-for poly in me.polygons:
-    for li in poly.loop_indices:
-        co = me.vertices[me.loops[li].vertex_index].co
-        uv.data[li].uv = (math.atan2(co.y, co.x) / (2 * math.pi) * 0.2, co.z * 2.0)
-col = me.color_attributes.new('Col', 'BYTE_COLOR', 'CORNER')
-for d in col.data: d.color = (1, 1, 1, 1)
-for poly in me.polygons: poly.use_smooth = True
-shot = bpy.data.objects.new('galleass_shot', me); bpy.context.scene.collection.objects.link(shot)
-export('galleass_shot', [shot])
+# round shot for the gunnery add-on's shot items, one iron ball per calibre (material galleass_iron):
+# culverin da 14 ~12 cm (galleass_shot, the first one), falcon da 6 ~7.6 cm, falconet ~5.3 cm (bores 12.4 / 8.0 / 5.6)
+for name, r, segs in (('galleass_shot', 0.06, (16, 10)), ('galleass_shot_falcon', 0.038, (14, 9)),
+                      ('galleass_shot_falconet', 0.0265, (12, 8))):
+    bm = bmesh.new(); bmesh.ops.create_uvsphere(bm, u_segments=segs[0], v_segments=segs[1], radius=r)
+    me = bpy.data.meshes.new(name); bm.to_mesh(me); bm.free()
+    me.materials.append(kit_mat('galleass_iron'))
+    uv = me.uv_layers.new(name='UVMap')
+    for poly in me.polygons:
+        for li in poly.loop_indices:
+            co = me.vertices[me.loops[li].vertex_index].co
+            uv.data[li].uv = (math.atan2(co.y, co.x) / (2 * math.pi) * 0.2, co.z / r * 0.12)
+    col = me.color_attributes.new('Col', 'BYTE_COLOR', 'CORNER')
+    for d in col.data: d.color = (1, 1, 1, 1)
+    for poly in me.polygons: poly.use_smooth = True
+    shot = bpy.data.objects.new(name, me); bpy.context.scene.collection.objects.link(shot)
+    export(name, [shot])
 print('guns exported to', out)
