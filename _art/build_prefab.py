@@ -1283,11 +1283,25 @@ os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'renders'),
 json.dump([(b.get('name'), tf(b)[0], tf(b)[1], float(b.find('transform/scale').get('value').split(',')[0])) for b in bl],
           open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'renders', 'banners.json'), 'w'))
 
-# --- guns (cannon project, 2026-10-13): static models for now - 24 guns at their ports (gun_layout.py, shared with the
-# Blender preview), each with its collision body (bo_galleass_<gun>: carriage + barrel hulls) and the priming fuse as a
-# child entity (tag gun_fuse; the gun DLL may hide it after a shot). No mission code: firing comes with the DLL.
+# --- guns (cannon project, 2026-10-13): 24 guns at their ports (gun_layout.py, shared with the Blender preview), each
+# with its collision body (bo_galleass_<gun>: carriage + barrel hulls). Static as art; the moving parts (2026-10-15)
+# are child entities the gunnery add-on drives (no mission code here): 'barrel' on the trunnion axis (tag gun_barrel;
+# elevation = its rotation about x) carrying the priming 'fuse' (tag gun_fuse, hidden after a shot), the 'quoin'
+# (tag gun_quoin, slides along y by the table in galleass_guns.json 'elev') and the cascabel 'lashing' (tag
+# gun_lashing, cast off in action).
 import gun_layout
 GUN_DIMS = gun_layout.load_dims()
+for _k in ('culverin', 'falcon', 'falconet'):                   # refuses to build before the Kit has the split meshes
+    for _suf in ('', '_barrel', '_quoin', '_lashing', '_fuse'):   # (GALLEASS_TEST_BUILD=1: test build without them)
+        if not os.environ.get('GALLEASS_TEST_BUILD'):
+            kit_submeshes('galleass_' + _k + _suf, None)
+def gun_part(g, name, tag, mesh, pos, children=()):
+    p = new_entity(name, 'gun/%s/%s' % (g['name'], name))
+    write_tf(p, pos=pos, rot=(0.0, 0.0, 0.0))
+    p.append(tags(tag)); p.append(mobility()); p.append(mesh_component('gun/%s/%s' % (g['name'], name), mesh))
+    if children:
+        p.append(el('children', None, *children))
+    return p
 def gun_entity(g):
     mesh = 'galleass_' + g['kind']
     e = new_entity('gun_' + g['name'], 'gun/' + g['name'])
@@ -1298,10 +1312,11 @@ def gun_entity(g):
                 el('move_to_batched_kinematic', {'type_name': 'bool', 'value': '1'})))
     e.append(tags('galleass_gun', 'galleass_gun_' + g['kind']))
     e.append(mobility()); e.append(mesh_component('gun/' + g['name'], mesh))
-    fz = new_entity('fuse', 'gun/%s/fuse' % g['name'])
-    write_tf(fz, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0))
-    fz.append(tags('gun_fuse')); fz.append(mobility()); fz.append(mesh_component('gun/%s/fuse' % g['name'], mesh + '_fuse'))
-    e.append(el('children', None, fz))
+    fz = gun_part(g, 'fuse', 'gun_fuse', mesh + '_fuse', (0.0, 0.0, 0.0))
+    barrel = gun_part(g, 'barrel', 'gun_barrel', mesh + '_barrel', (0.0, 0.0, GUN_DIMS[mesh]['elev']['pivot_z']), [fz])
+    quoin = gun_part(g, 'quoin', 'gun_quoin', mesh + '_quoin', (0.0, 0.0, 0.0))
+    lashing = gun_part(g, 'lashing', 'gun_lashing', mesh + '_lashing', (0.0, 0.0, 0.0))
+    e.append(el('children', None, barrel, quoin, lashing))
     return e
 GUN_PLACES = gun_layout.placements(G, GUN_DIMS)
 gg = new_entity('galleass_guns', 'guns')

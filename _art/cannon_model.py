@@ -18,6 +18,7 @@ RENDER_DIR = argv[1] if len(argv) > 1 else None
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gun_profiles import *                           # AXIS_H, CV, FALCON(ET), profiles, reliefs
 import rope_geom as rg
+import gun_elevation as gel
 
 # ---------------------------------------------------------------- Blender helpers
 ROLE_COL = {'fuse': (0.30, 0.22, 0.12, 1), 'bronze': (0.62, 0.45, 0.18, 1), 'bronze_trim': (0.62, 0.45, 0.18, 1), 'wood': (0.36, 0.24, 0.14, 1), 'iron': (0.16, 0.16, 0.17, 1), 'rope': (0.55, 0.45, 0.30, 1),
@@ -193,14 +194,29 @@ def vent_and_fuse(tag, parts, y, r_top, ah, scale, shift_y):
     coll('guns').objects.link(f)
     return f
 
+# Moving parts (gunnery add-on, 2026-10-15): export_guns.py splits every gun by the face attribute 'part' into the
+# carriage (0), the barrel on its trunnions (1: barrel, bore, trunnions, vent, breeching collar), the sliding quoin (2)
+# and the lashing (3: cascabel lashing, cast off in action).
+PART_GROUPS = {'barrel': 1, 'bore': 1, 'trunnion': 1, 'vent_boss': 1, 'vent': 1, 'breeching_collar': 1,
+               'quoin': 2, 'quoin_handle': 2, 'lashing': 3}
+
+def part_group(tag, name):
+    return PART_GROUPS.get(name.split('.')[0][len(tag) + 1:], 0)
+
 def join(tag, parts, shift_y, collection):
-    """One object per gun (multi-material); parts moved by shift_y so the trunnions sit at y 0."""
+    """One object per gun (multi-material); parts moved by shift_y so the trunnions sit at y 0. Faces carry the
+    integer attribute 'part' (PART_GROUPS)."""
     bm = bmesh.new(); mats = list(MATS.values())
+    lay = bm.faces.layers.int.new('part')
     for p in parts:
         me = p.data.copy()
         idx = mats.index(p.data.materials[0])
         for poly in me.polygons: poly.material_index = idx
-        bm.from_mesh(me); bpy.data.meshes.remove(me); bpy.data.objects.remove(p)
+        n0 = len(bm.faces)
+        bm.from_mesh(me); bm.faces.ensure_lookup_table()
+        grp = part_group(tag, p.name)
+        for f in bm.faces[n0:]: f[lay] = grp
+        bpy.data.meshes.remove(me); bpy.data.objects.remove(p)
     bmesh.ops.translate(bm, verts=bm.verts, vec=(0, shift_y, 0))
     me = bpy.data.meshes.new(tag); bm.to_mesh(me); bm.free()
     for m in mats: me.materials.append(m)
@@ -225,6 +241,20 @@ def rope_part(name, build):
 def rig_point(p, ty):
     """Profile coordinates -> the exported gun frame (trunnions at y 0)."""
     return [float(p[0]), float(p[1] - ty), float(p[2])]
+
+def quoin_parts(tag, qn, half_w, handle_k=1.0):
+    """Wedge (thick end at qn.yt, to the rear) + a short handle sticking out of the thick end."""
+    zb = qn.zb
+    w = [(qn.yt, zb), (qn.yt + qn.L, zb), (qn.yt + qn.L, zb + qn.hthin), (qn.yt, zb + qn.ht)]
+    hz = zb + qn.ht * 0.55
+    return [plank_yz(f'{tag}_quoin', -half_w, half_w, w, 'wood'),
+            box(f'{tag}_quoin_handle', -0.025 * handle_k, 0.025 * handle_k, qn.yt - 0.10 * handle_k, qn.yt + 0.01,
+                hz - 0.02 * handle_k, hz + 0.02 * handle_k, 'wood')]
+
+def elev_info(qn):
+    """For the add-on (galleass_guns.json 'elev'): trunnion pivot height in the gun frame (y 0), elevation limits and
+    the quoin's slide (m, + = pulled back, i.e. towards -y of the gun) per elevation."""
+    return {'pivot_z': qn.tz, 'min_deg': qn.emin, 'max_deg': qn.emax, 'quoin': qn.table()}
 
 # ---------------------------------------------------------------- culverin barrel + sledge bed
 def build_culverin(tag='galleass_culverin'):
@@ -301,17 +331,11 @@ def build_culverin(tag='galleass_culverin'):
     # bed plank on the transoms and the elevation quoin (cuneo) under the breech
     bed_top = AXIS_H - 0.46
     parts.append(box(f'{tag}_bed', -xi, xi, y_rear + 0.02, ty - 0.30, bed_top - 0.06, bed_top, 'wood'))
-    under_base = AXIS_H - CV['r_breech'] - 0.016 - 0.004                 # bottom of the base ring
-    q = bmesh.new(); qw = 0.15
-    qv = [q.verts.new(c) for c in (
-        (-qw, -0.12, bed_top), (qw, -0.12, bed_top), (qw, 0.62, bed_top), (-qw, 0.62, bed_top),
-        (-qw, -0.12, under_base + 0.012), (qw, -0.12, under_base + 0.012), (qw, 0.62, under_base - 0.05),
-        (-qw, 0.62, under_base - 0.05))]
-    for f in ((0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)):
-        q.faces.new([qv[i] for i in f])
-    bmesh.ops.recalc_face_normals(q, faces=q.faces)
-    parts.append(obj_from_bm(q, f'{tag}_quoin', 'wood', sharp=30))
-    parts.append(box(f'{tag}_quoin_handle', -0.03, 0.03, -0.24, -0.12, under_base - 0.05, under_base - 0.01, 'wood'))
+    # the quoin: a wedge on the bed, thick end to the rear, touching the barrel at zero elevation (gun_elevation.py
+    # solves its slide for every elevation; the add-on slides it)
+    qn = gel.Quoin(tag, prof, AXIS_H, ty, tz, gel.QUOIN[tag]['zb'])
+    parts.append(box(f'{tag}_stool', -0.17, 0.17, y_rear + 0.04, qn.yt + qn.L + 0.25, bed_top, qn.zb, 'wood'))
+    parts += quoin_parts(tag, qn, 0.15)
 
     # cascabel lashing (user 2026-10-13: rigging that holds the gun in its bed): a seized collar round the cascabel
     # neck, two turns down each side to ringbolts on the bed behind the quoin
@@ -341,6 +365,7 @@ def build_culverin(tag='galleass_culverin'):
     vent_and_fuse(tag, parts, 0.13, CV['r_breech'] - 0.0012, AXIS_H, 1.0, -ty)
     o = join(tag, parts, -ty, 'guns')
     o['rig'] = json.dumps(rig)
+    o['elev'] = json.dumps(elev_info(qn))
     o['muzzle_y'] = L - ty; o['cascabel_y'] = -0.28 - ty
     o['front_y'] = y_front + 0.09 - ty; o['rear_y'] = y_rear - 0.06 - ty; o['half_w'] = xo + 0.1
     return o
@@ -395,7 +420,8 @@ def build_falcon(sp, tag):
                  z_seat - (z_seat - z_step) * (1 - math.cos(math.pi / 2 * k / 5))) for k in range(1, 6)]
     # level under the breech, then the trail drops in a curve to the deck
     # level under the breech, then two curved steps down and a straight run to the trail end (stepped brackets)
-    y_drop = -0.02                                           # just behind the base ring (quoin ahead of it)
+    qn = gel.Quoin(tag, prof, ah, ty, tz, under_base - gel.QUOIN[tag]['zb_below'])
+    y_drop = qn.yt                                          # level under the quoin's thick end, then the steps
     outline += [(y_drop, z_step)]
     z_tr = depth * 0.9
     dz = (z_step - z_tr) / 3
@@ -444,11 +470,8 @@ def build_falcon(sp, tag):
     parts.append(box(f'{tag}_transom_trail', -xi, xi, y_trail + 0.02, y_trail + 0.20 * ks, 0.02, depth * 0.7, 'wood'))
     # stool bed between the cheeks under the breech, the quoin (wedge) on it
     yb0, yb1 = y_drop + 0.01, 0.55 * ks
-    parts.append(box(f'{tag}_stool_bed', -xi, xi, yb0, yb1, z_step - 0.09 * ks, z_step - 0.01, 'wood'))
-    yq0, yq1 = y_drop + 0.03, 0.42 * ks
-    q = [(yq0, z_step - 0.01), (yq1, z_step - 0.01), (yq1, z_step + 0.005), (yq0, under_base + 0.002)]
-    parts.append(plank_yz(f'{tag}_quoin', -0.075 * ks, 0.075 * ks, q, 'wood'))
-    parts.append(box(f'{tag}_quoin_handle', -0.02, 0.02, yq0 - 0.08 * ks, yq0, z_step + 0.005, z_step + 0.03, 'wood'))
+    parts.append(box(f'{tag}_stool_bed', -xi, xi, yb0, yb1, qn.zb - 0.08 * ks, qn.zb, 'wood'))
+    parts += quoin_parts(tag, qn, 0.075 * ks, handle_k=0.8 * ks)
     # trail ring
     parts.append(torus_x(f'{tag}_trail_ring', 0.0, y_trail - 0.035, depth * 0.45, 0.04 * ks, 0.009, 'iron'))
     yv = 0.115 * sp['k_len']
@@ -473,11 +496,14 @@ def build_falcon(sp, tag):
                 pts.append(Vector((s * max(prof_r(prof, y) + rb_r + 0.004, rc), y, ah)))
             pts[-1] = Vector((s * x_out, y_out, ah))
             rg.rope(bm, rg.catmull(pts, 0.03), rb_r, segs=6)
+    def lashing(bm):
+        for s in (-1, 1):
             for dy in (-0.010 * ks, 0.010 * ks):
                 p0 = Vector((s * rc * 0.7, yn + dy, ah - rc * 0.7))
                 p1 = Vector((s * (xi - 0.035), y_lr + dy, z_le - 2 * lash_R))
                 rg.rope(bm, rg.catmull([p0, (p0 + p1) / 2 + Vector((s * 0.01, 0, 0)), p1], 0.04), rl, segs=6)
     parts.append(rope_part(f'{tag}_breeching_collar', collar))
+    parts.append(rope_part(f'{tag}_lashing', lashing))
     for s in (-1, 1):
         parts.append(cyl_x(f'{tag}_lash_eyebolt', min(s * xi, s * (xi - 0.03)), max(s * xi, s * (xi - 0.03)),
                            y_lr, z_le, 0.011, 'iron', segs=8))
@@ -488,6 +514,7 @@ def build_falcon(sp, tag):
     vent_and_fuse(tag, parts, yv, rv - 0.001, ah, 0.55 + 0.45 * kr, -ty)
     o = join(tag, parts, -ty, 'guns')
     o['rig'] = json.dumps(rig)
+    o['elev'] = json.dumps(elev_info(qn))
     o['muzzle_y'] = L - ty; o['cascabel_y'] = info['cascabel'] - ty; o['axis_h'] = ah
     o['front_y'] = y_front - ty; o['rear_y'] = y_trail - 0.08 - ty; o['half_w'] = xo + 0.15 * ks
     return o
@@ -562,7 +589,8 @@ if __name__ == '__main__':
     if OUT_BLEND:
         # gun dimensions for gun_layout.py (preview + prefab) and the rigging anchors for gun_rigging.py
         json.dump({o.name: {k: float(o[k]) for k in ('muzzle_y', 'cascabel_y', 'front_y', 'rear_y', 'half_w')}
-                   | {'axis_h': float(o.get('axis_h', AXIS_H)), 'rig': json.loads(o['rig'])} for o in (cv, fa, ft)},
+                   | {'axis_h': float(o.get('axis_h', AXIS_H)), 'rig': json.loads(o['rig']), 'elev': json.loads(o['elev'])}
+                   for o in (cv, fa, ft)},
                   open(os.path.splitext(OUT_BLEND)[0] + '.json', 'w'), indent=1)
         bpy.ops.wm.save_as_mainfile(filepath=OUT_BLEND)
     print('guns done')
