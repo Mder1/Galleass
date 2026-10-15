@@ -1385,6 +1385,43 @@ rig = new_entity('gun_rigging', 'guns/rigging')
 write_tf(rig, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0))
 rig.append(tags('galleass_gun_rigging')); rig.append(mobility())
 rig.append(mesh_component('guns/rigging', 'galleass_gun_rigging'))
+# gun stores (2026-10-15, stores_model.py meshes, stores_layout.py placement -> ref/galleass_stations.json): five
+# stations, each a powder keg, shot rack(s) with their balls and (falcon / falconet) scattershot baskets with their
+# bags. Balls and bags are child entities so the gunnery add-on can empty the racks as the ship's supplies run low.
+# Tags: gun_store + gun_store_<station>; powder_keg / shot_rack_<gun> / shot_basket_<gun>; store_ball / store_bag.
+if not os.environ.get('GALLEASS_TEST_BUILD'):
+    for _m in ('galleass_powder_keg', 'galleass_shot_rack_culverin', 'galleass_shot_rack_falcon', 'galleass_shot_rack_falconet',
+               'galleass_shot_basket', 'galleass_scatter_bag_falcon', 'galleass_scatter_bag_falconet',
+               'galleass_shot', 'galleass_shot_falcon', 'galleass_shot_falconet'):
+        kit_submeshes(_m, None)
+STATIONS = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ref', 'galleass_stations.json')))
+def store_entity(st, it):
+    seed = 'store/%s/%s' % (st['name'], it['name'])
+    e = new_entity(it['name'], seed)
+    write_tf(e, pos=it['pos'], rot=(0.0, 0.0, it['rot_z']))
+    kind = it['name'].split('_', 1)
+    tag = 'powder_keg' if it['name'] == 'keg' else ('shot_' + it['name']) if kind[0] in ('rack', 'basket') else it['name']
+    e.append(tags('gun_store', 'gun_store_' + st['name'], tag)); e.append(mobility())
+    e.append(mesh_component(seed, it['mesh']))
+    kids = []
+    for i, b in enumerate(it.get('balls', [])):
+        c = new_entity('ball_%d' % i, seed + '/ball/%d' % i); write_tf(c, pos=b, rot=(0.0, 0.0, 0.0))
+        c.append(tags('store_ball')); c.append(mobility()); c.append(mesh_component(seed + '/ball/%d' % i, it['ball_mesh']))
+        kids.append(c)
+    for i, b in enumerate(it.get('bags', [])):
+        c = new_entity('bag_%d' % i, seed + '/bag/%d' % i)
+        write_tf(c, pos=b[:3], rot=tuple(b[3:6]) if len(b) >= 6 else (0.0, 0.0, (i * 2.399) % (2 * math.pi)))   # heaped, askew
+        c.append(tags('store_bag')); c.append(mobility()); c.append(mesh_component(seed + '/bag/%d' % i, it['bag_mesh']))
+        kids.append(c)
+    if kids:
+        e.append(el('children', None, *kids))
+    return e
+gstores = new_entity('galleass_stores', 'guns/stores')
+write_tf(gstores, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0))
+gstores.append(tags('galleass_stores')); gstores.append(mobility())
+gstores.append(el('children', None, *[store_entity(st, it) for st in STATIONS for it in st['items']]))
+report.append('gun stores: %d stations, %d stores' % (len(STATIONS), sum(len(st['items']) for st in STATIONS)))
+
 # the live ropes, in the ship's frame under one holder; vanilla's CosmeticRopeManager hides them beyond 100 m and
 # draws them straight beyond 45 m (as for the ships' own cosmetic ropes)
 gropes = new_entity('galleass_gun_ropes', 'guns/ropes')
@@ -1393,7 +1430,7 @@ gropes.append(tags('galleass_gun_ropes')); gropes.append(mobility())
 gropes.append(el('scripts', None, el('script', {'name': 'CosmeticRopeManager'},
     el('prefab_link', None, el('instance', {'guid': guid('guns/ropes/script')}), el('prefab', {'guid': ZERO})))))
 gropes.append(el('children', None, *[rope_entity(r['gun'], r) for r in GUN_ROPES['ropes']]))
-gg.append(mobility()); gg.append(el('children', None, *[gun_entity(g) for g in GUN_PLACES], rig, gropes))
+gg.append(mobility()); gg.append(el('children', None, *[gun_entity(g) for g in GUN_PLACES], rig, gropes, gstores))
 report.append('gun ropes: %d live ropes, %d running blocks' % (len(GUN_ROPES['ropes']), len(GUN_ROPES['blocks'])))
 
 # standing rigging (re-rig phase 2, standing_rig.py): shrouds abaft the masts with tackles + the tie tackles, one mesh
