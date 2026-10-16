@@ -16,7 +16,9 @@ import tpac
 
 OUT = sys.argv[1]
 PKG = os.path.join(HERE, '..', '..', 'NavalDLC', 'EmAssetPackages', 'ship_ropes', 'ship_ropes.tpac')
-HEMP = np.array([1.22, 1.02, 0.74], np.float32)          # grey 115 -> ~(140, 117, 85): tarred hemp
+# the factor_color vanilla puts on most ship_ropes meshes (its shader multiplies it in; pbr_metallic here does not,
+# so it is baked in): static ropes match the dynamic ones (user 2026-10-16; was 1.22/1.02/0.74, lighter + warmer)
+HEMP = np.array([0.932, 0.851, 0.666], np.float32)
 FCC = {'DXT1': b'DXT1', 'DXT3': b'DXT3', 'DXT5': b'DXT5', 'BC5': b'ATI2', 'BC4': b'ATI1'}
 
 def dds(w, h, fmt, data):
