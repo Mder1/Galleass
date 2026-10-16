@@ -136,7 +136,9 @@ hull.append(el('physics', None,
                el('shape', {'type_name': 'string', 'value': 'bo_galleass'}),
                el('body_flags', None, el('body_flag', {'name': 'moveable'})),
                el('move_to_batched_kinematic', {'type_name': 'bool', 'value': '1'})))
-hull.append(tags('body_mesh', 'rope_physics_body', 'hull_water_mesh'))
+# sail_mesh_entity: in missions only entities with this tag get their 'faction_color' meshes tinted
+# (NavalMissionPrepareView.OnShipSpawned) - the painted planking galleass_paint
+hull.append(tags('body_mesh', 'rope_physics_body', 'hull_water_mesh', 'sail_mesh_entity'))
 hull.append(mobility())
 # one mesh per material role, as the Kit imported galleass_hull.fbx (no glass since the open lantern, no interior
 # since the cabin floor joined the deck mesh)
@@ -148,10 +150,13 @@ water.append(tags('render_to_depth'))
 water.append(el('misc', None, el('is_visible', {'type_name': 'bool', 'value': '0'}),
                 el('mobility', {'type_name': 'int', 'value': '1'})))
 water.append(mesh_component('deckwater', 'galleass_deckwater'))
-for x in (hull, paint, water):
+# no faction-colour overlay any more: the painted planking mesh (galleass_paint, own material) carries the
+# 'faction_color' tag itself (user 2026-10-16). GALLEASS_FACTION_PAINT=1 brings the old overlay entity back.
+with_paint = os.environ.get('GALLEASS_FACTION_PAINT', '0') == '1'
+for x in (hull, paint, water) if with_paint else (hull, water):
     ch.append(x)
 report.append('mesh_holder: %d meditheavy entities %s replaced by galleass_hull (9 meshes, bo_galleass), '
-              'galleass_faction_paint, deckwater' % (len(old), sorted(set(old))))
+              '%sdeckwater' % (len(old), sorted(set(old)), 'galleass_faction_paint, ' if with_paint else '(NO faction paint) '))
 
 # --- meditheavy-only geometry in the slot groups ----------------------------------------------------------------
 def strip_meshes(group, pred, what):

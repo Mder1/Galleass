@@ -89,13 +89,10 @@ def split_composite(name, child_fmt):
 
 GROUPS['bo_composite_conv_galleass'] = split_composite('bo_composite_conv_galleass', 'bo_galleass_conv_part%d')
 
-# the painted planking is plain wood under the faction overlay: same material as the hull planking
-# (every mesh)
-for o in bpy.data.objects:
-    if o.type == 'MESH':
-        for i, m in enumerate(o.data.materials):
-            if m is not None and m.name == 'galleass_paint':
-                o.data.materials[i] = bpy.data.materials['galleass_hull']
+# the painted planking keeps its own material galleass_paint (grey plank texture galleass_painted_plank_d, from
+# make_painted_plank_texture.py); its mesh carries the 'faction_color' tag, so the game tints the wood itself. The
+# solid overlay galleass_faction_paint is no longer exported (it hid the wood - user 2026-10-16).
+del GROUPS['galleass_faction_paint']
 
 # rudder: export in its own frame (mesh data is already local to the hinge)
 rud = [o for o in GROUPS['galleass_rudder_a']]
