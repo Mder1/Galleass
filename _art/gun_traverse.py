@@ -25,6 +25,11 @@ STEP_DEG, MAX_DEG = 0.5, 10.0                          # "slightly" (user 2026-1
 # falcons (broadside + stern chasers, 0.9 m wide ports since 2026-10-15): they turn about the carriage's front (the
 # wheels) so the muzzle sweeps across the wider port (user: use more of the port horizontally); others about the muzzle
 MAX_DEG_KIND = {'falcon': 25.0}
+# forecastle platform falconets: +-6 (2026-10-16: at +-10 their sweeps left no room on the small platform for the
+# loaders and the gun store)
+MAX_DEG_NAME = {'ft_fc_': 6.0}
+def max_deg(g):
+    return next((v for k, v in MAX_DEG_NAME.items() if g['name'].startswith(k)), MAX_DEG_KIND.get(g['kind'], MAX_DEG))
 def pivot_y(kind):
     d = DIMS['galleass_' + kind]
     return d['front_y'] if kind == 'falcon' else d['muzzle_y']
@@ -99,7 +104,7 @@ for g in PLACES:
     lim, why = {}, {}
     for sign in (1, -1):
         a = 0.0
-        while a + STEP_DEG <= MAX_DEG_KIND.get(g['kind'], MAX_DEG) + 1e-6:
+        while a + STEP_DEG <= max_deg(g) + 1e-6:
             h = clashes(g, sign * (a + STEP_DEG), others)
             if h and h != base:
                 why[sign] = h; break

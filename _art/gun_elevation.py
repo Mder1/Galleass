@@ -8,13 +8,16 @@ the add-on only interpolates a table. Profile coordinates: y from the base ring'
 
 QUOIN per gun: zb = bed top under the quoin (culverin: a stool block on its bed plank; falcons: under_base - zb_below), s = slope of
 the wedge's top (rise per metre towards the thick end), L = length, yt = thick end's y at zero elevation, elevation
-range in degrees (culverin: -3..+6 since its ports became tall slots, 2026-10-15; falcons: carriage clearance)."""
+range in degrees (culverin: -3..+6 since its ports became tall slots, 2026-10-15; falcons -10..+4, falconets -15..+5
+since 2026-10-16, front transoms lowered to clear the chase)."""
 import math
 
 QUOIN = {
     'galleass_culverin': dict(zb=0.38, s=0.60, L=0.45, yt=-0.18, emin=-3.0, emax=6.0),   # stadium ports (2026-10-15)
-    'galleass_falcon': dict(zb_below=0.11, s=0.35, L=0.40, yt=-0.16, emin=-2.0, emax=4.0),
-    'galleass_falconet': dict(zb_below=0.098, s=0.35, L=0.30, yt=-0.10, emin=-2.0, emax=5.0),
+    # falcons to -10 / falconets to -15 deg (user 2026-10-16: hit close ships): the breech rises ~0.23 / 0.2 m, so
+    # steeper, taller wedges reaching back past the cascabel (slimmest that the solver accepts within +-0.40 m slide)
+    'galleass_falcon': dict(zb_below=0.11, s=0.55, L=0.40, yt=-0.40, emin=-10.0, emax=4.0),
+    'galleass_falconet': dict(zb_below=0.08, s=0.65, L=0.30, yt=-0.30, emin=-15.0, emax=5.0),
 }
 STEP_DEG = 0.5
 

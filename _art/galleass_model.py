@@ -54,7 +54,7 @@ WING_Z0, WING_Z_FACE = -0.5, 0.95         # flare leaves the hull (just below th
 
 # broadside gunports in the gun-deck bulwark (cannons)
 GUNPORTS_PER_SIDE = 5
-GP_SILL, GP_TOP, GP_W = 2.85, 3.45, 0.6   # the cabin's falconet ports
+GP_SILL, GP_TOP, GP_W = 2.75, 3.45, 0.6   # the cabin's falconet ports
 # the falcons' ports (broadside + stern chasers) enlarged for the traversing guns (user 2026-10-15: too small in
 # game): 0.9 x 0.75, top kept under the gilt moulding, sill lowered; ring stays under the bulwark top (3.7)
 FA_GP_SILL, FA_GP_TOP, FA_GP_W = 2.70, GP_TOP, 0.90
@@ -83,9 +83,10 @@ FC_PORT_Z = 3.1                          # culverin axis height at the ground-fl
 FC_PORT_W, FC_PORT_H, FC_PORT_DZ = 0.46, 0.72, 0.06   # width, height, centre above the axis
 FC_GUN_DEGS = (-90, -45, 0, 45, 90)
 # round gun ports of the lower tier: (bearing on the wall, gun heading), deg, + = starboard. The three culverins stand
-# side by side, nearly parallel (2026-10-13, fc_gun_layout.py layout_H: radial guns collide), so the side ports are
-# cut along the gun's axis, 20 deg off the wall normal
-FC_LOWER_PORTS = ((-30, -10), (0, 0), (30, 10))
+# side by side and parallel (2026-10-13 fc_gun_layout.py layout_H: radial guns collide; 2026-10-16 the +-10 deg toe-out
+# dropped: the side guns' trails walled the centre culverin in), so the side ports are cut along the gun's axis, 30 deg
+# off the wall normal
+FC_LOWER_PORTS = ((-30, 0), (0, 0), (30, 0))        # all three parallel (user 2026-10-16: ~1 m between carriages; was +-10 toe-out)
 FC_STAIR_X = 2.4                         # centre line of the two stairs up to the platform
 
 # sterncastle: cabin with windows, poop deck with turned balustrade, awning frame, lantern

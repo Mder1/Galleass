@@ -10,7 +10,9 @@ Meshes (materials = the guns' Kit materials):
 - galleass_ladle_<gun> / galleass_ladle_<gun>_charged: the period 'cucchiara' - a copper scoop (rolled sheet, 2/3 of
   a cylinder, a little narrower than the bore) on one end of an ash staff, the rammer head on the other; the charged one
   carries a heap of powder in the scoop (the carried item). Copper -> galleass_gun_bronze (plain misc strip).
-  Frame: staff along +Y, scoop at +Y, ORIGIN AT THE STAFF'S MIDDLE (the item's grip comes later), sheet's open side +Z.
+  Frame = a Bannerlord weapon item's (vanilla push_fork: length along +Z, grip at the origin, butt ~0.22 L below):
+  staff along +Z, scoop at +Z, ORIGIN ON THE STAFF A QUARTER OF ITS LENGTH FROM THE RAMMER END, sheet's open side -Y.
+  (Built along +Y about the staff's middle, turned at the end of build_ladle.)
 - galleass_shot_rack_<gun>: a shot garland - low box with a top board drilled in two rows; the balls are NOT in the
   mesh: their seat positions go to ref/galleass_stores.json ('racks') so the prefab places ball entities (and the
   add-on can empty the rack as the ship's shot runs low). Origin on the deck under the rack's centre, long side +X.
@@ -198,6 +200,10 @@ def build_ladle(gun, charged):
         for v in bmh.verts:
             if v.co.z > rb * 0.35: v.co.z = rb * 0.35 + (v.co.z - rb * 0.35) * 0.3
         tmp = bpy.data.meshes.new('tmp'); bmh.to_mesh(tmp); bmh.free(); bm.from_mesh(tmp); bpy.data.meshes.remove(tmp)
+    # item frame: grip a quarter of the staff from the rammer end, staff up (+Y -> +Z)
+    for v in bm.verts:
+        x, y, z = v.co.x, v.co.y + L / 4, v.co.z
+        v.co.x, v.co.y, v.co.z = x, -z, y
     return finish(bm, 'galleass_ladle_%s%s' % (gun, '_charged' if charged else ''), sharp=50)
 
 # ---------------------------------------------------------------- wicker basket + scattershot bags
@@ -385,6 +391,79 @@ def build_rack(gun, seats):
     seats[gun] = {'balls': pts, 'size': [round(W, 3), round(D, 3), round(Ht, 3)], 'ball_r': r}
     return o
 
+# ---------------------------------------------------------------- falconet locker (2026-10-16)
+# The forecastle platform has no room for a keg + rack + basket row (user: one tall locker with everything the
+# falconets need, stacked): a shelf unit open to +Y (its front; it stands with its back to the platform's after edge),
+# a small powder cask on the floor, a drilled shelf with the balls, a tray of scattershot bags on top. Ball and bag
+# seats -> galleass_stores.json 'lockers' (the prefab places them, the add-on empties them with the ship's supply).
+LOCKER = dict(W=0.50, D=0.38, H=1.25, t=0.022, z_ball=0.47, z_tray=0.82)
+def build_locker(gun, seats):
+    W, D, H, t = LOCKER['W'], LOCKER['D'], LOCKER['H'], LOCKER['t']
+    r = BALL_R[gun]; rows, per = 2, 5
+    pitch = 2 * r + 0.035
+    # the drilled ball shelf first (exact boolean on one closed solid), the rest joined to it
+    bm = bmesh.new()
+    zb = LOCKER['z_ball']
+    box(bm, -W / 2 + t, W / 2 - t, -D / 2 + t, D / 2, zb - 0.03, zb, 'wood')
+    o = finish(bm, 'galleass_locker_' + gun, sharp=30)
+    cut = bmesh.new(); balls = []
+    hole = r * 0.8
+    for i in range(rows):
+        for k in range(per):
+            x = (k - (per - 1) / 2) * pitch
+            y = -D / 2 + t + 0.06 + i * pitch
+            bmesh.ops.create_cone(cut, cap_ends=True, segments=16, radius1=hole, radius2=hole, depth=0.05,
+                                  matrix=Matrix.Translation((x, y, zb - 0.015)))
+            balls.append([round(x, 4), round(y, 4), round(zb + math.sqrt(max(r * r - hole * hole, 0.0)), 4)])
+    cm = bpy.data.meshes.new('cut'); cut.to_mesh(cm); cut.free()
+    co = bpy.data.objects.new('cut', cm); bpy.context.scene.collection.objects.link(co)
+    md = o.modifiers.new('holes', 'BOOLEAN'); md.object = co; md.operation = 'DIFFERENCE'; md.solver = 'EXACT'
+    bpy.context.view_layer.objects.active = o
+    bpy.ops.object.modifier_apply(modifier='holes')
+    bpy.data.objects.remove(co); bpy.data.meshes.remove(cm)
+    fr = bmesh.new()
+    box(fr, -W / 2, -W / 2 + t, -D / 2, D / 2, 0.0, H, 'wood')                 # sides
+    box(fr, W / 2 - t, W / 2, -D / 2, D / 2, 0.0, H, 'wood')
+    box(fr, -W / 2 + t, W / 2 - t, -D / 2, -D / 2 + t, 0.0, H, 'wood')         # back
+    box(fr, -W / 2, W / 2, -D / 2, D / 2, H - t, H, 'wood')                    # top
+    box(fr, -W / 2 + t, W / 2 - t, -D / 2 + t, D / 2, 0.0, 0.03, 'wood')       # floor
+    box(fr, -W / 2 + t, W / 2 - t, D / 2 - 0.02, D / 2, 0.03, 0.08, 'wood')    # kick board in front of the cask
+    box(fr, -W / 2 + t, W / 2 - t, D / 2 - 0.02, D / 2, zb, zb + 0.04, 'wood') # lip in front of the balls
+    zt = LOCKER['z_tray']
+    box(fr, -W / 2 + t, W / 2 - t, -D / 2 + t, D / 2, zt - 0.025, zt, 'wood')  # tray floor
+    box(fr, -W / 2 + t, W / 2 - t, D / 2 - 0.02, D / 2, zt, zt + 0.07, 'wood') # tray front board
+    for hz in (0.62, 1.05):                                                    # iron straps round the case
+        box(fr, -W / 2 - 0.004, -W / 2, -D / 2, D / 2, hz, hz + 0.03, 'iron')
+        box(fr, W / 2, W / 2 + 0.004, -D / 2, D / 2, hz, hz + 0.03, 'iron')
+    # small powder cask on the floor (open, powder a hand below the rim)
+    ch, cR, cE = 0.36, 0.15, 0.13
+    prof = [(0.0, cE), *[(ch * u, cE + (cR - cE) * math.sin(math.pi * u)) for u in [k / 10 for k in range(1, 10)]], (ch, cE)]
+    cask = bmesh.new()
+    lathe(cask, prof, 'wood', segs=24, cap0=True)
+    lathe(cask, [(ch, cE), (ch, cE - 0.015)], 'wood', segs=24)
+    lathe(cask, [(ch - 0.07, cE - 0.012), (ch - 0.065, (cE - 0.012) * 0.6), (ch - 0.06, 0.0)], 'dark', segs=24, up=True)
+    for hz in (0.04, ch - 0.04, ch * 0.5):
+        rr = cE + (cR - cE) * math.sin(math.pi * hz / ch)
+        lathe(cask, [(hz - 0.012, rr + 0.002), (hz - 0.012, rr + 0.006), (hz + 0.012, rr + 0.006), (hz + 0.012, rr + 0.002)], 'iron', segs=24)
+    cask.verts.ensure_lookup_table()
+    bmesh.ops.translate(cask, vec=(0.0, 0.02, 0.03), verts=cask.verts)
+    for part in (fr, cask):
+        tmp = bpy.data.meshes.new('tmp'); part.to_mesh(tmp); part.free()
+        bm = bmesh.new(); bm.from_mesh(o.data); bm.from_mesh(tmp); bm.to_mesh(o.data); bm.free(); bpy.data.meshes.remove(tmp)
+    # bags lying across the tray (axis along x), two layers, the top layer in the gaps
+    R = BORE[gun] / 2 * 0.92; Lb = BAG[gun][0] + 0.022
+    bags = []
+    nx = int((W - 2 * t) // (Lb + 0.01)); ny = int((D - t - 0.03) // (2 * R + 0.006))
+    for layer in range(2):
+        for i in range(nx):
+            for j in range(ny - layer):
+                x = -W / 2 + t + 0.005 + (Lb + 0.01) * i
+                y = -D / 2 + t + R + 0.003 + (2 * R + 0.006) * (j + 0.5 * layer)
+                z = zt + R * (1.0 + 1.6 * layer)
+                bags.append([round(x, 4), round(y, 4), round(z, 4), 0.0, round(math.pi / 2, 4), 0.0])   # origin on the axis
+    seats[gun] = {'balls': balls, 'bags': bags, 'size': [W, D, H], 'ball_r': r}
+    return o
+
 def export(o):
     bpy.ops.object.select_all(action='DESELECT'); o.select_set(True); bpy.context.view_layer.objects.active = o
     bpy.ops.export_scene.fbx(filepath=os.path.join(OUT_FBX, o.name + '.fbx'), use_selection=True, object_types={'MESH'},
@@ -404,11 +483,31 @@ for g in ('falcon', 'falconet'):
 for g in ('culverin', 'falcon', 'falconet'):
     objs.append(build_ladle(g, False)); objs.append(build_ladle(g, True))
     objs.append(build_rack(g, seats))
+lockers = {}
+objs.append(build_locker('falconet', lockers))
 os.makedirs(OUT_FBX, exist_ok=True)
 for o in objs:
     add_uvs(o); o.data.name = o.name
     export(o)
-json.dump({'racks': seats, 'baskets': bag_seats, 'basket': {'height': BASKET_H, 'radius': BASKET_R1}, 'keg': {'height': 0.55, 'radius': 0.205}, 'staff': STAFF, 'ball_r': BALL_R},
+
+# collision (2026-10-16, user: the stores had none): one light convex hull per store mesh, 'bo_' + its name, physics
+# material wood (as the guns' bodies); the balls and bags lie inside their rack's / basket's hull
+def body(o):
+    bm = bmesh.new()
+    for v in o.data.vertices: bm.verts.new(v.co)
+    bmesh.ops.convex_hull(bm, input=bm.verts)
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
+    if len(bm.faces) > 60:
+        bmesh.ops.dissolve_limit(bm, angle_limit=math.radians(12), verts=bm.verts, edges=bm.edges)
+        bmesh.ops.triangulate(bm, faces=bm.faces)
+    name = 'bo_' + o.name
+    me = bpy.data.meshes.new(name); bm.to_mesh(me); bm.free()
+    me.materials.append(bpy.data.materials.get('wood') or bpy.data.materials.new('wood'))
+    bo = bpy.data.objects.new(name, me); bpy.context.scene.collection.objects.link(bo)
+    return bo
+for o in [x for x in objs if x.name == 'galleass_powder_keg' or x.name.startswith(('galleass_shot_rack_', 'galleass_shot_basket', 'galleass_locker_'))]:
+    export(body(o))
+json.dump({'racks': seats, 'baskets': bag_seats, 'lockers': lockers, 'basket': {'height': BASKET_H, 'radius': BASKET_R1}, 'keg': {'height': 0.55, 'radius': 0.205}, 'staff': STAFF, 'ball_r': BALL_R},
           open(os.path.join(HERE, 'ref', 'galleass_stores.json'), 'w'), indent=1)
 
 # ---------------------------------------------------------------- review renders
@@ -431,7 +530,7 @@ if RENDERS:
             b.location = (p[0], p[1] + 1.0 - i * 0.7, p[2])
         for k, ch in enumerate((False, True)):
             ld = bpy.data.objects['galleass_ladle_%s%s' % (g, '_charged' if ch else '')]
-            ld.location = (1.9 + 0.25 * k + i * 0.6, 0.2, 0.03)
+            ld.location = (1.9 + 0.25 * k + i * 0.6, 0.2 - STAFF[g] / 4, 0.03); ld.rotation_euler = (math.radians(-90), 0, 0)
     cam = bpy.data.objects.new('cam', bpy.data.cameras.new('cam')); sc.collection.objects.link(cam); sc.camera = cam
     def shot(fname, loc, tgt, lens=35):
         cam.location = loc; cam.data.lens = lens

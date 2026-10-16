@@ -465,13 +465,23 @@ def build_falcon(sp, tag):
     parts.append(box(f'{tag}_axletree', -(xo + 0.02), xo + 0.02, y_axle - 0.065 * ks, y_axle + 0.065 * ks,
                      wr - 0.06 * ks, wr + 0.06 * ks, 'wood'))
     parts.append(cyl_x(f'{tag}_axle_arm', -(xo + 0.13 * ks), xo + 0.13 * ks, y_axle, wr, 0.035 * ks, 'wood', segs=12))
-    parts.append(box(f'{tag}_transom_front', -xi, xi, y_front - 0.16 * ks, y_front - 0.02 * ks, wr + 0.06 * ks,
-                     z_seat - 0.10 * ks, 'wood'))
+    # front transom: its top stays under the chase at the lowest elevation (falcons -10, falconets -15 deg since
+    # 2026-10-16; it used to stop the barrel at -3.5 / -8), 1.5 cm clear
+    ty0, ty1 = y_front - 0.16 * ks, y_front - 0.02 * ks
+    chase = min(z for y, z in gel.underside(prof, ah, ty, tz, math.radians(gel.QUOIN[tag]['emin'])) if ty0 <= y <= ty1)
+    t_top = min(z_seat - 0.10 * ks, chase - 0.015)
+    assert t_top > wr + 0.06 * ks + 0.04, '%s: no room for the front transom under the depressed chase' % tag
+    print('CARRIAGE %s front transom top %.3f (was %.3f), chase at %.1f deg %.3f' % (tag, t_top, z_seat - 0.10 * ks,
+          gel.QUOIN[tag]['emin'], chase))
+    parts.append(box(f'{tag}_transom_front', -xi, xi, ty0, ty1, wr + 0.06 * ks, t_top, 'wood'))
     parts.append(box(f'{tag}_transom_trail', -xi, xi, y_trail + 0.02, y_trail + 0.20 * ks, 0.02, depth * 0.7, 'wood'))
     # stool bed between the cheeks under the breech, the quoin (wedge) on it
+    # the wedge and its bed leave a 4.5 cm lane beside each cheek for the cascabel lashing (2026-10-16: the taller,
+    # longer quoins for -10 / -15 deg met the old lashing)
+    q_hw = min(0.075 * ks, xi - 0.045)
     yb0, yb1 = y_drop + 0.01, 0.55 * ks
-    parts.append(box(f'{tag}_stool_bed', -xi, xi, yb0, yb1, qn.zb - 0.08 * ks, qn.zb, 'wood'))
-    parts += quoin_parts(tag, qn, 0.075 * ks, handle_k=0.8 * ks)
+    parts.append(box(f'{tag}_stool_bed', -(q_hw + 0.01), q_hw + 0.01, yb0, yb1, qn.zb - 0.08 * ks, qn.zb, 'wood'))
+    parts += quoin_parts(tag, qn, q_hw, handle_k=0.8 * ks)
     # trail ring
     parts.append(torus_x(f'{tag}_trail_ring', 0.0, y_trail - 0.035, depth * 0.45, 0.04 * ks, 0.009, 'iron'))
     yv = 0.115 * sp['k_len']
@@ -485,8 +495,8 @@ def build_falcon(sp, tag):
     y_out = 0.05 * kl
     x_out = info['rb'] + 0.015 * kr + rb_r + 0.006
     lash_R = 0.028 * ks
-    y_lr = y_drop - 0.035
-    z_le = z_step - 0.04 * ks
+    y_lr = yn                                               # rings on the cheeks right beside the cascabel neck,
+    z_le = z_step - 0.04 * ks                               # in the lane between the cheek and the quoin
     def collar(bm):
         rg.ring(bm, (0, yn, ah), (0, 1, 0), rc, rb_r, segs=14, tube=6)
         for s in (-1, 1):
@@ -496,18 +506,22 @@ def build_falcon(sp, tag):
                 pts.append(Vector((s * max(prof_r(prof, y) + rb_r + 0.004, rc), y, ah)))
             pts[-1] = Vector((s * x_out, y_out, ah))
             rg.rope(bm, rg.catmull(pts, 0.03), rb_r, segs=6)
+    x_lane = (q_hw + xi) / 2                                 # middle of the lane
     def lashing(bm):
+        # from the side of the neck at bore height straight out over the quoin (its top stays under the barrel), then
+        # down the lane to the ring: clear of the wedge wherever it slides
         for s in (-1, 1):
             for dy in (-0.010 * ks, 0.010 * ks):
-                p0 = Vector((s * rc * 0.7, yn + dy, ah - rc * 0.7))
-                p1 = Vector((s * (xi - 0.035), y_lr + dy, z_le - 2 * lash_R))
-                rg.rope(bm, rg.catmull([p0, (p0 + p1) / 2 + Vector((s * 0.01, 0, 0)), p1], 0.04), rl, segs=6)
+                p0 = Vector((s * rc, yn + dy, ah))
+                p1 = Vector((s * x_lane, yn + dy, ah - 0.01))
+                p2 = Vector((s * x_lane, y_lr + dy, z_le - 2 * lash_R))
+                rg.rope(bm, rg.catmull([p0, p1, (p1 + p2) / 2, p2], 0.03), rl, segs=6)
     parts.append(rope_part(f'{tag}_breeching_collar', collar))
     parts.append(rope_part(f'{tag}_lashing', lashing))
     for s in (-1, 1):
-        parts.append(cyl_x(f'{tag}_lash_eyebolt', min(s * xi, s * (xi - 0.03)), max(s * xi, s * (xi - 0.03)),
+        parts.append(cyl_x(f'{tag}_lash_eyebolt', min(s * xi, s * x_lane), max(s * xi, s * x_lane),
                            y_lr, z_le, 0.011, 'iron', segs=8))
-        parts.append(torus_x(f'{tag}_lash_ring', s * (xi - 0.035), y_lr, z_le - lash_R, lash_R, 0.007, 'iron'))
+        parts.append(torus_x(f'{tag}_lash_ring', s * x_lane, y_lr, z_le - lash_R, lash_R, 0.007, 'iron'))
     rig = {'rope_r': rb_r, 'breech': {'p': rig_point((x_out, y_out, ah), ty), 'ring_r': 0.0},
            'tackle': {'p': rig_point((xo + 0.038, y_eye, z_ring), ty), 'ring_r': 0.04 * ks}}
 

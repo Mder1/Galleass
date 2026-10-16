@@ -10,7 +10,7 @@ Nested prefab entities inherit missing elements (transform, tags, components, ph
 entity their <prefab guid> points to (NavalDLC base prefabs). Before removing something from such an entity it is
 flattened: the inherited elements are copied in and the base link is cut, so nothing comes back through inheritance.
 """
-import copy, math, os, re, sys, uuid
+import copy, json, math, os, re, sys, uuid
 import xml.etree.ElementTree as ET
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import model_geom
@@ -267,6 +267,21 @@ FC_STAIR_Y = (FC_YB - 3.0, FC_YB)
 STAIRS = [(s * SC_STAIR_X - 0.5, s * SC_STAIR_X + 0.5, SC_STAIR_Y[0], SC_STAIR_Y[1], 'poop') for s in (-1, 1)] + \
          [(s * FC_STAIR_X - 0.5, s * FC_STAIR_X + 0.5, FC_STAIR_Y[0], FC_STAIR_Y[1], 'fc') for s in (-1, 1)]
 LEVEL_Z = {'deck': Z_DECK, 'poop': Z_POOP_TOP, 'fc': Z_FC}
+# 1.5 m in front of every stair's foot and beyond its head stay clear (2026-10-16: crew spots parked at the foot of the
+# forecastle stairs and on the poop's stair heads kept the gun crews from climbing): no crew spots there, and the gun
+# stores keep out (ref/galleass_keepclear.json for stores_layout.py)
+STAIR_CLEAR = []                                               # (x0, x1, y0, y1, z)
+for _sx0, _sx1, _ya, _yb, _up in STAIRS:
+    _d = 1.0 if _yb > _ya else -1.0                            # foot -> head
+    STAIR_CLEAR.append((_sx0 - 0.2, _sx1 + 0.2, min(_ya, _ya - _d * 1.5), max(_ya, _ya - _d * 1.5), Z_DECK))
+    STAIR_CLEAR.append((_sx0 - 0.2, _sx1 + 0.2, min(_yb, _yb + _d * 1.0), max(_yb, _yb + _d * 1.0), LEVEL_Z[_up]))   # head: 1 m
+# the forecastle platform's back strip (2026-10-16): the way from both stair heads round the fore mast to the guns -
+# no gun store, no parked crew there (the store row had left 0.5 m gaps by the mast and the port gun's trail)
+STAIR_CLEAR.append((-(FC_STAIR_X + 0.7), FC_STAIR_X + 0.7, FC_YB + 1.0, FC_YB + 1.7, Z_FC))   # in front of the bays by the mast
+def in_stair_clear(x, y, z):
+    return any(x0 <= x <= x1 and y0 <= y <= y1 and abs(z - zz) < 0.6 for x0, x1, y0, y1, zz in STAIR_CLEAR)
+json.dump({'stair_clear': [[round(v, 3) for v in r] for r in STAIR_CLEAR]},
+          open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ref', 'galleass_keepclear.json'), 'w'), indent=1)
 
 def lines(lo, hi, step, keep=()):
     """Grid lines from lo to hi about step apart, with the 'keep' lines exactly (others too close to them dropped)."""
@@ -303,12 +318,52 @@ def rail_point(y, side):
         return (side * (sc_hw(y) - 0.40), y, Z_POOP_TOP)
     return (side * max(fc_half(y) - 0.2, 0.3), y, G['FC_Z_PARAPET'] + LIFT + 0.1)
 
+# --- gun working areas (2026-10-16): the carriage at every traverse angle, run out to full recoil, plus the gunner's
+# place on its right - kept free of cleats and crew standing spots (gunnery add-on: crews must reach and work the guns)
+import gun_layout, json
+_ART = os.path.dirname(os.path.abspath(__file__))
+GUN_AREAS = []
+for _g in gun_layout.placements(G, gun_layout.load_dims()):
+    _d = json.load(open(os.path.join(_ART, 'ref', 'galleass_guns.json')))['galleass_' + _g['kind']]
+    _t = json.load(open(os.path.join(_ART, 'ref', 'galleass_traverse.json')))['gun_' + _g['name']]
+    GUN_AREAS.append((_g, _d, _t, {'culverin': 1.0, 'falcon': 0.8, 'falconet': 0.6}[_g['kind']]))
+
+def in_gun_area(x, y, z, pad=0.25):
+    """name of the gun whose working area (x, y, z) is in, else None"""
+    for g, d, t, recoil in GUN_AREAS:
+        if abs(g['pos'][2] - z) > 1.2:
+            continue
+        c, s_ = math.cos(-g['rot_z']), math.sin(-g['rot_z'])
+        dx, dy = x - g['pos'][0], y - g['pos'][1]
+        lx, ly = c * dx - s_ * dy, s_ * dx + c * dy
+        piv = t['pivot'][1]
+        for deg in (t['min_deg'], (t['min_deg'] + t['max_deg']) / 2, 0.0, t['max_deg']):
+            a = math.radians(-deg)                              # into the frame of the gun turned by deg
+            u, v = lx, ly - piv
+            u, v = u * math.cos(a) - v * math.sin(a), u * math.sin(a) + v * math.cos(a)
+            v += piv
+            if -d['half_w'] - pad <= u <= d['half_w'] + 0.70 + pad and d['rear_y'] - recoil - pad <= v <= d['muzzle_y'] + pad:
+                return 'gun_' + g['name']
+    return None
+
 MASTS_AT = []                                                 # (y, deck z) of the mast steps, filled with the rigs
+MAST_AXES = []                                                # (y, deck z, rake) of each mast where it crosses its deck
 HATCHES = [(-6.5, 0.75, 0.9), (12.0, 0.75, 0.9)]              # (y, half length, half width): the model's gratings
 
 def deck_spot(x, y):
     """Open deck surface near (x, y) for a cleat: on the poop / forecastle platform / gun deck, clear of walls,
-    stairs, mast steps and hatches."""
+    stairs, mast steps, hatches and the guns' working areas (the nearest such spot, 0.1 m rings)."""
+    p = _deck_spot(x, y)
+    if not in_gun_area(*p):
+        return p
+    for r in [0.1 * i for i in range(1, 31)]:
+        for k in range(16):
+            q = _deck_spot(x + r * math.cos(k * math.pi / 8), y + r * math.sin(k * math.pi / 8))
+            if abs(q[2] - p[2]) < 0.05 and not in_gun_area(*q):
+                return q
+    return p
+
+def _deck_spot(x, y):
     y = min(max(y, SHIP_Y0), SHIP_Y1)
     if SC_Y0 <= y <= SC_Y1 and abs(x) < sc_hw(y):                                  # poop
         y = min(max(y, SC_Y0 + 0.5), SC_Y1 - 0.4)
@@ -687,6 +742,7 @@ for rig, mast, zd, rake, vdeck in RIGS:
     a = (0.0, -math.sin(rake), math.cos(rake))
     P = (0.0, MASTS[mast] - t * a[1], zd - t * a[2])
     MASTS_AT.append((MASTS[mast], zd))
+    MAST_AXES.append((MASTS[mast], zd, rake))
     write_tf(rig, pos=P, rot=(rake, 0.0, 0.0))
     swap_mast(rig)
     new = {id(e): (wm, wp, pm, pp) for e, wm, wp, pm, pp in walk(rig)}
@@ -753,10 +809,15 @@ report.append('rope_cosmetics_holder: %d meditheavy hull-side ropes/cleats remov
 BRAZIER_Y = [-16.3, -13.0, -11.0, -6.1, -0.65, 4.75, 10.2, 20.0]          # clear of the gunports and boarding
 BRAZIER_POOP_Y = [-23.0, -20.0, -16.0]          # between the awning posts (y -17.2, -19.7, -21.9)
 bh = files['brazier_holder']
+# (2026-10-16) the side slot (its only piece: the fire-arrow brazier) is gone from the hull (ModuleData galleass_side
+# dropped, 2026-10-15): its braziers stood in the stern chasers' working area - removed; the empty holder stays
+if True:
+    n = len(kids(bh)); drop(bh, 'children')
+    report.append('brazier_holder: %d braziers of the removed side slot removed' % n)
 by_side = {-1: [], 1: []}
 for c in kids(bh):
     by_side[1 if tf(c)[0][0] > 0 else -1].append(c)
-for s, lst in by_side.items():
+for s, lst in (by_side.items() if any(by_side.values()) else ()):
     spots = [(s * (W_IN - 0.65), y, Z_DECK + 0.69) for y in BRAZIER_Y] + \
             [(s * (sc_hw(y) - 0.06 - 0.65), y, Z_POOP + 0.69) for y in BRAZIER_POOP_Y]
     assert len(lst) == len(spots), (s, len(lst), len(spots))
@@ -764,8 +825,9 @@ for s, lst in by_side.items():
         write_tf(c, pos=p, rot=(0.0, 0.0, s * math.pi / 2))
         for k in kids(c):
             write_tf(k, pos=(0, 0, 0), rot=(0, 0, 0))
-report.append('brazier_holder: %d braziers on the bulwark (deck z %.2f) and the poop (z %.2f)'
-              % (sum(map(len, by_side.values())), Z_DECK, Z_POOP))
+if any(by_side.values()):
+    report.append('brazier_holder: %d braziers on the bulwark (deck z %.2f) and the poop (z %.2f)'
+                  % (sum(map(len, by_side.values())), Z_DECK, Z_POOP))
 
 # --- deck upgrades (ammo / arrow crates, boarding weapons): base mesh 0.095 below the entity -----------------
 du = files['deck_upgrade_holder']
@@ -868,6 +930,85 @@ X_LINES = sorted({-x for x in xs_half} | set(xs_half))
 Y_POOP = lines(SC_Y0 + 0.3, SC_Y1, 1.5)
 Y_FC = lines(FC_YB, FC_CY + FC_R_IN, 1.0, keep=[FC_CY])
 
+# the guns are solid (carriage + barrel; physics bodies the navmesh does not know): their footprints - carriage width,
+# from the fully recoiled trail to the muzzle, at rest traverse - are cut out, else men are routed through them and
+# stick (2026-10-16: loaders wedged between the bulwark and the next gun). Grid lines at each footprint's bounding box
+# (exact for the guns square to the ship), cells whose centre is inside a footprint dropped.
+# every cut-out is PADDED by NAV_PAD (2026-10-16): the navmesh is where a man's CENTRE may go (body radius 0.37), so a
+# gap narrower than a man disappears instead of luring the AI into it; the masts are cut out too
+NAV_PAD = 0.25
+MAST_R = 0.30
+def mast_y(y0, zd, rake, z):
+    return y0 + (z - zd) * -math.tan(rake)
+def mast_foot(x, y, z):
+    return any(math.hypot(x, y - mast_y(y0, zd, rake, z)) <= MAST_R + NAV_PAD for y0, zd, rake in MAST_AXES)
+def gun_foot(x, y, z):
+    for g, d, t, recoil in GUN_AREAS:
+        if abs(g['pos'][2] - z) > 1.0:
+            continue
+        c, s_ = math.cos(-g['rot_z']), math.sin(-g['rot_z'])
+        dx, dy = x - g['pos'][0], y - g['pos'][1]
+        lx, ly = c * dx - s_ * dy, s_ * dx + c * dy
+        # the gun at rest is padded; the strip its trail covers only while recoiled is cut without padding (a passage
+        # behind the guns may narrow while one reloads, not vanish - the cabin's side guns closed it off for good)
+        if abs(lx) <= d['half_w'] + 0.05 + NAV_PAD and d['rear_y'] - 0.05 - NAV_PAD <= ly <= d['muzzle_y']:
+            return 'gun_' + g['name']
+        if abs(lx) <= d['half_w'] + 0.05 and d['rear_y'] - recoil - 0.05 <= ly <= d['muzzle_y']:
+            return 'gun_' + g['name']
+    return mast_foot(x, y, z) or None
+def _merge(base, extra, gap=0.08):
+    out = sorted(set(base))
+    for v in sorted(extra):
+        if base and not (min(base) < v < max(base)):
+            continue
+        if all(abs(v - o) > gap for o in out):
+            out.append(round(v, 4)); out.sort()
+    return out
+# the gun stores (stores_layout.py) are solid too
+_ST = json.load(open(os.path.join(_ART, 'ref', 'galleass_stations.json')))
+_SD = json.load(open(os.path.join(_ART, 'ref', 'galleass_stores.json')))
+STORE_FOOT = []                                                # (x, y, z, rot, hx, hy)
+for _st in _ST:
+    for _it in _st['items']:
+        _n = _it['name']
+        if _n == 'keg': _hx, _hy = _SD['keg']['radius'] + 0.06, _SD['keg']['radius']
+        elif _n.startswith('rack_'): _hx, _hy = _SD['racks'][_n[5:]]['size'][0] / 2, _SD['racks'][_n[5:]]['size'][1] / 2
+        elif _n.startswith('locker_'): _hx, _hy = _SD['lockers'][_n[7:]]['size'][0] / 2, _SD['lockers'][_n[7:]]['size'][1] / 2
+        else: _hx = _hy = _SD['basket']['radius']
+        STORE_FOOT.append((_it['pos'][0], _it['pos'][1], _st['z'], _it['rot_z'], _hx + 0.05 + NAV_PAD, _hy + 0.05 + NAV_PAD))
+def store_foot(x, y, z):
+    for sx, sy, sz, rot, hx, hy in STORE_FOOT:
+        if abs(sz - z) > 1.0: continue
+        c, s_ = math.cos(-rot), math.sin(-rot)
+        lx, ly = c * (x - sx) - s_ * (y - sy), s_ * (x - sx) + c * (y - sy)
+        if abs(lx) <= hx and abs(ly) <= hy: return True
+    return False
+_fx, _fy = {'deck': [], 'fc': []}, {'deck': [], 'fc': []}
+for sx, sy, sz, rot, hx, hy in STORE_FOOT:
+    lvl = 'fc' if abs(sz - Z_FC) < 0.5 else 'deck'
+    ca, sa = math.cos(rot), math.sin(rot)
+    for lx in (-hx, hx):
+        for ly in (-hy, hy):
+            _fx[lvl].append(sx + ca * lx - sa * ly); _fy[lvl].append(sy + sa * lx + ca * ly)
+for y0, zd, rake in MAST_AXES:
+    for lvl, z in (('deck', Z_DECK), ('fc', Z_FC)):
+        ym = mast_y(y0, zd, rake, z)
+        for k in (-1, 1):
+            _fx[lvl].append(k * (MAST_R + NAV_PAD)); _fy[lvl].append(ym + k * (MAST_R + NAV_PAD))
+for g, d, t, recoil in GUN_AREAS:
+    lvl = 'fc' if abs(g['pos'][2] - Z_FC) < 0.5 else 'deck'
+    ca, sa = math.cos(g['rot_z']), math.sin(g['rot_z'])
+    for lx in (-d['half_w'] - 0.05 - NAV_PAD, d['half_w'] + 0.05 + NAV_PAD, -d['half_w'] - 0.05, d['half_w'] + 0.05):
+        for ly in (d['rear_y'] - 0.05 - NAV_PAD, d['rear_y'] - recoil - 0.05, d['muzzle_y']):
+            _fx[lvl].append(g['pos'][0] + ca * lx - sa * ly); _fy[lvl].append(g['pos'][1] + sa * lx + ca * ly)
+X_LINES = _merge(X_LINES, _fx['deck'] + _fx['fc'])
+# a fine grid where the guns stand at angles (forecastle platform, cabin) and across the ship: with coarse cells the
+# padded cut-outs took whole metre-wide cells round the guns (2026-10-16)
+X_LINES = _merge(X_LINES, [0.25 * k for k in range(-17, 18)], gap=0.06)
+Y_FC = _merge(Y_FC, [FC_YB + 0.25 * k for k in range(0, 30)], gap=0.06)
+Y_DECK_NAV = _merge(Y_DECK, _fy['deck'])
+Y_FC = _merge(Y_FC, _fy['deck'] + _fy['fc'])
+
 def in_stairs(x0, x1, y0, y1):
     return next((s for s in STAIRS if s[0] - 1e-3 <= x0 and x1 <= s[1] + 1e-3 and
                  min(s[2], s[3]) - 1e-3 <= y0 and y1 <= max(s[2], s[3]) + 1e-3), None)
@@ -902,19 +1043,24 @@ def add_cell(level, x0, x1, y0, y1, fid=0):
     return len(faces) - 1
 
 cells = {}
-for level, ys in (('deck', Y_DECK), ('poop', Y_POOP), ('fc', Y_FC)):
+n_cut = 0
+for level, ys in (('deck', Y_DECK_NAV), ('poop', Y_POOP), ('fc', Y_FC)):
     for y0, y1 in zip(ys, ys[1:]):
         for x0, x1 in zip(X_LINES, X_LINES[1:]):
+            if walkable(level, x0, x1, y0, y1) and (gun_foot((x0 + x1) / 2, (y0 + y1) / 2, LEVEL_Z[level]) or store_foot((x0 + x1) / 2, (y0 + y1) / 2, LEVEL_Z[level])):
+                n_cut += 1; continue
             if walkable(level, x0, x1, y0, y1):
                 cells[(level, x0, x1, y0, y1)] = add_cell(level, x0, x1, y0, y1)
 # forecastle ground floor (walk-in, at gun-deck level; it shares the deck's vertices along its open back)
 for y0, y1 in zip(Y_FC, Y_FC[1:]):
     for x0, x1 in zip(X_LINES, X_LINES[1:]):
+        if walkable('fc', x0, x1, y0, y1) and (gun_foot((x0 + x1) / 2, (y0 + y1) / 2, Z_DECK) or store_foot((x0 + x1) / 2, (y0 + y1) / 2, Z_DECK)):
+            n_cut += 1; continue
         if walkable('fc', x0, x1, y0, y1):
             cells[('fcg', x0, x1, y0, y1)] = add_cell('deck', x0, x1, y0, y1)
 # stairs: ramps whose foot vertices are the gun deck's and whose head vertices are the upper deck's
 for sx0, sx1, ya, yb, upper in STAIRS:
-    ys = sorted({ya, yb} | {y for y in Y_DECK if min(ya, yb) < y < max(ya, yb)})
+    ys = sorted({ya, yb} | {y for y in Y_DECK_NAV if min(ya, yb) < y < max(ya, yb)})
     if ya > yb: ys = ys[::-1]
     cols = [(a, b) for a, b in zip(X_LINES, X_LINES[1:]) if sx0 - 1e-6 <= a and b <= sx1 + 1e-6]
     def sv(x, y):
@@ -939,11 +1085,14 @@ def cab_vid(x, y):
     return vid(key, (x, y, Z_DECK))
 def cab_cell(x0, x1, y0, y1):
     faces.append(([cab_vid(x, y) for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1))], 0))
-Y_CAB = lines(SC_Y0 + SC_WALL_T, SC_Y1 - SC_WALL_T, 1.0)
+Y_CAB = _merge(_merge(lines(SC_Y0 + SC_WALL_T, SC_Y1 - SC_WALL_T, 1.0), _fy['deck']),
+               [SC_Y0 + SC_WALL_T + 0.25 * k for k in range(0, 40)], gap=0.06)
 n_cab = 0
 for y0, y1 in zip(Y_CAB, Y_CAB[1:]):
     for x0, x1 in zip(X_LINES, X_LINES[1:]):
         if all(abs(x) <= sc_hw(y) - SC_WALL_T - 0.15 + 1e-6 for x in (x0, x1) for y in (y0, y1)):
+            if gun_foot((x0 + x1) / 2, (y0 + y1) / 2, Z_DECK) or store_foot((x0 + x1) / 2, (y0 + y1) / 2, Z_DECK):
+                n_cut += 1; continue
             cab_cell(x0, x1, y0, y1); n_cab += 1
 for (xa, xb), (ya, yb) in ((DOOR_F, (SC_Y1 - SC_WALL_T, SC_Y1)), (DOOR_A, (SC_Y0, SC_Y0 + SC_WALL_T))):
     for x0, x1 in zip(X_LINES, X_LINES[1:]):
@@ -954,13 +1103,15 @@ def on_platform(x, y):
             and not (abs(x) < 0.35 and y < SC_Y0 - BALC_RY + 0.45))   # clear of the stern post
 # own finer grid (the curved plate is small); it keeps the aft door's x lines, so the door cell joins it
 X_PLAT = [-1.65, -1.35, -1.05, -0.75, -0.4, 0.0, 0.4, 0.75, 1.05, 1.35, 1.65]
+# + the grid's lines inside the aft door (gun cut-out lines), so door and platform share whole edges
+X_PLAT = sorted(set(X_PLAT) | {x for x in X_LINES if DOOR_A[0] - 1e-6 <= x <= DOOR_A[1] + 1e-6})
 Y_PLAT = [SC_Y0 - 1.1, SC_Y0 - 0.9, SC_Y0 - 0.6, SC_Y0 - 0.3, SC_Y0]
 n_plat = 0
 for y0, y1 in zip(Y_PLAT, Y_PLAT[1:]):
     for x0, x1 in zip(X_PLAT, X_PLAT[1:]):
         if all(on_platform(x, y) for x in (x0, x1) for y in (y0, y1)):
             cab_cell(x0, x1, y0, y1); n_plat += 1
-report.append('navmesh: cabin %d cells (incl. both door openings), stern platform %d cells' % (n_cab, n_plat))
+report.append('navmesh: cabin %d cells (incl. both door openings), stern platform %d cells; %d cells under the guns and stores cut out' % (n_cab, n_plat, n_cut))
 
 # the spur rams (user 2026-10-13): a permanent MissionShipRam (no upgrade slot - the cleanup only touches 'upgrade_slot'
 # entities) under a 'bow'-tagged holder (ShipWaterEffects reads the bow wave's reach from the ram under the first child
@@ -1054,6 +1205,27 @@ report.append('boarding: %d thrower pairs beside the forecastle (x +-%.2f, y %s,
                                      [round(v, 2) for v in tf(tmpl)[0]], dropped, BOARDING_DZ))
 
 os.makedirs(NAV_DIR, exist_ok=True)
+# islands the gun cut-outs sealed off (e.g. the wedge between two culverins' recoiled trails): nobody could leave them
+# - only the largest connected piece of each level group stays (faces joined by shared vertices)
+_par = list(range(len(faces)))
+def _find(a):
+    while _par[a] != a:
+        _par[a] = _par[_par[a]]; a = _par[a]
+    return a
+_byv = {}
+for _i, (_vs, _) in enumerate(faces):                            # joined by shared EDGES (a corner is no way)
+    for _k in range(len(_vs)):
+        _a, _b = _vs[_k], _vs[(_k + 1) % len(_vs)]
+        _byv.setdefault((min(_a, _b), max(_a, _b)), []).append(_i)
+for _l in _byv.values():
+    for _j in _l[1:]: _par[_find(_j)] = _find(_l[0])
+_size = {}
+for _i in range(len(faces)): _size[_find(_i)] = _size.get(_find(_i), 0) + 1
+_main = max(_size, key=_size.get)
+_drop = [i for i in range(len(faces)) if _find(i) != _main]
+assert not any(faces[i][1] for i in _drop), 'an island holds a boarding face'
+faces = [f for i, f in enumerate(faces) if _find(i) == _main]
+report.append('navmesh: %d faces in %d island(s) cut off by the guns dropped' % (len(_drop), len(_size) - 1))
 nv, ne, nf = navmesh.write(os.path.join(NAV_DIR, NAVMESH + '.bin'), verts, faces)
 for v in folder.iter('variable'):
     if v.get('name') == 'NavMeshPrefabName' and v.get('value') == 'meditheavy_ship_navmesh':
@@ -1378,6 +1550,106 @@ def gun_entity(g):
     e.append(el('children', None, barrel, quoin, lashing, *blocks, *[att(r) for r in ropes if not r['on_barrel']]))
     return e
 GUN_PLACES = gun_layout.placements(G, GUN_DIMS)
+# the meditheavy's AI limiter walls (barrier mesh: a 1 m x 1 m quad in local x/z, scaled) that cross a gun's working
+# area - carriage + full recoil + the gunner's and the loader's places beside it - fence its crew off (2026-10-16: the
+# loaders of the aftmost broadside falcons and the stern chasers never reached their places): removed. Recoil per gun
+# = GalleassGunnery config defaults.
+def _gun_area_hits(gp, a, b):
+    dims = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ref', 'galleass_guns.json')))['galleass_' + gp['kind']]
+    recoil = {'culverin': 1.0, 'falcon': 0.8, 'falconet': 0.6}[gp['kind']]
+    hx, y0, y1 = dims['half_w'] + 0.9, dims['rear_y'] - recoil - 0.6, dims['muzzle_y']
+    c, s = math.cos(-gp['rot_z']), math.sin(-gp['rot_z'])
+    def loc(p):
+        dx, dy = p[0] - gp['pos'][0], p[1] - gp['pos'][1]
+        return (c * dx - s * dy, s * dx + c * dy)
+    (ax, ay), (bx, by) = loc(a), loc(b)
+    t0, t1, dx, dy = 0.0, 1.0, bx - ax, by - ay
+    for p, q in ((-dx, ax + hx), (dx, hx - ax), (-dy, ay - y0), (dy, y1 - ay)):
+        if p == 0:
+            if q < 0: return False
+        else:
+            t = q / p
+            if p < 0: t0 = max(t0, t)
+            else: t1 = min(t1, t)
+    return t0 <= t1
+cut = []
+for e in list(bch):
+    m, p = local_m(e)
+    sx, sy = m[0][0] / 2, m[1][0] / 2                           # half the wall's width along its local x
+    a, b = (p[0] - sx, p[1] - sy), (p[0] + sx, p[1] + sy)
+    hit = [gp['name'] for gp in GUN_PLACES if abs(gp['pos'][2] - p[2]) < 2.5 and _gun_area_hits(gp, a, b)]
+    if hit:
+        cut.append(hit); bch.remove(e)
+report.append('barrier_holder: %d AI barriers crossing gun working areas removed (%s)' % (len(cut), ', '.join('/'.join(h) for h in cut)))
+
+# crew standing spots (the meditheavy's sp_troop_* spawn / placement points, remapped above) in a gun's working area,
+# on a gun's loader place or at the gun stores: the men placed there stood in the recoil and blocked the loaders
+# (2026-10-16) - each goes to the nearest clear spot on the navmesh (0.1 m rings), >= 0.45 m from the other spots
+_LOADERS = json.load(open(os.path.join(_ART, 'ref', 'galleass_loader_spots.json'))) if os.path.exists(os.path.join(_ART, 'ref', 'galleass_loader_spots.json')) else {}
+_STATIONS = json.load(open(os.path.join(_ART, 'ref', 'galleass_stations.json')))
+_GSP = os.path.join(_ART, 'ref', 'galleass_gunner_spots.json')
+_LOADERS = dict(_LOADERS, **{k + '/gunner': v for k, v in (json.load(open(_GSP)).items() if os.path.exists(_GSP) else [])})
+def _crew_spot_bad(x, y, z):
+    if in_gun_area(x, y, z) or in_stair_clear(x, y, z):
+        return True
+    if any(abs(sp['ship'][2] - z) < 1.2 and math.hypot(sp['ship'][0] - x, sp['ship'][1] - y) < 0.75 for sp in _LOADERS.values()):
+        return True
+    return any(abs(st['z'] - z) < 1.2 and math.hypot(it['pos'][0] - x, it['pos'][1] - y) < 1.25 for st in _STATIONS for it in st['items'])
+def _on_nav(x, y, z):
+    return any((fz := navmesh.face_z(verts, vs, x, y)) is not None and abs(fz - z) < 0.3 for vs, _ in faces)
+_sps = [e for e in kids(files['spawn_point_holder'])]
+_fixed, _lost = [], []
+for e in _sps:
+    p = tf(e)[0]
+    if not _crew_spot_bad(*p):
+        continue
+    others = [tf(o)[0] for o in _sps if o is not e]
+    best = None
+    for r in [0.1 * i for i in range(1, 41)]:
+        for k in range(24):
+            x, y = p[0] + r * math.cos(k * math.pi / 12), p[1] + r * math.sin(k * math.pi / 12)
+            if (_on_nav(x, y, p[2]) and not _crew_spot_bad(x, y, p[2])
+                    and all(abs(o[2] - p[2]) > 0.5 or math.hypot(o[0] - x, o[1] - y) >= 0.45 for o in others)):
+                best = (x, y, p[2]); break
+        if best: break
+    if best:
+        write_tf(e, pos=best)
+        _fixed.append('%s (%.2f, %.2f) -> (%.2f, %.2f)' % (e.get('name'), p[0], p[1], best[0], best[1]))
+    else:
+        _lost.append(e.get('name'))
+report.append('spawn_point_holder: %d crew spots moved out of gun areas / loader places / stores%s: %s'
+              % (len(_fixed), (', NO CLEAR SPOT for %s' % _lost) if _lost else '', '; '.join(_fixed)))
+
+# forecastle crew (user 2026-10-16: the AI struggled up to the platform falconets): new outer-deck spots - outer ones
+# are always manned at the start (76 deck crew; 56 + these outer spots, the rest fills inner spots from the stern) -
+# two per culverin, one per platform falconet (one-man crews), near its gunner's place but off it, on the navmesh and
+# clear like the moved spots above
+def _tag_names(e):
+    t = inh(e, 'tags')
+    return [x.get('name') for x in t.iter('tag')] if t is not None else []
+_tmpl = next(e for e in kids(files['spawn_point_holder']) if 'sp_troop_outer_deck' in _tag_names(e))
+_GUNNERS = json.load(open(_GSP)) if os.path.exists(_GSP) else {}
+_spot_xyz = [tf(o)[0] for o in kids(files['spawn_point_holder'])]
+_added = []
+for _gname, _gsp in sorted(_GUNNERS.items()):
+    if not (_gname.startswith('gun_ft_fc_') or _gname.startswith('gun_cv_')):
+        continue
+    gx, gy, gz = _gsp['ship']
+    want = 1 if _gname.startswith('gun_ft_fc_') else 2          # falconets: one-man crews (user 2026-10-16)
+    n = 0
+    for r in [0.8 + 0.1 * i for i in range(23)]:
+        for k in range(24):
+            x, y = gx + r * math.cos(k * math.pi / 12), gy + r * math.sin(k * math.pi / 12)
+            if (_on_nav(x, y, gz) and not _crew_spot_bad(x, y, gz)
+                    and all(abs(o[2] - gz) > 0.5 or math.hypot(o[0] - x, o[1] - y) >= 0.6 for o in _spot_xyz)):
+                c = copy_regen(_tmpl, 'galleass-fc-crew/%s/%d/' % (_gname, n))
+                write_tf(c, pos=(x, y, gz), rot=(0.0, 0.0, 0.0))
+                files['spawn_point_holder'].find('children').append(c)
+                _spot_xyz.append((x, y, gz)); _added.append('%s (%.2f, %.2f, %.2f)' % (_gname, x, y, gz))
+                n += 1
+                if n == want: break
+        if n == want: break
+report.append('spawn_point_holder: %d forecastle crew spots added (outer deck): %s' % (len(_added), '; '.join(_added)))
 gg = new_entity('galleass_guns', 'guns')
 # ship-side rigging of all 24 guns (gun_rigging.py: breechings, side tackles, ringbolts), one mesh in the ship's
 # frame, no collision; tagged so the gun add-on can hide it and rig the guns live
@@ -1394,13 +1666,29 @@ if not os.environ.get('GALLEASS_TEST_BUILD'):
                'galleass_shot_basket', 'galleass_scatter_bag_falcon', 'galleass_scatter_bag_falconet',
                'galleass_shot', 'galleass_shot_falcon', 'galleass_shot_falconet'):
         kit_submeshes(_m, None)
+    for _m in ('galleass_locker_falconet',):
+        if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'Assets', _m + '_geo.tpac')):
+            kit_submeshes(_m, None)
+        else:
+            report.append('KIT TODO: import %s (+ bo_%s with Import physics shapes)' % (_m, _m))
 STATIONS = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ref', 'galleass_stations.json')))
+STORE_BODIES, STORE_NO_BODY = [], set()
 def store_entity(st, it):
     seed = 'store/%s/%s' % (st['name'], it['name'])
     e = new_entity(it['name'], seed)
     write_tf(e, pos=it['pos'], rot=(0.0, 0.0, it['rot_z']))
     kind = it['name'].split('_', 1)
     tag = 'powder_keg' if it['name'] == 'keg' else ('shot_' + it['name']) if kind[0] in ('rack', 'basket') else it['name']
+    # collision (2026-10-16): the store's convex hull from stores_model.py, once the Kit has it with its physics shape
+    bo = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'Assets', 'bo_%s_geo.tpac' % it['mesh'])
+    if os.path.exists(bo) and os.path.getsize(bo) > 600:            # (empty stubs ~320 bytes; a box ~860)
+        e.append(el('physics', None,
+                    el('shape', {'type_name': 'string', 'value': 'bo_' + it['mesh']}),
+                    el('body_flags', None, el('body_flag', {'name': 'moveable'})),
+                    el('move_to_batched_kinematic', {'type_name': 'bool', 'value': '1'})))
+        STORE_BODIES.append(it['mesh'])
+    else:
+        STORE_NO_BODY.add(it['mesh'])
     e.append(tags('gun_store', 'gun_store_' + st['name'], tag)); e.append(mobility())
     e.append(mesh_component(seed, it['mesh']))
     kids = []
@@ -1420,7 +1708,7 @@ gstores = new_entity('galleass_stores', 'guns/stores')
 write_tf(gstores, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0))
 gstores.append(tags('galleass_stores')); gstores.append(mobility())
 gstores.append(el('children', None, *[store_entity(st, it) for st in STATIONS for it in st['items']]))
-report.append('gun stores: %d stations, %d stores' % (len(STATIONS), sum(len(st['items']) for st in STATIONS)))
+report.append('gun stores: %d stations, %d stores, %d with collision%s' % (len(STATIONS), sum(len(st['items']) for st in STATIONS), len(STORE_BODIES), ('; KIT: import ' + ', '.join('bo_' + m for m in sorted(STORE_NO_BODY)) + ' (Import physics shapes)') if STORE_NO_BODY else ''))
 
 # the live ropes, in the ship's frame under one holder; vanilla's CosmeticRopeManager hides them beyond 100 m and
 # draws them straight beyond 45 m (as for the ships' own cosmetic ropes)
