@@ -533,6 +533,198 @@ def build_falcon(sp, tag):
     o['front_y'] = y_front - ty; o['rear_y'] = y_trail - 0.08 - ty; o['half_w'] = xo + 0.15 * ks
     return o
 
+# ---------------------------------------------------------------- petriera da mascolo (swivel gun on the rails)
+def cyl_z(name, x, y, z0, z1, r, role, segs=16):
+    bm = bmesh.new()
+    bmesh.ops.create_cone(bm, cap_ends=True, segments=segs, radius1=r, radius2=r, depth=z1 - z0)
+    bmesh.ops.translate(bm, verts=bm.verts, vec=(x, y, (z0 + z1) / 2))
+    return obj_from_bm(bm, name, role)
+
+def prism_y(name, outline, y0, y1, role):
+    """An (x, z) outline (no holes) extruded between y0 and y1."""
+    bm = bmesh.new()
+    a = [bm.verts.new((x, y0, z)) for x, z in outline]
+    b = [bm.verts.new((x, y1, z)) for x, z in outline]
+    bm.faces.new(a); bm.faces.new(b[::-1])
+    n = len(outline)
+    for i in range(n):
+        bm.faces.new((a[i], b[i], b[(i + 1) % n], a[(i + 1) % n]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return obj_from_bm(bm, name, role, sharp=35)
+
+def stave_seams(n, depth, width=0.10):
+    """Shallow grooves between n staves (wrought-iron barrels were forged from staves under the hoops)."""
+    def mod(y, a, r):
+        u = a / (2 * math.pi) * n; u -= math.floor(u)
+        d = abs(u - 0.5) * 2                                # 1 on a seam, 0 mid-stave
+        return r - depth * smooth01((d - (1 - width)) / width)
+    return mod
+
+# Moving parts beyond PART_GROUPS: 4 yoke (turns about the pin = traverse), 5 chamber (the removable mascolo),
+# 6 wedge (knocked out to free the chamber). The barrel group (1) carries the cradle, end plate and tail.
+PART_GROUPS.update({'cradle': 1, 'end_plate': 1, 'tail': 1, 'knob': 1, 'band': 1,
+                    'yoke': 4, 'yoke_eye': 4, 'pin': 4, 'washer': 4,
+                    'chamber': 5, 'chamber_hoop': 5, 'chamber_handle': 5, 'chamber_vent': 5, 'chamber_vent_boss': 5,
+                    'wedge': 6})
+
+def build_petriera(sp=PETRIERA, tag='galleass_petriera'):
+    ah, L, yt = sp['axis_h'], sp['barrel_len'], sp['trunnion_y']
+    rt, rm, rb, hp = sp['r_tube'], sp['r_muzzle'], sp['r_band'], sp['hoop']
+    def tube_r(y): return rt + (rm - rt) * y / L
+    # barrel (profile y from its rear face = the front of the chamber seat): rear band carrying the trunnions, the
+    # hooped tube, a broad muzzle band
+    prof = [(0.0, 0.0), (0.0, rb - 0.004), (0.004, rb), (0.100, rb), (0.104, rb - 0.004), (0.106, tube_r(0.106) + hp), (0.122, tube_r(0.122) + hp), (0.125, tube_r(0.125))]
+    for yh in sp['hoops']:
+        r = tube_r(yh)
+        prof += [(yh - 0.016, r), (yh - 0.013, r + hp), (yh + 0.013, r + hp), (yh + 0.016, r)]
+    prof += [(L - 0.065, tube_r(L - 0.065)), (L - 0.058, rm + 0.010), (L - 0.004, rm + 0.010), (L, rm + 0.006),
+             (L, sp['bore'] / 2 + 0.006), (L - 0.004, sp['bore'] / 2)]
+    seams = stave_seams(10, 0.0018)
+    hoop_ys = [(0.0, 0.125)] + [(yh - 0.016, yh + 0.016) for yh in sp['hoops']] + [(L - 0.065, L)]
+    def mod(y, a, r):                                         # seams on the bare tube only, not under the hoops
+        return r if any(y0 - 1e-6 <= y <= y1 + 1e-6 for y0, y1 in hoop_ys) else seams(y, a, r)
+    parts = [lathe_y(f'{tag}_barrel', resample(prof[:-2], 0.04) + prof[-2:], 'iron', at=(0, 0, ah), segs=30, mod=mod)]
+    parts.append(lathe_y(f'{tag}_bore', [(L - 0.004, sp['bore'] / 2), (L - 0.35, sp['bore'] / 2), (L - 0.35, 0.0)],
+                         'dark', at=(0, 0, ah), segs=30, inside=True))
+    tr = 0.017
+    for s in (-1, 1):
+        parts.append(cyl_x(f'{tag}_trunnion', min(s * (rb - 0.01), s * 0.108), max(s * (rb - 0.01), s * 0.108),
+                           yt, ah, tr, 'iron', segs=12))
+    # chamber seat (cradle): open trough behind the barrel, flat sides up to just above the axis; the wedge goes
+    # across through slots at its rear, against the iron end plate; the tail (coda) leaves the plate cranked down
+    cl, co, ci = sp['cradle_len'], sp['cradle_r'], sp['cradle_in']
+    top = 0.016
+    outer = [(-co, top)] + [(-co * math.cos(math.pi * k / 12), -co * math.sin(math.pi * k / 12)) for k in range(13)] + [(co, top)]
+    inner = [(ci, top)] + [(ci * math.cos(math.pi * k / 12), -ci * math.sin(math.pi * k / 12)) for k in range(13)] + [(-ci, top)]
+    outline = [(x, ah + z) for x, z in outer + inner]
+    parts.append(prism_y(f'{tag}_cradle', outline, -cl, 0.0, 'iron'))
+    y_w0, y_w1 = -cl + 0.004, -cl + 0.030                      # wedge slot (wedge = part 6)
+    y_e = -cl - 0.032
+    plate = [(x, ah + z) for x, z in [(-co, top)] + [(-co * math.cos(math.pi * k / 12), -co * math.sin(math.pi * k / 12))
+                                                       for k in range(13)] + [(co, top)]]
+    parts.append(prism_y(f'{tag}_end_plate', plate, y_e, -cl, 'iron'))
+    for s in (-1, 1):                                          # raised lips round the slots (the plate's ears)
+        parts.append(box(f'{tag}_band', *sorted((s * co, s * (co + 0.006))), y_w0 - 0.012, y_w1 + 0.012,
+                         ah - 0.030, ah + top, 'iron'))
+    tail = [(0, y_e + 0.01, ah), (0, y_e - 0.10, ah - 0.004), (0, y_e - 0.25, ah - 0.020),
+            (0, y_e - 0.38, ah - 0.045), (0, y_e - sp['tail_len'], ah - sp['tail_drop'])]
+    parts.append(tube(f'{tag}_tail', [Vector(p) for p in rg.catmull([Vector(p) for p in tail], 0.03)], 0.016, 'iron', segs=10))
+    ye_t, ze_t = tail[-1][1], tail[-1][2]
+    parts.append(lathe_y(f'{tag}_knob', [(-0.030, 0.0), (-0.028, 0.012), (-0.020, 0.022), (-0.008, 0.026),
+                                          (0.004, 0.024), (0.012, 0.018), (0.016, 0.0)], 'iron', at=(0, ye_t, ze_t), segs=14))
+    # the chamber (mascolo): stout iron mug with a spigot into the barrel, two hoops, a handle on top, the vent at the
+    # rear; separate part, so the add-on swaps it (and spare chambers use the same mesh)
+    cr, cln = sp['chamber_r'], sp['chamber_len']
+    yc0, yc1 = y_w1 + 0.002, y_w1 + 0.002 + cln               # rear face against the wedge, spigot into the barrel
+    cprof = [(yc0, 0.0), (yc0, cr - 0.010), (yc0 + 0.008, cr - 0.002), (yc0 + 0.012, cr), (yc1 - 0.035, cr),
+             (yc1 - 0.030, cr - 0.010), (yc1 - 0.012, 0.034), (yc1, 0.032), (yc1 + 0.03, 0.030), (yc1 + 0.03, 0.0)]
+    parts.append(lathe_y(f'{tag}_chamber', cprof, 'iron', at=(0, 0, ah), segs=24))
+    for yh in (yc0 + 0.030, yc1 - 0.050):
+        parts.append(lathe_y(f'{tag}_chamber_hoop', [(yh - 0.012, cr - 0.001), (yh - 0.010, cr + 0.004),
+                                                     (yh + 0.010, cr + 0.004), (yh + 0.012, cr - 0.001)], 'iron', at=(0, 0, ah), segs=24))
+    hy0, hy1 = yc0 + 0.075, yc1 - 0.080
+    handle = [Vector((0, hy0, ah + cr - 0.004)), Vector((0, hy0 + 0.008, ah + cr + 0.040)),
+              Vector((0, (hy0 + hy1) / 2, ah + cr + 0.058)), Vector((0, hy1 - 0.008, ah + cr + 0.040)),
+              Vector((0, hy1, ah + cr - 0.004))]
+    parts.append(tube(f'{tag}_chamber_handle', rg.catmull(handle, 0.012), 0.008, 'iron', segs=8))
+    yv = yc0 + 0.035
+    f = vent_and_fuse(tag, parts, yv, cr + 0.003, ah, 0.55, -yt)
+    for p in parts:                                            # the vent belongs to the chamber
+        if p.name.startswith(f'{tag}_vent'):
+            p.name = p.name.replace(f'{tag}_vent', f'{tag}_chamber_vent')
+            if p.data.materials[0] == MATS['bronze_trim']: p.data.materials[0] = MATS['iron']
+    # the wedge: tapered iron key across the slot, thin end to port, head on the thick end
+    def wedge(bm):
+        x0, x1, zc = -0.098, 0.112, ah - 0.006
+        h0, h1 = 0.024, 0.040
+        t0, t1 = y_w0 + 0.002, y_w1 - 0.002
+        vs = [bm.verts.new(c) for c in ((x0, t0, zc - h0 / 2), (x0, t1, zc - h0 / 2), (x0, t1, zc + h0 / 2), (x0, t0, zc + h0 / 2),
+                                         (x1, t0, zc - h1 / 2), (x1, t1, zc - h1 / 2), (x1, t1, zc + h1 / 2), (x1, t0, zc + h1 / 2))]
+        for q in ((0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (2, 3, 7, 6), (1, 2, 6, 5), (0, 4, 7, 3)):
+            bm.faces.new([vs[i] for i in q])
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bm = bmesh.new(); wedge(bm)
+    parts.append(obj_from_bm(bm, f'{tag}_wedge', 'iron', sharp=30))
+    # swivel yoke (forcella): eyes round the trunnions, a fork under the barrel, the pin down into the socket
+    xa = 0.108 + 0.004
+    z_top = ah
+    fork = [Vector((-xa, yt, z_top - 0.024))]
+    for k in range(13):
+        t = math.pi * k / 12
+        fork.append(Vector((-xa * math.cos(t), yt, ah - 0.060 - 0.034 * math.sin(t))))
+    fork.append(Vector((xa, yt, z_top - 0.024)))
+    parts.append(tube(f'{tag}_yoke', rg.catmull(fork, 0.012), 0.012, 'iron', segs=8))
+    for s in (-1, 1):
+        parts.append(torus_x(f'{tag}_yoke_eye', s * xa, yt, ah, 0.026, 0.009, 'iron', segs=14, tube=6))
+    z_fork = ah - 0.094 - 0.012                                 # underside of the fork
+    parts.append(cyl_z(f'{tag}_pin', 0.0, yt, 0.02, z_fork + 0.01, 0.017, 'iron', segs=12))
+    parts.append(cyl_z(f'{tag}_washer', 0.0, yt, 0.100, 0.110, 0.030, 'iron', segs=16))
+    assert z_fork > 0.110, 'petriera: fork below the washer'
+    # mount (fixed): oak block on the rail top, iron socket plate + collar, four bolt heads
+    parts.append(box(f'{tag}_block', -0.09, 0.09, yt - 0.09, yt + 0.09, 0.0, 0.082, 'wood'))
+    parts.append(box(f'{tag}_socket_plate', -0.065, 0.065, yt - 0.065, yt + 0.065, 0.082, 0.090, 'iron'))
+    parts.append(cyl_z(f'{tag}_socket', 0.0, yt, 0.088, 0.100, 0.032, 'iron', segs=16))
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            parts.append(cyl_z(f'{tag}_bolt', sx * 0.048, yt + sy * 0.048, 0.088, 0.096, 0.009, 'iron', segs=8))
+    # chamber frame for the add-on (spare chambers + swap): centre of the chamber body on the axis
+    chamber_c = (yc0 + yc1) / 2 - yt
+    wedge_c = (y_w0 + y_w1) / 2 - yt
+    o = join(tag, parts, -yt, 'guns')
+    elev = {'pivot_z': ah, 'min_deg': -30.0, 'max_deg': 20.0, 'quoin': []}
+    o['rig'] = json.dumps({}); o['elev'] = json.dumps(elev)
+    o['muzzle_y'] = L - yt; o['cascabel_y'] = ye_t - 0.03 - yt; o['axis_h'] = ah
+    o['front_y'] = 0.09; o['rear_y'] = ye_t - 0.03 - yt; o['half_w'] = 0.14
+    o['chamber_y'] = chamber_c; o['wedge_y'] = wedge_c
+    return o
+
+def build_petriera_step(tag='galleass_petriera_step', h=0.30, wall=0.05, depth=1.20, tread=0.30, half_len=0.75):
+    """Gunner's step under a waist swivel (user 2026-10-17: the rail top is 1.5 m above the gun deck): two treads
+    against the bulwark's inner face. Frame = the swivel's, dropped to the deck: origin on the deck under the pin, +y
+    outboard; the bulwark's inner face is 'wall' inboard of the pin."""
+    parts = []
+    y_wall, y_up, y_low = -wall, -wall - depth, -wall - depth - tread
+    nose = 0.025
+    parts.append(box(f'{tag}_frame', -half_len + 0.03, half_len - 0.03, y_up + 0.03, y_wall, 0.0, h - 0.035, 'wood'))
+    parts.append(box(f'{tag}_frame_low', -half_len + 0.03, half_len - 0.03, y_low + 0.03, y_up + 0.03, 0.0, h / 2 - 0.035, 'wood'))
+    n = 5                                                    # top boards, small gaps, nosing over the riser
+    for top, y0, y1 in ((h, y_up - nose, y_wall), (h / 2, y_low - nose, y_up)):
+        w = (y1 - y0) / n
+        for k in range(n):
+            parts.append(box(f'{tag}_board', -half_len, half_len, y0 + k * w + 0.004, y0 + (k + 1) * w - 0.004, top - 0.035, top, 'wood'))
+    for x in (-half_len + 0.015, half_len - 0.015):          # end cleats
+        parts.append(box(f'{tag}_cleat', x - 0.015, x + 0.015, y_low, y_wall, 0.0, 0.06, 'wood'))
+    o = join(tag, parts, 0.0, 'guns')
+    o['muzzle_y'] = 0.0; o['cascabel_y'] = y_low; o['axis_h'] = h; o['front_y'] = 0.0; o['rear_y'] = y_low
+    o['half_w'] = half_len; o['rig'] = '{}'; o['elev'] = '{}'
+    return o
+
+def build_petriera_stand(tag='galleass_petriera_stand', h=None):
+    """Timber stand for a poop swivel (user 2026-10-17: the balustrade is too frail): a square oak post from a broad
+    foot on the deck up to the swivel's mount block (its cap), two iron bands, the foot spiked to the deck. Frame = the
+    swivel's: origin on the post top under the pin, +y outboard; the deck is h below."""
+    import gun_layout
+    h = h or gun_layout.STAND_H
+    parts = []
+    # set into the balustrade line (user 2026-10-17): the foot stays on the deck - 7 cm outboard of the rail line (the
+    # deck's edge is 14 cm out), the rest inboard
+    pw, fw, fh = 0.075, 0.17, 0.10                           # post half width, foot half width (along the rail), height
+    fo, fi = 0.07, 0.14                                      # foot outboard / inboard of the post's centre
+    z0 = -h
+    parts.append(box(f'{tag}_post', -pw, pw, -pw, pw, z0 + fh - 0.01, 0.0, 'wood'))
+    foot = [(-fi, z0), (fo, z0), (fo, z0 + fh - 0.02), (fo - 0.02, z0 + fh), (-fi + 0.04, z0 + fh), (-fi, z0 + fh - 0.04)]
+    parts.append(plank_yz(f'{tag}_foot', -fw, fw, foot, 'wood'))
+    for zb in (z0 + fh + 0.10, -0.16):                        # iron bands round the post
+        parts.append(box(f'{tag}_band', -pw - 0.006, pw + 0.006, -pw - 0.006, pw + 0.006, zb - 0.02, zb + 0.02, 'iron'))
+    for sx in (-1, 1):                                       # spikes / bolt heads on the foot
+        for sy in (-1, 1):
+            parts.append(cyl_z(f'{tag}_bolt', sx * (fw - 0.04), -0.10 if sy < 0 else 0.0, z0 + fh - 0.035, z0 + fh + 0.006,
+                               0.012, 'iron', segs=8))
+    o = join(tag, parts, 0.0, 'guns')
+    o['muzzle_y'] = fo; o['cascabel_y'] = -fi; o['axis_h'] = 0.0; o['front_y'] = fo; o['rear_y'] = -fi
+    o['half_w'] = fw; o['rig'] = '{}'; o['elev'] = '{}'
+    return o
+
 def clear_scene():
     for o in list(bpy.data.objects):
         bpy.data.objects.remove(o)
@@ -595,16 +787,20 @@ if __name__ == '__main__':
           % (cv['muzzle_y'], cv['cascabel_y'], cv['rear_y'], cv['front_y'], cv['half_w'], len(cv.data.vertices)))
     fa = build_falcon(FALCON, 'galleass_falcon')
     ft = build_falcon(FALCONET, 'galleass_falconet')
-    for o in (fa, ft):
+    pe = build_petriera()
+    st = build_petriera_step()
+    sd = build_petriera_stand()
+    for o in (fa, ft, pe):
         print('%s: muzzle %.2f, cascabel %.2f, carriage %.2f..%.2f, half width %.2f; %d verts'
               % (o.name, o['muzzle_y'], o['cascabel_y'], o['rear_y'], o['front_y'], o['half_w'], len(o.data.vertices)))
     if RENDER_DIR:
-        render_views([(cv, 'cv'), (fa, 'fa'), (ft, 'ft')], RENDER_DIR)
+        render_views([(cv, 'cv'), (fa, 'fa'), (ft, 'ft'), (pe, 'pe')], RENDER_DIR)
     if OUT_BLEND:
         # gun dimensions for gun_layout.py (preview + prefab) and the rigging anchors for gun_rigging.py
         json.dump({o.name: {k: float(o[k]) for k in ('muzzle_y', 'cascabel_y', 'front_y', 'rear_y', 'half_w')}
                    | {'axis_h': float(o.get('axis_h', AXIS_H)), 'rig': json.loads(o['rig']), 'elev': json.loads(o['elev'])}
-                   for o in (cv, fa, ft)},
+                   | {k: float(o[k]) for k in ('chamber_y', 'wedge_y') if k in o}
+                   for o in (cv, fa, ft, pe)},
                   open(os.path.splitext(OUT_BLEND)[0] + '.json', 'w'), indent=1)
         bpy.ops.wm.save_as_mainfile(filepath=OUT_BLEND)
     print('guns done')

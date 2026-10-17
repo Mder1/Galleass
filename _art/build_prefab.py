@@ -317,9 +317,17 @@ def rail_point(y, side):
     rail, else the poop deck inside its balustrade or the forecastle parapet's cap."""
     y = min(max(y, SHIP_Y0), SHIP_Y1)
     if BOX_Y0 + 0.2 <= y <= BOX_Y1 - 0.2:
-        return (side * X_CAP, clear_of_boarding(y), Z_CAP)
+        y = clear_of_boarding(y)
+        if any(abs(y - w) < 0.6 for w in gun_layout.SWIVEL_WAIST_Y):     # nor on a swivel's block (2026-10-17)
+            y = min((w + d for w in gun_layout.SWIVEL_WAIST_Y for d in (-0.6, 0.6)
+                     if all(abs(w + d - o) >= 0.6 - 1e-6 for o in gun_layout.SWIVEL_WAIST_Y + BOARDING_Y)), key=lambda c: abs(c - y))
+        return (side * X_CAP, y, Z_CAP)
     if y < BOX_Y0:                       # poop: on the deck just inside the balustrade - its cap rail is too thin
         y = max(y, SC_Y0 + 0.4)          # for a cleat (they overhung it into the balusters, user 2026-10-13)
+        if any(abs(y - w) < SW_AREA[0] + 0.2 for w in SWIVEL_POOP_Y):   # out of the swivel gunners' way
+            y = min((w + d for w in SWIVEL_POOP_Y for d in (-SW_AREA[0] - 0.2, SW_AREA[0] + 0.2)
+                     if SC_Y0 + 0.4 <= w + d and all(abs(w + d - o) >= SW_AREA[0] + 0.2 - 1e-6 for o in SWIVEL_POOP_Y)),
+                    key=lambda c: abs(c - y))
         return (side * (sc_hw(y) - 0.40), y, Z_POOP_TOP)
     return (side * max(fc_half(y) - 0.2, 0.3), y, G['FC_Z_PARAPET'] + LIFT + 0.1)
 
@@ -333,8 +341,31 @@ for _g in gun_layout.placements(G, gun_layout.load_dims()):
     _t = json.load(open(os.path.join(_ART, 'ref', 'galleass_traverse.json')))['gun_' + _g['name']]
     GUN_AREAS.append((_g, _d, _t, {'culverin': 1.0, 'falcon': 0.8, 'falconet': 0.6}[_g['kind']]))
 
+# swivel guns (petriere da mascolo, 2026-10-17; gun_layout.swivel_placements, limits from swivel_layout.py): their
+# working area is on the deck (waist: the gunner's step) inboard of the pin - the gunner walks round it with the tail
+SWIVELS = gun_layout.swivel_placements(G)
+SWIVEL_POOP_Y = gun_layout.swivel_poop_y(G)
+SWIVEL_LIM = json.load(open(os.path.join(_ART, 'ref', 'galleass_swivels.json')))
+SW_STEP = dict(wall=0.05, depth=1.20, tread=0.30, half_len=0.75, h=gun_layout.STEP_H)   # = cannon_model build_petriera_step
+SW_AREA = (1.2, 1.75)                                          # half width along the rail, depth inboard of the pin
+def swivel_local(sw, x, y):
+    c, s_ = math.cos(-sw['rot_z']), math.sin(-sw['rot_z'])
+    dx, dy = x - sw['pos'][0], y - sw['pos'][1]
+    return c * dx - s_ * dy, s_ * dx + c * dy                     # (along the rail, outboard)
+def in_swivel_area(x, y, z, pad=0.0):
+    for sw in SWIVELS:
+        if abs(sw['deck_z'] - z) > 1.2:
+            continue
+        lx, ly = swivel_local(sw, x, y)
+        if abs(lx) <= SW_AREA[0] + pad and -SW_AREA[1] - pad <= ly <= 0.3:
+            return 'gun_' + sw['name']
+    return None
+
 def in_gun_area(x, y, z, pad=0.25):
     """name of the gun whose working area (x, y, z) is in, else None"""
+    sw = in_swivel_area(x, y, z, pad)
+    if sw:
+        return sw
     for g, d, t, recoil in GUN_AREAS:
         if abs(g['pos'][2] - z) > 1.2:
             continue
@@ -1006,6 +1037,44 @@ for g, d, t, recoil in GUN_AREAS:
     for lx in (-d['half_w'] - 0.05 - NAV_PAD, d['half_w'] + 0.05 + NAV_PAD, -d['half_w'] - 0.05, d['half_w'] + 0.05):
         for ly in (d['rear_y'] - 0.05 - NAV_PAD, d['rear_y'] - recoil - 0.05, d['muzzle_y']):
             _fx[lvl].append(g['pos'][0] + ca * lx - sa * ly); _fy[lvl].append(g['pos'][1] + sa * lx + ca * ly)
+# the waist swivels' steps (2026-10-17): the step's top is navmesh 0.30 above the deck, the low tread a ramp up to it
+# from the deck (like the stairs: its foot vertices are the deck's), the step's ends padded off the deck
+STEP_IN = [(SW_STEP['wall'] + 0.25, SW_STEP['wall'] + SW_STEP['depth']),                       # top (ly, inboard)
+           (SW_STEP['wall'] + SW_STEP['depth'], SW_STEP['wall'] + SW_STEP['depth'] + SW_STEP['tread'])]   # ramp
+for sw in SWIVELS:
+    if not sw['step']:
+        continue
+    sd = 1 if sw['pos'][0] > 0 else -1
+    for d in (STEP_IN[0][1], STEP_IN[1][1]):
+        _fx['deck'].append(sw['pos'][0] - sd * d)
+    for d in (SW_STEP['half_len'], SW_STEP['half_len'] + NAV_PAD):
+        _fy['deck'] += [sw['pos'][1] - d, sw['pos'][1] + d]
+def step_cell(x0, x1, y0, y1):
+    """('top' | 'ramp' | 'pad', swivel) for a deck cell on / beside a gunner's step, else None."""
+    for sw in SWIVELS:
+        if not sw['step']:
+            continue
+        lx, ly = swivel_local(sw, (x0 + x1) / 2, (y0 + y1) / 2)
+        if -ly > STEP_IN[1][1] or abs(lx) > SW_STEP['half_len'] + NAV_PAD:
+            continue
+        if abs(lx) > SW_STEP['half_len']:
+            return 'pad', sw
+        return ('top' if -ly < STEP_IN[0][1] else 'ramp'), sw
+    return None
+# the poop swivels' timber stands (2026-10-17): solid, cut out (padded) like the stores; across the ship the 0.25 m
+# grid below covers them (own x lines run the whole length: +1150 faces), along it the poop's own lines
+SW_STAND = (0.17, 0.14)                                        # foot half width (along the rail), inboard depth
+_fy_poop = []
+for sw in SWIVELS:
+    if not sw['stand']:
+        continue
+    hx, hy = SW_STAND[0] + 0.05 + NAV_PAD, SW_STAND[1] + 0.05 + NAV_PAD
+    STORE_FOOT.append((sw['pos'][0], sw['pos'][1], sw['deck_z'], sw['rot_z'], hx, hy))
+    ca, sa = math.cos(sw['rot_z']), math.sin(sw['rot_z'])
+    for lx in (-hx, hx):
+        for ly in (-hy, hy):
+            _fy_poop.append(sw['pos'][1] + sa * lx + ca * ly)
+Y_POOP = _merge(Y_POOP, _fy_poop + [y + d for y in SWIVEL_POOP_Y for d in (-1.2, -0.6, 0.6, 1.2)])
 X_LINES = _merge(X_LINES, _fx['deck'] + _fx['fc'])
 # a fine grid where the guns stand at angles (forecastle platform, cabin) and across the ship: with coarse cells the
 # padded cut-outs took whole metre-wide cells round the guns (2026-10-16)
@@ -1049,9 +1118,22 @@ def add_cell(level, x0, x1, y0, y1, fid=0):
 
 cells = {}
 n_cut = 0
+n_step = 0
+def step_vid(sw, x, y):
+    """Vertex on a step: the deck's at its inboard foot, else the step top's (own keys: no edge joins the deck)."""
+    lx, ly = swivel_local(sw, x, y)
+    if -ly > STEP_IN[1][1] - 1e-4:
+        return vid(('deck', round(x, 4), round(y, 4)), (x, y, Z_DECK))
+    return vid(('step', sw['name'], round(x, 4), round(y, 4)), (x, y, Z_DECK + SW_STEP['h']))
 for level, ys in (('deck', Y_DECK_NAV), ('poop', Y_POOP), ('fc', Y_FC)):
     for y0, y1 in zip(ys, ys[1:]):
         for x0, x1 in zip(X_LINES, X_LINES[1:]):
+            st = step_cell(x0, x1, y0, y1) if level == 'deck' and walkable(level, x0, x1, y0, y1) else None
+            if st:
+                if st[0] != 'pad':
+                    faces.append(([step_vid(st[1], x, y) for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1))], 0))
+                    n_step += 1
+                continue
             if walkable(level, x0, x1, y0, y1) and (gun_foot((x0 + x1) / 2, (y0 + y1) / 2, LEVEL_Z[level]) or store_foot((x0 + x1) / 2, (y0 + y1) / 2, LEVEL_Z[level])):
                 n_cut += 1; continue
             if walkable(level, x0, x1, y0, y1):
@@ -1117,6 +1199,7 @@ for y0, y1 in zip(Y_PLAT, Y_PLAT[1:]):
         if all(on_platform(x, y) for x in (x0, x1) for y in (y0, y1)):
             cab_cell(x0, x1, y0, y1); n_plat += 1
 report.append('navmesh: cabin %d cells (incl. both door openings), stern platform %d cells; %d cells under the guns and stores cut out' % (n_cab, n_plat, n_cut))
+report.append('navmesh: %d cells on the swivels\' gunner steps (top %.2f above the deck, ramp from the deck)' % (n_step, SW_STEP['h']))
 
 # the spur rams (user 2026-10-13): a permanent MissionShipRam (no upgrade slot - the cleanup only touches 'upgrade_slot'
 # entities) under a 'bow'-tagged holder (ShipWaterEffects reads the bow wave's reach from the ram under the first child
@@ -1230,7 +1313,12 @@ _main = max(_size, key=_size.get)
 _drop = [i for i in range(len(faces)) if _find(i) != _main]
 assert not any(faces[i][1] for i in _drop), 'an island holds a boarding face'
 faces = [f for i, f in enumerate(faces) if _find(i) == _main]
-report.append('navmesh: %d faces in %d island(s) cut off by the guns dropped' % (len(_drop), len(_size) - 1))
+_isl = {}
+for _i in _drop:
+    _isl.setdefault(_find(_i), []).extend(verts[v] for v in faces[_i][0])
+report.append('navmesh: %d faces in %d island(s) cut off by the guns dropped%s' % (len(_drop), len(_size) - 1, ''.join(
+    ' [%d faces at (%.1f, %.1f, %.1f)]' % (_size[r], sum(p[0] for p in ps) / len(ps), sum(p[1] for p in ps) / len(ps),
+                                           sum(p[2] for p in ps) / len(ps)) for r, ps in _isl.items())))
 nv, ne, nf = navmesh.write(os.path.join(NAV_DIR, NAVMESH + '.bin'), verts, faces)
 for v in folder.iter('variable'):
     if v.get('name') == 'NavMeshPrefabName' and v.get('value') == 'meditheavy_ship_navmesh':
@@ -1555,6 +1643,68 @@ def gun_entity(g):
     e.append(el('children', None, barrel, quoin, lashing, *blocks, *[att(r) for r in ropes if not r['on_barrel']]))
     return e
 GUN_PLACES = gun_layout.placements(G, GUN_DIMS)
+
+# --- swivel guns (petriere da mascolo, 2026-10-17): 10 on the rails (gun_layout.swivel_placements). gun_pe_<name> at the
+# rail top under the pin (mount block, bo_galleass_petriera; tags galleass_gun, galleass_gun_petriera, galleass_swivel)
+# > 'yoke' (tag gun_yoke; traverse = its rotation about z) > 'barrel' on the trunnion axis (tag gun_barrel; elevation
+# about x) > 'chamber' (tag gun_chamber, the loaded mascolo) > 'fuse' (gun_fuse), and 'wedge' (gun_wedge). Two spare
+# loaded chambers (tag gun_spare_chamber) lie by the gun: on the waist step against the bulwark, on the poop deck
+# inside the balustrade. Waist swivels: the gunner's step (galleass_petriera_step + bo_) at deck level, own entity.
+if not os.environ.get('GALLEASS_TEST_BUILD'):
+    for _suf in ('', '_yoke', '_barrel', '_chamber', '_wedge', '_fuse', '_step', '_stand'):
+        kit_submeshes('galleass_petriera' + _suf, None)
+PE_DIMS = GUN_DIMS['galleass_petriera']
+SW_SPARES = 2
+def swivel_entity(sw):
+    mesh, seed = 'galleass_petriera', 'swivel/' + sw['name']
+    e = new_entity('gun_' + sw['name'], seed)
+    write_tf(e, pos=sw['pos'], rot=(0.0, 0.0, sw['rot_z']))
+    e.append(el('physics', None,
+                el('shape', {'type_name': 'string', 'value': 'bo_' + mesh}),
+                el('body_flags', None, el('body_flag', {'name': 'moveable'})),
+                el('move_to_batched_kinematic', {'type_name': 'bool', 'value': '1'})))
+    e.append(tags('galleass_gun', 'galleass_gun_petriera', 'galleass_swivel'))
+    e.append(mobility()); e.append(mesh_component(seed, mesh))
+    g = {'name': sw['name']}
+    fz = gun_part(g, 'fuse', 'gun_fuse', mesh + '_fuse', (0.0, 0.0, 0.0))
+    chamber = gun_part(g, 'chamber', 'gun_chamber', mesh + '_chamber', (0.0, PE_DIMS['chamber_y'], 0.0), [fz])
+    wedge = gun_part(g, 'wedge', 'gun_wedge', mesh + '_wedge', (0.0, PE_DIMS['wedge_y'], 0.0))
+    barrel = gun_part(g, 'barrel', 'gun_barrel', mesh + '_barrel', (0.0, 0.0, PE_DIMS['axis_h']), [chamber, wedge])
+    yoke = gun_part(g, 'yoke', 'gun_yoke', mesh + '_yoke', (0.0, 0.0, 0.0), [barrel])
+    # spare chambers lying along the rail (axis along local x, handle up): on the waist step 0.12 m inboard of the
+    # bulwark, on the poop beside the stand's foot
+    floor = (sw['deck_z'] + (SW_STEP['h'] if sw['step'] else 0.0)) - sw['pos'][2]
+    spares = []
+    for i in range(SW_SPARES):
+        sp = new_entity('spare_chamber_%d' % i, seed + '/spare/%d' % i)
+        write_tf(sp, pos=((0.40 if sw['step'] else 0.30) * (1 if i % 2 else -1),
+                          -(SW_STEP['wall'] + 0.12) if sw['step'] else -0.30, floor + 0.050), rot=(0.0, 0.0, math.pi / 2))
+        sp.append(tags('gun_spare_chamber')); sp.append(mobility())
+        sp.append(mesh_component(seed + '/spare/%d' % i, mesh + '_chamber'))
+        spares.append(sp)
+    kids_ = [yoke, *spares]
+    if sw['stand']:                                            # poop: the timber stand under the mount block
+        st = new_entity('stand', seed + '/stand')
+        write_tf(st, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0))
+        st.append(el('physics', None,
+                     el('shape', {'type_name': 'string', 'value': 'bo_galleass_petriera_stand'}),
+                     el('body_flags', None, el('body_flag', {'name': 'moveable'})),
+                     el('move_to_batched_kinematic', {'type_name': 'bool', 'value': '1'})))
+        st.append(tags('galleass_swivel_stand')); st.append(mobility())
+        st.append(mesh_component(seed + '/stand', 'galleass_petriera_stand'))
+        kids_.append(st)
+    e.append(el('children', None, *kids_))
+    return e
+def swivel_step(sw):
+    mesh, seed = 'galleass_petriera_step', 'swivel/%s/step' % sw['name']
+    e = new_entity('step_' + sw['name'], seed)
+    write_tf(e, pos=(sw['pos'][0], sw['pos'][1], sw['deck_z']), rot=(0.0, 0.0, sw['rot_z']))
+    e.append(el('physics', None,
+                el('shape', {'type_name': 'string', 'value': 'bo_' + mesh}),
+                el('body_flags', None, el('body_flag', {'name': 'moveable'})),
+                el('move_to_batched_kinematic', {'type_name': 'bool', 'value': '1'})))
+    e.append(tags('galleass_swivel_step')); e.append(mobility()); e.append(mesh_component(seed, mesh))
+    return e
 # the meditheavy's AI limiter walls (barrier mesh: a 1 m x 1 m quad in local x/z, scaled) that cross a gun's working
 # area - carriage + full recoil + the gunner's and the loader's places beside it - fence its crew off (2026-10-16: the
 # loaders of the aftmost broadside falcons and the stern chasers never reached their places): removed. Recoil per gun
@@ -1723,7 +1873,9 @@ gropes.append(tags('galleass_gun_ropes')); gropes.append(mobility())
 gropes.append(el('scripts', None, el('script', {'name': 'CosmeticRopeManager'},
     el('prefab_link', None, el('instance', {'guid': guid('guns/ropes/script')}), el('prefab', {'guid': ZERO})))))
 gropes.append(el('children', None, *[rope_entity(r['gun'], r) for r in GUN_ROPES['ropes']]))
-gg.append(mobility()); gg.append(el('children', None, *[gun_entity(g) for g in GUN_PLACES], rig, gropes, gstores))
+gg.append(mobility()); gg.append(el('children', None, *[gun_entity(g) for g in GUN_PLACES],
+                                    *[swivel_entity(sw) for sw in SWIVELS], *[swivel_step(sw) for sw in SWIVELS if sw['step']],
+                                    rig, gropes, gstores))
 report.append('gun ropes: %d live ropes, %d running blocks' % (len(GUN_ROPES['ropes']), len(GUN_ROPES['blocks'])))
 
 # standing rigging (re-rig phase 2, standing_rig.py): shrouds abaft the masts with tackles + the tie tackles, one mesh
@@ -1736,6 +1888,9 @@ srig.append(mesh_component('rig/standing', 'galleass_standing_rigging'))
 files['torch_holder'].find('children').append(srig)
 files['torch_holder'].find('children').append(gg)          # ship frame (like the banners)
 from collections import Counter
+report.append('swivels: %d (%s), %d gunner steps, %d spare chambers' % (len(SWIVELS), ', '.join(
+    '%s %+.0f..%+.0f' % (sw['name'], SWIVEL_LIM[sw['name']]['min_deg'], SWIVEL_LIM[sw['name']]['max_deg']) for sw in SWIVELS),
+    sum(1 for sw in SWIVELS if sw['step']), SW_SPARES * len(SWIVELS)))
 report.append('guns: %d (%s)' % (len(GUN_PLACES), ', '.join('%s %d' % kv for kv in sorted(Counter(g['kind'] for g in GUN_PLACES).items()))))
 
 # --- write --------------------------------------------------------------------------------------------------------

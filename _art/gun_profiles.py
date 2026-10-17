@@ -130,3 +130,14 @@ def falcon_profile(sp):
         (L, sp['bore'] / 2 + R(0.008)), (L - 0.006, sp['bore'] / 2),
     ]
     return prof, ty, dict(rb=rb, rr=rr, cascabel=Y(-0.20))
+
+# ---------------------------------------------------------------- petriera da mascolo (swivel gun, user 2026-10-17)
+# Wrought-iron breech-loading swivel gun after the Museo Storico Navale pieces (user's reference: open breech for a
+# removable chamber, wedge slots at the rear of the breech, iron swivel, tiller): staves hooped along the barrel, an
+# open trough (the chamber's seat) behind it, an iron end plate and a cranked tail to aim with. Very light (bore 5 cm,
+# lead/dice scattershot only). Mounted on the rails: an oak block on the rail top carries the socket for the swivel
+# yoke's pin. Frame: origin on the rail top under the pin, trunnions at y 0 over the pin, axis 'axis_h' above.
+PETRIERA = dict(bore=0.050, barrel_len=1.00, axis_h=0.22, trunnion_y=0.05,
+                r_tube=0.046, r_muzzle=0.042, r_band=0.060, hoop=0.007, hoops=(0.20, 0.33, 0.46, 0.59, 0.72),
+                cradle_len=0.30, cradle_r=0.060, cradle_in=0.050, chamber_r=0.046, chamber_len=0.265,
+                tail_len=0.50, tail_drop=0.07)

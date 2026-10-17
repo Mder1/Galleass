@@ -115,6 +115,9 @@ BALC_RY = 1.3                             # stern balcony depth (apex reaches th
 BALC_INSET = 0.08                         # balustrade set in from the floor edge
 BALC_Z_BOT = FC_Z_BASE - 0.3              # plate reaches below the hull top: it closes the hull end behind the cabin
 POOP_INSET = 0.06                         # poop balustrade line inside the deck edge (posts never overhang)
+# swivel gun stands set into the poop's side balustrades (user 2026-10-17): each replaces the two balusters i, i+1
+# (index along the side, 0 = aft post) and stands midway between them; gun_layout.swivel_placements reads this
+POOP_SWIVEL_GAPS = (9, 15)
 HATCH_YS = (-6.5, 12.0)                   # deck hatches (gratings), centre y
 SC_STAIR_X = 3.25                        # centre line of the two stairs up to the poop
 
@@ -253,6 +256,7 @@ def _basis(c, n):
         m[i][0], m[i][1], m[i][2], m[i][3] = u[i], n[i], z[i], c[i]
     return m
 
+LINING_FLIPS = []                         # boards turned right way out (printed at the end)
 def lining(name, c, n, w, h, d, lip=0.02, t=0.04, sill_out=0.0, role='trim', curve_r=None):
     """Timber lining of a rectangular opening: jambs, head and sill boards through the wall (depth d), with a
     small lip proud of the outer face; sill_out makes the sill project as a ledge. c = opening centre on the
@@ -265,6 +269,13 @@ def lining(name, c, n, w, h, d, lip=0.02, t=0.04, sill_out=0.0, role='trim', cur
         for v in bm.verts:
             v.co = M @ Vector((x0 if v.co.x < 0 else x1, y0 if v.co.y < 0 else y1, z0 if v.co.z < 0 else z1))
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        # (user 2026-10-17: the aft-facing stern chaser ports' boards came out inside out - their back faces then
+        # z-fought with the wall's cut faces; check against the board's centre and turn it right way out)
+        bm.normal_update()
+        cen = sum((v.co for v in bm.verts), Vector()) / len(bm.verts)
+        if sum((f.calc_center_median() - cen).dot(f.normal) for f in bm.faces) < 0:
+            bmesh.ops.reverse_faces(bm, faces=bm.faces)
+            LINING_FLIPS.append(name)
         boards.append(obj_from_bm(bm, name, role))
     # the same 2 cm lip shows outside AND inside; on a curved (round) wall the boards are lengthened by the
     # wall's sag over half the opening width, so the lip is the same at the edges as in the middle
@@ -732,6 +743,15 @@ def build_sides():
                 jj = (j + 1) % len(poly)
                 bm.faces.new((front[j], back[j], back[jj], front[jj]))
             bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
+            if yend == Y0:
+                # the slab's faces are one big outline each: cut round the stern chaser port they fanned into long
+                # slivers from the hole's corners (user 2026-10-17: only these two ports showed the white paint
+                # through their linings in game) - split the faces along the port's edges first, so the hole sits
+                # in a grid of rectangles
+                gx = side * STERN_GP_X
+                for co, no in [((gx + dx, 0, 0), (1, 0, 0)) for dx in (-FA_GP_W / 2, FA_GP_W / 2)] + \
+                              [((0, 0, z), (0, 0, 1)) for z in (FA_GP_SILL, FA_GP_TOP)]:
+                    bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], plane_co=co, plane_no=no)
             bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
             ew = obj_from_bm(bm, 'end_wall', 'paint')
             if yend == Y0:                                     # stern chaser port, facing aft
@@ -1005,6 +1025,11 @@ def build_forecastle():
 # ================================================================= sterncastle
 def sc_hw(y):
     return half_beam(y, True) + 0.02
+
+def poop_baluster_y(i):
+    """y of baluster i along the poop's side balustrade (0 = aft end post); every 6th is a big post."""
+    n = int((SC_Y_FORE - SC_Y_AFT) / 0.32)
+    return SC_Y_AFT + (SC_Y_FORE - SC_Y_AFT) * i / n
 
 def roof_y(ly):
     """World y of a roof's local y (180 deg turn, ROOF_SY)."""
@@ -1390,7 +1415,7 @@ def build_stern_balcony():
                 box('sc_post', x - 0.09, x + 0.09, y - 0.09, y + 0.09, zb, SC_Z_RAIL + 0.1, 'trim')
                 box('sc_post_cap', x - 0.105, x + 0.105, y - 0.105, y + 0.105, SC_Z_RAIL + 0.1, SC_Z_RAIL + 0.13, 'trim')
                 lathe('sc_finial', FINIAL, 'gilt', at=(x, y, SC_Z_RAIL + 0.13), segs=16)
-            else:
+            elif not any(i in (g, g + 1) for g in POOP_SWIVEL_GAPS):     # (the swivel stands take these places)
                 lathe('sc_baluster', prof, 'trim', at=(x, y, zb), segs=10)
         rail = [(side * (sc_hw(SC_Y_AFT + (SC_Y_FORE - SC_Y_AFT) * k / 16) - POOP_INSET),
                  SC_Y_AFT + (SC_Y_FORE - SC_Y_AFT) * k / 16, SC_Z_RAIL - 0.05) for k in range(17)]
@@ -1776,6 +1801,11 @@ for o, role in PARTS:
             v.co.z = v.co.z + Z_LIFT if rigid else lift_z(v.co.y, v.co.z)
     me.update()
     add_uvs(me, role)
+    # the box's end walls are kept whole in the LODs (user 2026-10-17: re-merged / collapsed, their faces fanned into
+    # slivers round the stern chaser ports, white in game; the clean grid round the port is made where they are built)
+    keep = me.attributes.new('keep', 'INT', 'FACE')
+    if o.name.startswith('end_wall'):
+        for d in keep.data: d.value = 1
     by_role.setdefault(role, []).append(me)
 for role, meshes in by_role.items():
     bm = bmesh.new()
@@ -1786,6 +1816,8 @@ for role, meshes in by_role.items():
     # smooth along planks and turned parts (6-sided = 60 deg), hard at box corners
     o.data.set_sharp_from_angle(angle=math.radians(65))
 coll('parts').hide_render = True; coll('parts').hide_viewport = True
+from collections import Counter as _C
+print('LINING boards turned right way out:', dict(_C(LINING_FLIPS)))
 # faction paint: like vanilla's pattern stripes, a thin overlay 3 mm outside the painted planking. Its mesh gets the
 # 'faction_color' tag in the Kit, so the game sets mesh.Color to the owner's colours; the material (alpha-blended,
 # modulate, like ship_liburna_pattern_a) multiplies the wood underneath. It keeps the planking's UVs: the texture is our
@@ -1875,10 +1907,19 @@ for o in list(coll('final').objects):
         if lvl >= LOD_DROP.get(o.name, 99):
             continue
         me = o.data.copy(); me.name = f'{o.name}.lod{lvl}'
+        kept = None                                         # lining faces: out of the decimation, added back after
+        ka = me.attributes.get('keep')
+        if ka and any(d.value for d in ka.data):
+            bk = bmesh.new(); bk.from_mesh(me); lay = bk.faces.layers.int.get('keep')
+            bmesh.ops.delete(bk, geom=[f for f in bk.faces if not f[lay]], context='FACES')
+            kept = bpy.data.meshes.new(me.name + '_kept'); bk.to_mesh(kept); bk.free()
+            bk = bmesh.new(); bk.from_mesh(me); lay = bk.faces.layers.int.get('keep')
+            bmesh.ops.delete(bk, geom=[f for f in bk.faces if f[lay]], context='FACES')
+            bk.to_mesh(me); bk.free()
         lo = bpy.data.objects.new(me.name, me); coll('lods').objects.link(lo)
         lo.matrix_world = o.matrix_world
         # flat areas first (limited dissolve keeps the shape exactly), then collapse to the target count
-        n0 = sum(len(p.vertices) - 2 for p in o.data.polygons)
+        n0 = sum(len(p.vertices) - 2 for p in me.polygons)
         d1 = lo.modifiers.new('flat', 'DECIMATE'); d1.decimate_type = 'DISSOLVE'; d1.angle_limit = math.radians(2 + 3 * lvl)
         d1.delimit = {'UV'} if lvl == 1 else set()
         dg2 = bpy.context.evaluated_depsgraph_get()
@@ -1893,6 +1934,9 @@ for o in list(coll('final').objects):
         dg2 = bpy.context.evaluated_depsgraph_get()
         nm = bpy.data.meshes.new_from_object(lo.evaluated_get(dg2))
         lo.modifiers.clear(); old = lo.data; lo.data = nm; nm.name = me.name; bpy.data.meshes.remove(old)
+        if kept is not None:
+            bk = bmesh.new(); bk.from_mesh(nm); bk.from_mesh(kept); bk.to_mesh(nm); bk.free()
+            bpy.data.meshes.remove(kept)
         if o.name == 'galleass_paint':
             PAINT_LODS[lvl] = nm
 # faction overlay per paint LOD. The game picks the LOD of the hull and of the overlay separately (different bounds),

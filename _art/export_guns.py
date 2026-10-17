@@ -52,12 +52,26 @@ def add_uvs(o):
     else per-face planar with U along the part's long direction (the hull's way). Call before remap_materials."""
     me = o.data; ah = o.get('axis_h', 0.8)
     uv = me.uv_layers.new(name='UVMap') if not me.uv_layers else me.uv_layers[0]
+    part = me.attributes.get('part')
+    cyl = o.name.startswith('galleass_petriera')                 # iron swivel: barrel / cradle / tail and chamber
     for poly in me.polygons:
         mat = me.materials[poly.material_index].name
         n = poly.normal
         pts = [me.vertices[me.loops[li].vertex_index].co for li in poly.loop_indices]
         if mat == 'galleass_gun_rope':                             # lashings / breeching collar: rope_geom's UVs
             continue
+        # unrolled round the bore (user 2026-10-17: the per-face planar UVs made the swivel's iron blotchy): U along
+        # the gun, V round it at the barrel's radius, seam underneath; faces across the axis stay planar
+        if cyl and mat == 'galleass_gun_iron' and abs(n.y) <= 0.85 and part and part.data[poly.index].value in (1, 5):
+            c = sum(pts, Vector()) / len(pts)
+            if math.hypot(c.x, c.z - ah) < 0.10:
+                a0 = math.atan2(c.x, c.z - ah)
+                s = UV_S['galleass_iron']
+                for li, p in zip(poly.loop_indices, pts):
+                    a = math.atan2(p.x, p.z - ah) if math.hypot(p.x, p.z - ah) > 1e-4 else a0
+                    a += 2 * math.pi * round((a0 - a) / (2 * math.pi))
+                    uv.data[li].uv = (p.y * s, a * 0.05 * s)
+                continue
         if mat == 'galleass_gun_bronze' and abs(n.y) <= 0.85:
             c = sum(pts, Vector()) / len(pts)
             a0 = math.atan2(c.x, c.z - ah)
@@ -152,15 +166,17 @@ def export(name, objs):
 
 PART_SUFFIX = {0: '', 1: '_barrel', 2: '_quoin', 3: '_lashing'}
 
-def split_parts(o, base, pivot_z):
-    """Separate objects per 'part' group (UVs, materials kept); the barrel's origin moves to the trunnion axis."""
+def split_parts(o, base, pivot_z, suffix=PART_SUFFIX, origin=None):
+    """Separate objects per 'part' group (UVs, materials kept); the barrel's origin moves to the trunnion axis
+    (origin: {group: (x, y, z)} overrides where a part's origin goes)."""
     res = []
-    for grp, suf in PART_SUFFIX.items():
+    origin = origin or {1: (0, 0, pivot_z)}
+    for grp, suf in suffix.items():
         bm = bmesh.new(); bm.from_mesh(o.data)
         lay = bm.faces.layers.int.get('part')
         bmesh.ops.delete(bm, geom=[f for f in bm.faces if f[lay] != grp], context='FACES')
-        if grp == 1:
-            bmesh.ops.translate(bm, verts=bm.verts, vec=(0, 0, -pivot_z))
+        if grp in origin:
+            bmesh.ops.translate(bm, verts=bm.verts, vec=Vector(origin[grp]) * -1)
         me = bpy.data.meshes.new(base + suf); bm.to_mesh(me); bm.free()
         used = sorted({p.material_index for p in me.polygons})  # only the slots in use (the Kit warns about the rest)
         idx = [used.index(p.material_index) for p in me.polygons]
@@ -171,7 +187,8 @@ def split_parts(o, base, pivot_z):
     return res
 
 import json
-ELEV = {g: v['elev'] for g, v in json.load(open(os.path.join(os.path.dirname(bpy.data.filepath), 'galleass_guns.json'))).items()}
+GUNS_JSON = json.load(open(os.path.join(os.path.dirname(bpy.data.filepath), 'galleass_guns.json')))
+ELEV = {g: v['elev'] for g, v in GUNS_JSON.items()}
 
 for c in bpy.data.collections:
     c.hide_viewport = False
@@ -196,6 +213,68 @@ for g in GUNS:
     export(bo.name, [bo])
     for x in done + [f]:
         x.data.name = x.name                                   # FBX geometry names = datablock names, no dots
+# swivel gun (petriera da mascolo, 2026-10-17): galleass_petriera (mount block + socket, fixed on the rail; origin on
+# the rail top under the pin), _yoke (turns about the pin: origin unchanged), _barrel (barrel, cradle, tail; origin on
+# the trunnion axis), _chamber (the removable mascolo; origin at its centre on the axis - spare chambers and the carried
+# item use the same mesh), _wedge (origin at the chamber's height in the slot), _fuse (rides the chamber: the chamber's
+# origin). bo_galleass_petriera = the block only (the light moving parts have no collision). galleass_petriera_step
+# (gunner's step, waist) + bo_galleass_petriera_step (one convex box per tread).
+PE = 'galleass_petriera'
+o = bpy.data.objects[PE]
+o.hide_set(False); o.location = (0, 0, 0)
+add_uvs(o); remap_materials(o.data)
+o.name = PE + '_whole'; o.data.name = PE + '_whole'
+d = GUNS_JSON[PE]; ah = d['axis_h']
+ch = (0, d['chamber_y'], ah)
+done = []
+for x in split_parts(o, PE, ah, {0: '', 1: '_barrel', 4: '_yoke', 5: '_chamber', 6: '_wedge'},
+                     {1: (0, 0, ah), 5: ch, 6: (0, d['wedge_y'], ah)}):
+    lods = make_lods(x)
+    export(x.name, [x] + lods)
+    done += [x] + lods
+f = bpy.data.objects[PE + '_fuse']
+f.hide_set(False); f.location = (0, 0, 0)
+f.data.transform(Matrix.Translation(Vector(ch) * -1))
+add_uvs(f); remap_materials(f.data)
+export(PE + '_fuse', [f]); done.append(f)
+def box_body(name, boxes):
+    bm = bmesh.new()
+    for (x0, x1, y0, y1, z0, z1) in boxes:
+        vs = [bm.verts.new((x, y, z)) for z in (z0, z1) for y in (y0, y1) for x in (x0, x1)]
+        for q in ((0, 2, 3, 1), (4, 5, 7, 6), (0, 1, 5, 4), (2, 6, 7, 3), (0, 4, 6, 2), (1, 3, 7, 5)):
+            bm.faces.new([vs[i] for i in q])
+    me = bpy.data.meshes.new(name); bm.to_mesh(me); bm.free()
+    me.materials.append(kit_mat('wood'))
+    b = bpy.data.objects.new(name, me); bpy.context.scene.collection.objects.link(b)
+    export(name, [b]); done.append(b)
+bb = [v.co for v in done[0].data.vertices]                    # the mount (part 0)
+box_body('bo_' + PE, [(min(v.x for v in bb), max(v.x for v in bb), min(v.y for v in bb), max(v.y for v in bb),
+                       min(v.z for v in bb), max(v.z for v in bb))])
+st = bpy.data.objects[PE + '_step']
+st.hide_set(False); st.location = (0, 0, 0)
+add_uvs(st); remap_materials(st.data)
+st.name = PE + '_step_whole'; st.data.name = st.name
+st = split_parts(st, PE + '_step', 0.0, {0: ''}, {})[0]           # (drops the unused material slots)
+lods = make_lods(st)
+export(st.name, [st] + lods); done += [st] + lods
+sv = [v.co for v in st.data.vertices]
+x0, x1 = min(v.x for v in sv), max(v.x for v in sv)
+y_lo, y_hi = min(v.y for v in sv), max(v.y for v in sv)
+h = max(v.z for v in sv)
+box_body('bo_' + PE + '_step', [(x0, x1, y_lo, y_hi, 0.0, h / 2), (x0, x1, y_lo + 0.30, y_hi, h / 2, h)])
+sd = bpy.data.objects[PE + '_stand']                            # poop swivels' timber stand + its body (post, foot)
+sd.hide_set(False); sd.location = (0, 0, 0)
+add_uvs(sd); remap_materials(sd.data)
+sd.name = PE + '_stand_whole'; sd.data.name = sd.name
+sd = split_parts(sd, PE + '_stand', 0.0, {0: ''}, {})[0]
+lods = make_lods(sd)
+export(sd.name, [sd] + lods); done += [sd] + lods
+sv = [v.co for v in sd.data.vertices]
+zb = min(v.z for v in sv)
+box_body('bo_' + PE + '_stand', [(-0.075, 0.075, -0.075, 0.075, zb, 0.0),
+                                  (min(v.x for v in sv), max(v.x for v in sv), min(v.y for v in sv), max(v.y for v in sv), zb, zb + 0.13)])
+for x in done:
+    x.data.name = x.name
 # round shot for the gunnery add-on's shot items, one iron ball per calibre (material galleass_iron):
 # culverin da 14 ~12 cm (galleass_shot, the first one), falcon da 6 ~7.6 cm, falconet ~5.3 cm (bores 12.4 / 8.0 / 5.6)
 for name, r, segs in (('galleass_shot', 0.06, (16, 10)), ('galleass_shot_falcon', 0.038, (14, 9)),

@@ -449,5 +449,22 @@
     ]
    ]
   }
+ },
+ "galleass_petriera": {
+  "muzzle_y": 0.95,
+  "cascabel_y": -0.912,
+  "front_y": 0.09,
+  "rear_y": -0.912,
+  "half_w": 0.14,
+  "axis_h": 0.22,
+  "rig": {},
+  "elev": {
+   "pivot_z": 0.22,
+   "min_deg": -30.0,
+   "max_deg": 20.0,
+   "quoin": []
+  },
+  "chamber_y": -0.1855,
+  "wedge_y": -0.333
  }
 }
