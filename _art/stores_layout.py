@@ -171,7 +171,9 @@ gy = [G['gunport_y'](i) for i in range(G['GUNPORTS_PER_SIDE'])]
 cv_trail = max(g['pos'][1] + DIMS['galleass_culverin']['rear_y'] - 1.0 for g in PLACES if g['kind'] == 'culverin')
 STATIONS = [
     # name, guns served, deck z, preferred (x, y), search box (x0, x1, y0, y1)
-    ('fc_lower', ['culverin'], Z_GD, (0.0, (G['FC_Y_BACK'] + cv_trail) / 2), (-fc_R, fc_R, G['FC_Y_BACK'] + 0.05, cv_trail)),
+    # (user 2026-10-17: inside the forecastle's ground floor it blocked the way in beside the fore mast - culverin
+    # loaders stuck; now on the gun deck between the forecastle stairs, both sides of the mast open)
+    ('fc_lower', ['culverin'], Z_GD, (0.0, G['FC_Y_BACK'] - 1.3), (-(G['FC_STAIR_X'] - 0.75), G['FC_STAIR_X'] - 0.75, G['FC_Y_BACK'] - 2.6, G['FC_Y_BACK'] - 0.5)),
     ('fc_platform', ['locker_falconet'], Z_PL, (0.0, G['FC_Y_BACK'] + 0.5), (-fc_R, fc_R, G['FC_Y_BACK'] + 0.1, G['FC_CY'] + 1.0)),
     ('waist_port', ['falcon'], Z_GD, (-2.2, (gy[1] + gy[2]) / 2), (-4.2, -0.6, gy[0] - 1.0, gy[-1] + 1.0)),
     ('waist_starboard', ['falcon'], Z_GD, (2.2, (gy[1] + gy[2]) / 2), (0.6, 4.2, gy[0] - 1.0, gy[-1] + 1.0)),
@@ -343,6 +345,16 @@ _gunner_idx = set(i for a, b in GUNNER_RANGES for i in range(a, b))
 _rope_idx = set(range(ROPE_P0, ROPE_P1))
 _base_idx = [i for i in range(len(OP)) if i not in _gunner_idx and i not in _rope_idx]
 gunners = {}
+# the lanes between the parallel culverins (and outside the outer two) along the ship: (x0, x1, y from); a culverin
+# gunner keeps out of their mouths - the loaders walk in and out there
+_cvs = sorted((g for g in PLACES if g['kind'] == 'culverin'), key=lambda g: g['pos'][0])
+_cvd = DIMS['galleass_culverin']
+_cv_hw = _cvd['half_w']
+_cv_trail_y = min(g['pos'][1] for g in _cvs) + _cvd['rear_y'] - RECOIL['culverin']
+CV_LANES = [(a['pos'][0] + _cv_hw, b['pos'][0] - _cv_hw) for a, b in zip(_cvs, _cvs[1:])]
+CV_LANES += [(_cvs[0]['pos'][0] - _cv_hw - 0.7, _cvs[0]['pos'][0] - _cv_hw), (_cvs[-1]['pos'][0] + _cv_hw, _cvs[-1]['pos'][0] + _cv_hw + 0.7)]
+def in_lane_mouth(x, y):
+    return y > _cv_trail_y - 0.9 and any(x0 - 0.3 < x < x1 + 0.3 for x0, x1 in CV_LANES)
 for g in PLACES:
     name = 'gun_' + g['name']
     d = DIMS['galleass_' + g['kind']]
@@ -354,16 +366,24 @@ for g in PLACES:
     taken = BVHTree.FromPolygons(taken_v, taken_p) if taken_p else None
     cands = []
     rc = RECOIL[g['kind']]
-    y_lo = d['rear_y'] - rc - 1.2                         # (fallback: behind the gun, clear of its recoil - the
+    y_lo = d['rear_y'] - rc - (2.5 if g['kind'] == 'culverin' else 1.2)   # (fallback: behind the gun, clear of its recoil - the
     for i in range(int(2 * (hw + 1.2) / 0.1) + 1):         # centre culverin's sides are walled in by its neighbours)
         for j in range(int((cy + 1.2 - y_lo) / 0.1) + 1):
             lx, ly = -(hw + 1.2) + 0.1 * i, y_lo + 0.1 * j
+            # culverins (user 2026-10-17): behind the recoiled trail, out of the narrow lanes between the guns - a
+            # gunner beside his breech stood in the lane his loader had to pass on every errand
+            if g['kind'] == 'culverin':                    # (centred behind the trail: the lane mouths stay free)
+                if ly <= d['rear_y'] - rc - 0.35:
+                    cands.append((math.hypot(lx, ly - (d['rear_y'] - rc - 0.45)), lx, ly))
+                continue
             cands.append((min(math.hypot(lx - (hw + 0.3), ly - (cy + 0.25)), math.hypot(lx + (hw + 0.3), ly - (cy + 0.25)) + 0.15), lx, ly))
     cands.sort()
     found = None
     dbg = collections.Counter() if name in os.environ.get('DBG_GUNNER', '').split(',') else None
     for cost, lx, ly in cands:
         x, y = o[0] + ca * lx - sa * ly, o[1] + sa * lx + ca * ly
+        if g['kind'] == 'culverin' and in_lane_mouth(x, y):
+            continue
         if not near_nav(x, y, z):
             if dbg is not None: dbg['nav'] += 1
             continue
@@ -441,6 +461,11 @@ for g in PLACES:
     for cost, lx, ly in cands:
         x, y = o[0] + ca * lx - sa * ly, o[1] + sa * lx + ca * ly
         if not man_clear(x, y, z, taken):
+            continue
+        # culverins (user 2026-10-17): one loader per lane between the parallel guns - two in one dead-end lane on
+        # the forecastle's ground floor blocked each other
+        if g['kind'] == 'culverin' and any(k.startswith('gun_cv_') and math.hypot(x - v['ship'][0], y - v['ship'][1]) < 1.2
+                                           for k, v in spots.items()):
             continue
         found = (lx, ly, x, y, cost); break
     name = 'gun_' + g['name']
