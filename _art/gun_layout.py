@@ -47,7 +47,9 @@ def placements(G, dims):
 # balustrade, between its big posts and the awning posts (y -17.24 / -19.69 / -21.93).
 # (2026-10-17 swivel_layout.py scan: the other gaps hold the banner holders (-6.08 / 10.18 on the rail) or the steps
 # meet the falcons' tackle heaps / the main and fore shroud tackles)
-SWIVEL_WAIST_Y = (-12.0, 5.0, 10.85)
+# (2026-10-17: -12.0 beside the poop stairs left a 0.75 m lane - stern loaders stuck; moved to -6.6 with the aft
+# banner holders shifted forward, galleass_model BANNER_SWIVEL_SHIFT)
+SWIVEL_WAIST_Y = (-6.6, 5.0, 10.85)
 SWIVEL_IN = 0.15                                   # pin inboard of the waist bulwark's outer face (cap rail 0.4 wide)
 # poop (user 2026-10-17: the turned balustrade is too frail for a gun): each swivel on its own timber stand (post + foot,
 # cannon_model.build_petriera_stand) set INTO the balustrade in place of two balusters (galleass_model

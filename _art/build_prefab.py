@@ -320,7 +320,7 @@ def rail_point(y, side):
         y = clear_of_boarding(y)
         if any(abs(y - w) < 0.6 for w in gun_layout.SWIVEL_WAIST_Y):     # nor on a swivel's block (2026-10-17)
             y = min((w + d for w in gun_layout.SWIVEL_WAIST_Y for d in (-0.6, 0.6)
-                     if all(abs(w + d - o) >= 0.6 - 1e-6 for o in gun_layout.SWIVEL_WAIST_Y + BOARDING_Y)), key=lambda c: abs(c - y))
+                     if all(abs(w + d - o) >= 0.6 - 1e-6 for o in list(gun_layout.SWIVEL_WAIST_Y) + list(BOARDING_Y))), key=lambda c: abs(c - y))
         return (side * X_CAP, y, Z_CAP)
     if y < BOX_Y0:                       # poop: on the deck just inside the balustrade - its cap rail is too thin
         y = max(y, SC_Y0 + 0.4)          # for a cleat (they overhung it into the balusters, user 2026-10-13)
@@ -1070,10 +1070,12 @@ for sw in SWIVELS:
         continue
     hx, hy = SW_STAND[0] + 0.05 + NAV_PAD, SW_STAND[1] + 0.05 + NAV_PAD
     STORE_FOOT.append((sw['pos'][0], sw['pos'][1], sw['deck_z'], sw['rot_z'], hx, hy))
-    ca, sa = math.cos(sw['rot_z']), math.sin(sw['rot_z'])
-    for lx in (-hx, hx):
-        for ly in (-hy, hy):
-            _fy_poop.append(sw['pos'][1] + sa * lx + ca * ly)
+for sx, sy, sz, rot, hx, hy in STORE_FOOT:                     # stands and the poop's swivel locker
+    if abs(sz - Z_POOP_TOP) < 0.5:
+        ca, sa = math.cos(rot), math.sin(rot)
+        for lx in (-hx, hx):
+            for ly in (-hy, hy):
+                _fy_poop.append(sy + sa * lx + ca * ly)
 Y_POOP = _merge(Y_POOP, _fy_poop + [y + d for y in SWIVEL_POOP_Y for d in (-1.2, -0.6, 0.6, 1.2)])
 X_LINES = _merge(X_LINES, _fx['deck'] + _fx['fc'])
 # a fine grid where the guns stand at angles (forecastle platform, cabin) and across the ship: with coarse cells the
@@ -1821,7 +1823,7 @@ if not os.environ.get('GALLEASS_TEST_BUILD'):
                'galleass_shot_basket', 'galleass_scatter_bag_falcon', 'galleass_scatter_bag_falconet',
                'galleass_shot', 'galleass_shot_falcon', 'galleass_shot_falconet'):
         kit_submeshes(_m, None)
-    for _m in ('galleass_locker_falconet',):
+    for _m in ('galleass_locker_falconet', 'galleass_locker_petriera'):
         if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'Assets', _m + '_geo.tpac')):
             kit_submeshes(_m, None)
         else:

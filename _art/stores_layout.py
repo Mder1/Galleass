@@ -40,6 +40,8 @@ LAYOUT = json.load(open(os.path.join(HERE, 'ref', 'galleass_layout.json')))
 RECOIL = {'culverin': 1.0, 'falcon': 0.8, 'falconet': 0.6}
 MARGIN = 0.12                                              # free space round every store
 Z_GD, Z_PL = G['Z_GUN_DECK'] + L, G['FC_Z_PLATFORM'] + L
+Z_POOP = G['SC_Z_FLOOR'] + 0.12 + L
+SWIVELS = gun_layout.swivel_placements(G)
 
 # ---------------------------------------------------------------- obstacles
 def world_bvh(objs):
@@ -100,6 +102,10 @@ for g in PLACES:                                            # gun sweeps + gunne
         gp = Mg @ Vector((d['half_w'] + 0.30, d['cascabel_y'] + 0.25, 0.0))
         b0 = len(OP); add_box(gp, 0.35, 0.35, gp.z + 0.02, gp.z + 1.7); GUNNER_RANGES.append((b0, len(OP)))
     GUN_RANGES['gun_' + g['name']] = (sw0, len(OP), rest, recoiled)
+for sw in SWIVELS:                                          # swivel gunners' working areas (build_prefab SW_AREA)
+    a = sw['rot_z']; ca_, sa_ = math.cos(a), math.sin(a)
+    c = (sw['pos'][0] + ca_ * 0.0 - sa_ * (-0.75), sw['pos'][1] + sa_ * 0.0 + ca_ * (-0.75))
+    add_box(c, 1.2, 0.85, sw['deck_z'] + 0.02, sw['deck_z'] + 1.7, a)
 ROPE_P0 = len(OP)
 for r in ROPES['ropes']:                                    # live ropes (rest position, fat)
     add_tube(r['start'], r['end'], 0.06)
@@ -115,7 +121,7 @@ GUNPARTS = ('quoin', 'lashing', 'fuse', 'barrel', 'gun_', 'block_', 'rope_', 'gu
 props = 0
 for e in LAYOUT:                                            # the prefab's deck props
     z = e['pos'][2]
-    near = min(abs(z - Z_GD), abs(z - Z_PL))
+    near = min(abs(z - Z_GD), abs(z - Z_PL), abs(z - Z_POOP))
     name = e.get('name', '')
     if near > 0.6 or any(name.startswith(p) for p in GUNPARTS) or any(t in ('gun_store', 'store_ball', 'store_bag') for t in e['tags']):
         continue                                            # (the stores themselves, once in the prefab)
@@ -173,6 +179,9 @@ STATIONS = [
     # the centre line between the two foremost pairs, serving both sides
     ('fore_waist', ['falcon'], Z_GD, (0.0, (gy[3] + gy[4]) / 2), (-2.5, 2.5, gy[3] - 0.5, gy[4] + 0.5)),
     ('aft', ['falcon', 'falconet'], Z_GD, (2.0, G['SC_Y_FORE'] + 1.2), (-4.2, 4.2, G['SC_Y_FORE'] + 0.2, G['SC_Y_FORE'] + 4.0)),
+    # the poop swivels (user 2026-10-17: their loaders got stuck on the poop stairs): a swivel locker on the poop's
+    # centre line between their two pairs
+    ('poop', ['locker_petriera'], Z_POOP, (0.0, sum(gun_layout.swivel_poop_y(G)) / 2), (-1.6, 1.6, -22.5, -16.0)),
 ]
 
 def on_deck(x, y, z):
@@ -256,7 +265,7 @@ for name, kinds, z, pref, (x0, x1, y0, y1) in STATIONS:
         if it['name'].startswith('basket_'): e['bags'] = baskets[k]['bags']; e['bag_mesh'] = 'galleass_scatter_bag_' + k
         if it['name'].startswith('locker_'):
             e['balls'] = LOCKERS[k]['balls']; e['ball_mesh'] = 'galleass_shot_' + k
-            e['bags'] = LOCKERS[k]['bags']; e['bag_mesh'] = 'galleass_scatter_bag_' + k
+            e['bags'] = LOCKERS[k]['bags']; e['bag_mesh'] = 'galleass_scatter_bag_' + ('falconet' if k == 'petriera' else k)
         st['items'].append(e)
     out.append(st)
     if single:

@@ -36,12 +36,13 @@ COL = {'wood': (0.36, 0.24, 0.14, 1), 'iron': (0.16, 0.16, 0.17, 1), 'dark': (0.
 # calibres (bore, ball radius) and ladle sizes. The scoop is ~2.5 calibres long so it holds roughly a charge of 2/3 the
 # ball's weight; the staff is shortened from the real (barrel-long) one so a man can carry it on deck.
 BALL_R = {'culverin': 0.06, 'falcon': 0.038, 'falconet': 0.0265}          # = export_guns.py galleass_shot*
-BORE = {'culverin': gp.CV['bore'], 'falcon': gp.FALCON['bore'], 'falconet': gp.FALCONET['bore']}
+BORE = {'culverin': gp.CV['bore'], 'falcon': gp.FALCON['bore'], 'falconet': gp.FALCONET['bore'],
+        'petriera': gp.FALCONET['bore']}                                    # (swivels: the falconet's bags)
 STAFF = {'culverin': 3.0, 'falcon': 2.4, 'falconet': 1.8}
 RACK = {'culverin': (2, 5), 'falcon': (2, 8), 'falconet': (2, 10)}        # rows, balls per row
 # close-range shot (user 2026-10-15): small shot packed in bore-sized hemp bags, kept in wicker baskets at the falcon and
 # falconet stations; (bag length, hex rings of bags in the basket's top layer)
-BAG = {'falcon': (0.13, 1), 'falconet': (0.10, 2)}
+BAG = {'falcon': (0.13, 1), 'falconet': (0.10, 2), 'petriera': (0.10, 2)}
 
 for c in list(bpy.data.objects): bpy.data.objects.remove(c)
 MATS = {}
@@ -397,9 +398,11 @@ def build_rack(gun, seats):
 # a small powder cask on the floor, a drilled shelf with the balls, a tray of scattershot bags on top. Ball and bag
 # seats -> galleass_stores.json 'lockers' (the prefab places them, the add-on empties them with the ship's supply).
 LOCKER = dict(W=0.50, D=0.38, H=1.25, t=0.022, z_ball=0.47, z_tray=0.82)
+# swivel locker (2026-10-17, user: the poop swivels' loaders got stuck on the poop stairs): the same case on the poop
+# without the ball shelf's holes (the swivels fire only shot): powder cask, a plain shelf, the tray of shot bags
 def build_locker(gun, seats):
     W, D, H, t = LOCKER['W'], LOCKER['D'], LOCKER['H'], LOCKER['t']
-    r = BALL_R[gun]; rows, per = 2, 5
+    r = BALL_R.get(gun, 0.0); rows, per = (2, 5) if gun in BALL_R else (0, 0)
     pitch = 2 * r + 0.035
     # the drilled ball shelf first (exact boolean on one closed solid), the rest joined to it
     bm = bmesh.new()
@@ -416,11 +419,13 @@ def build_locker(gun, seats):
                                   matrix=Matrix.Translation((x, y, zb - 0.015)))
             balls.append([round(x, 4), round(y, 4), round(zb + math.sqrt(max(r * r - hole * hole, 0.0)), 4)])
     cm = bpy.data.meshes.new('cut'); cut.to_mesh(cm); cut.free()
-    co = bpy.data.objects.new('cut', cm); bpy.context.scene.collection.objects.link(co)
-    md = o.modifiers.new('holes', 'BOOLEAN'); md.object = co; md.operation = 'DIFFERENCE'; md.solver = 'EXACT'
-    bpy.context.view_layer.objects.active = o
-    bpy.ops.object.modifier_apply(modifier='holes')
-    bpy.data.objects.remove(co); bpy.data.meshes.remove(cm)
+    if balls:
+        co = bpy.data.objects.new('cut', cm); bpy.context.scene.collection.objects.link(co)
+        md = o.modifiers.new('holes', 'BOOLEAN'); md.object = co; md.operation = 'DIFFERENCE'; md.solver = 'EXACT'
+        bpy.context.view_layer.objects.active = o
+        bpy.ops.object.modifier_apply(modifier='holes')
+        bpy.data.objects.remove(co)
+    bpy.data.meshes.remove(cm)
     fr = bmesh.new()
     box(fr, -W / 2, -W / 2 + t, -D / 2, D / 2, 0.0, H, 'wood')                 # sides
     box(fr, W / 2 - t, W / 2, -D / 2, D / 2, 0.0, H, 'wood')
@@ -485,6 +490,7 @@ for g in ('culverin', 'falcon', 'falconet'):
     objs.append(build_rack(g, seats))
 lockers = {}
 objs.append(build_locker('falconet', lockers))
+objs.append(build_locker('petriera', lockers))
 os.makedirs(OUT_FBX, exist_ok=True)
 for o in objs:
     add_uvs(o); o.data.name = o.name

@@ -1050,6 +1050,7 @@ def roof_edge(y):
 # line's centre (unlifted), the outward normal (the cloth faces it), the scale, the holder kind. Iron holders keep
 # the swinging cloth off walls and masts (user 2026-10-08); the prefab places the banners (prefab: + Z_LIFT).
 BANNER_W, BANNER_H = 0.7, 1.16
+BANNER_SWIVEL_SHIFT = 0.6                                 # aft side banners moved forward for the waist swivels
 BANNER_ARM = 0.5                                          # wall holders: crossbar this far out from the wall
 AWNING_BANNER_SCALE = 1.4                                 # stern castle banners (their loops set the awning rail's size)
 # mast holders: crossbar this far ahead of the mast face. Cloth has no collision with the mast, so a fore wind swings
@@ -1062,6 +1063,8 @@ def banner_mounts():
     gys = [gunport_y(i) for i in range(GUNPORTS_PER_SIDE)]
     for k in (0, GUNPORTS_PER_SIDE - 2):                  # outer gaps between the broadside gunports
         y = (gys[k] + gys[k + 1]) / 2
+        if k == 0:                                         # (user 2026-10-17: the waist swivel at -6.6 takes the gap's
+            y += BANNER_SWIVEL_SHIFT                       # after half; the old one beside the poop stairs walled them in)
         for sd in (-1, 1):
             m.append(dict(name='banner_side_%d_%+d' % (k, sd), pin=(sd * (WING_HW + BANNER_ARM), y, zc),
                           normal=(sd, 0.0), scale=1.1, kind='wall', wall=(sd * (WING_HW - 0.12), y, zc)))
