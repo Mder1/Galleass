@@ -1271,7 +1271,17 @@ for side in (-1, 1):
         x = side * BOARDING_X
         key = next(k for k in cells if k[0] == 'deck' and min(k[1], k[2]) <= x - side * 0.1 <= max(k[1], k[2])
                    and k[3] <= y <= k[4])
-        vs, _ = faces[cells[key]]; faces[cells[key]] = (vs, fid)
+        # as vanilla's, the id face reaches the deck edge with its outboard edge open: the bridge's navmesh joins the ship
+        # there (SwapFaceConnectionsWithID). 2026-10-18: the face sat one column inboard, enclosed by the deck - enemies
+        # hooked on and laid the bridge but never came over. The cells outboard of it merge into it.
+        outer = [k for k in cells if k[0] == 'deck' and k[3] == key[3] and k[4] == key[4]
+                 and (k[1] >= key[2] - 1e-6 if side > 0 else k[2] <= key[1] + 1e-6)]
+        fx0 = key[1] if side > 0 else min([k[1] for k in outer] + [key[1]])
+        fx1 = max([k[2] for k in outer] + [key[2]]) if side > 0 else key[2]
+        for k in outer:
+            faces[cells.pop(k)] = None
+        faces[cells[key]] = ([vid(('deck', round(x, 4), round(yy, 4)), (x, yy, Z_DECK))
+                              for x, yy in ((fx0, key[3]), (fx1, key[3]), (fx1, key[4]), (fx0, key[4]))], fid)
         write_tf(e, pos=(x, y, Z_DECK), rot=(0.0, 0.0, -side * math.pi / 2))
         for k, c in sub_kids(e).items():
             cp, cr = TMPL.get(k, tf(c)[:2])
@@ -1294,6 +1304,7 @@ report.append('boarding: %d thrower pairs beside the forecastle (x +-%.2f, y %s,
               'hooks raised %.2f' % (len(kept), BOARDING_X, BOARDING_Y, sorted(k[1] for k in kept),
                                      [round(v, 2) for v in tf(tmpl)[0]], dropped, BOARDING_DZ))
 
+faces = [f for f in faces if f is not None]                      # (cells merged into the boarding faces)
 os.makedirs(NAV_DIR, exist_ok=True)
 # islands the gun cut-outs sealed off (e.g. the wedge between two culverins' recoiled trails): nobody could leave them
 # - only the largest connected piece of each level group stays (faces joined by shared vertices)
