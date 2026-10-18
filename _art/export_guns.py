@@ -276,9 +276,10 @@ box_body('bo_' + PE + '_stand', [(-0.075, 0.075, -0.075, 0.075, zb, 0.0),
 for x in done:
     x.data.name = x.name
 # round shot for the gunnery add-on's shot items, one iron ball per calibre (material galleass_iron):
-# culverin da 14 ~12 cm (galleass_shot, the first one), falcon da 6 ~7.6 cm, falconet ~5.3 cm (bores 12.4 / 8.0 / 5.6)
+# culverin da 14 ~12 cm (galleass_shot, the first one), falcon da 6 ~7.6 cm, falconet ~5.3 cm (bores 12.4 / 8.0 / 5.6);
+# galleass_shot_pellet ~2.4 cm: one ball of the scattershot (falcon / falconet / swivel gun case shot, user 2026-10-18)
 for name, r, segs in (('galleass_shot', 0.06, (16, 10)), ('galleass_shot_falcon', 0.038, (14, 9)),
-                      ('galleass_shot_falconet', 0.0265, (12, 8))):
+                      ('galleass_shot_falconet', 0.0265, (12, 8)), ('galleass_shot_pellet', 0.012, (8, 6))):
     bm = bmesh.new(); bmesh.ops.create_uvsphere(bm, u_segments=segs[0], v_segments=segs[1], radius=r)
     me = bpy.data.meshes.new(name); bm.to_mesh(me); bm.free()
     me.materials.append(kit_mat('galleass_iron'))
