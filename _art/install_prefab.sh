@@ -9,6 +9,11 @@ tmp=$(mktemp); log=$(mktemp)
 if ! python3 _art/build_prefab.py ../NavalDLC/AssetPackages/nested_prefabs_packed.xml _art/ref/clone.xml "$tmp" > "$log" 2>&1; then
     cat "$log"; rm -f "$tmp" "$log"; echo "BUILD FAILED - nothing installed"; exit 1
 fi
+# the running rigging as the game will tie it (rig_check.py replays SailVisual's pin choice over the yards' swing):
+# no fallbacks, no rope through the ship
+if ! python3 _art/rig_check.py "$tmp",../NavalDLC/AssetPackages/nested_prefabs_packed.xml --strict > "$log" 2>&1; then
+    grep -E '^(ERROR|WARN)|errors' "$log"; rm -f "$tmp" "$log"; echo "RIG CHECK FAILED - nothing installed"; exit 1
+fi
 size=$(wc -c < "$tmp")
 if [ "$size" -lt 1000000 ]; then
     rm -f "$tmp" "$log"; echo "BUILD OUTPUT TOO SMALL ($size bytes) - nothing installed"; exit 1

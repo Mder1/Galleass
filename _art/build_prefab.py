@@ -116,6 +116,48 @@ def tags(*names):
 def mobility():
     return el('misc', None, el('mobility', {'type_name': 'int', 'value': '1'}))
 
+# --- deleting inherited children -----------------------------------------------------------------------------------
+# The game builds an entity's children as its own (overrides, each linked to the base child it replaces) PLUS every
+# base child none of them overrides (NavalDLC's packs leave unchanged children out - 804 entities). So a child deleted
+# from a still-linked entity comes back (2026-10-18: the mizzen's vanilla backstay and sheets were in the game again,
+# past the stern / at the waterline). Cutting the links instead (up to sail_holder: the three sail rigs unlinked) hung
+# the battle loading in MissionShipFactory.CreateMissionShip. So unwanted inherited children are HIDDEN: an override
+# kept linked to its base child, moved to the parent's origin and shrunk to a point (scale 0.001: the rope between its
+# ends has no length, the rope pile no size), its tags replaced (SailVisual skips it: no simple_rope / bone tag).
+def eff_kids(e, depth=0):
+    own = kids(e); b = base(e)
+    if b is None or depth > 20:
+        return own
+    taken = {c.find('prefab_link/prefab').get('guid') for c in own if c.find('prefab_link/prefab') is not None}
+    return own + [c for c in eff_kids(b, depth + 1) if c.find('prefab_link/instance').get('guid') not in taken]
+
+def name_of(e):
+    d = 0
+    while e is not None and d < 20:
+        if e.get('name'):
+            return e.get('name')
+        e, d = base(e), d + 1
+    return ''
+
+def hide(parent, c):
+    """Hide child c of parent (an own override, or a base child the game would merge in)."""
+    if not any(x is c for x in kids(parent)):            # a base child: add an override for it
+        g = c.find('prefab_link/instance').get('guid')
+        o = el('entity', {'name': name_of(c)}, el('prefab_link', None, el('instance', {'guid': guid('hide/%s' % g)}),
+                                                   el('prefab', {'guid': g})))
+        ch = parent.find('children')
+        if ch is None:
+            ch = ET.SubElement(parent, 'children')
+        ch.append(o)
+        c = o
+    p, r = (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)                  # at the parent's origin (inside the hull)
+    drop(c, 'transform'); drop(c, 'tags'); drop(c, 'children'); drop(c, 'components'); drop(c, 'scripts')
+    c.append(el('transform', None, el('position', {'type_name': 'vec3', 'value': '%.3f, %.3f, %.3f' % tuple(p)}),
+                el('rotation_euler', {'type_name': 'vec3', 'value': '%.3f, %.3f, %.3f' % tuple(r)}),
+                el('scale', {'type_name': 'vec3', 'value': '0.001, 0.001, 0.001'})))
+    c.append(tags('galleass_hidden'))
+    c[:] = sorted(c, key=lambda x: ORDER.index(x.tag) if x.tag in ORDER else len(ORDER))
+
 report = []
 
 # --- root: collision shape --------------------------------------------------------------------------------------
@@ -430,22 +472,6 @@ def _deck_spot(x, y):
             x = math.copysign(0.9, x if x else 1.0)
     return (x, y, z)
 
-KNOT_H = 0.13                                                 # cleat_a's knot_point above its base
-FASTENERS = []                                                # [(x, y, z)] cleat bases
-
-def fasten(surface):
-    """A cleat at this surface point (or a close existing one); returns the rope's end (the knot point)."""
-    x, y, z = surface
-    for f in FASTENERS:
-        if abs(f[2] - z) < 0.05 and math.hypot(f[0] - x, f[1] - y) < 0.25:
-            return (f[0], f[1], f[2] + KNOT_H)
-    while any(abs(f[2] - z) < 0.05 and math.hypot(f[0] - x, f[1] - y) < 0.45 for f in FASTENERS):
-        y += 0.45                                             # neighbours along a rail: spread out
-        if abs(z - Z_CAP) < 0.05:
-            y = clear_of_boarding(y)
-    FASTENERS.append((x, y, z))
-    return (x, y, z + KNOT_H)
-
 # transforms (TaleWorlds Mat3.ApplyEulerAngles: z, then x, then y; as prefab_layout.py)
 I3 = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
 def mmul(a, b): return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
@@ -621,21 +647,101 @@ report.append('oars: upper (manned) bank removed; %d unmanned oars (%s, %d meshe
                  dip_min, dip_max, OAR_H - OAR_OUT * math.sin(math.radians(dip_min)),
                  OAR_OUT * math.sin(math.radians(dip_max)) - OAR_H))
 
-# --- cleats (knot points) onto the cap rail; the meditheavy's hull-side cosmetic ropes go --------------------
+# --- belaying fittings (user 2026-10-18: galley-style pin rails and bitts, deliberately placed, instead of the 25
+# vanilla cleats moved onto the cap rail plus one more per re-anchored rope end - 57 cleats, many orphans, some over
+# gunports). The game ties every brace and sheet to the nearest knot_point(s) of knobs_holder each tick (SailVisual
+# .TickRopesAndPulleys; replayed by rig_check.py), so every pin is a knot point and the fittings ARE the belaying plan.
+# Meshes and pin positions: belay_model.py -> ref/galleass_belay_pins.json.
+BELAY_PINS = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ref', 'galleass_belay_pins.json')))
+# pin boards on the cap rails (pins through board and rail; a rail on the bulwark's inner face put falls to a yard out
+# over the side through the cap - rig_check). Waist, both sides: (y centre, pins), by mast
+CAP_BOARDS = [(9.3, 4), (2.05, 3), (-3.4, 4),                  # main: forward / abeam / abaft
+              (13.0, 4),                                      # fore: abaft (forward: the forecastle parapet)
+              (-10.0, 4)]                                     # mizzen: forward (abaft: bitts on the poop; a board
+                                                              # at -12.4 led falls through the poop's front)
+FC_BOARDS = [(22.5, 3), (67.5, 3)]                            # forecastle parapet cap, bearings (deg) each side
+POOP_BITTS = [(1.7, -23.0, 3)]                                # (|x|, y, pins), both sides, along the ship
+SHROUD_FEET = (3.9, 0.3, -1.6, 16.8, 15.0, -14.6, -16.0)      # = standing_rig.py RIGS feet (tackles up the shrouds)
+def board_clear(y, half):
+    """Obstacles on the waist cap rail for a pin board of half length 'half' at y: swivels, shroud tackles, boarding
+    hooks, the castles' ends."""
+    bad = [(w - 0.9, w + 0.9) for w in gun_layout.SWIVEL_WAIST_Y] + [(f - 0.45, f + 0.45) for f in SHROUD_FEET] + \
+          [(b - 0.6, b + 0.6) for b in BOARDING_Y] + [(FC_YB - 0.2, 99.0), (-99.0, BOX_Y0 + 0.3)]
+    return [o for o in bad if o[0] < y + half + 0.03 and o[1] > y - half - 0.03]
+BELAY = []                                                    # (name, mesh, (x, y, z), yaw)
+for y, n in CAP_BOARDS:
+    half = (n * BELAY_PINS['pin_spacing'] + 0.16) / 2
+    hit = board_clear(y, half)
+    assert not hit, 'pin board at y %.2f hits %s' % (y, hit)
+    for side in (-1, 1):
+        BELAY.append(('pinrail_%+d_%.1f' % (side, y), 'galleass_pinrail_%d' % n, (side * X_CAP, y, Z_CAP), 0.0))
+R_PAR = FC_R - 0.175                                          # parapet's centre line (wall 0.35 thick)
+Z_PAR = G['FC_Z_PARAPET'] + LIFT + 0.1                        # its cap's top (= rail_point)
+for deg, n in FC_BOARDS:
+    for s in (-1, 1):
+        x, y = G['fc_point'](s * deg, R_PAR)
+        BELAY.append(('pinrail_fc_%+d' % (s * deg), 'galleass_pinrail_%d' % n, (x, y, Z_PAR), -math.radians(s * deg + 90)))
+for ax, y, n in POOP_BITTS:
+    for side in (-1, 1):
+        x = side * ax
+        assert abs(x) < sc_hw(y) - 0.4 and y > SC_Y0 + 0.5, 'poop bitts off the poop'
+        BELAY.append(('bitts_poop_%+d' % side, 'galleass_bitts_%d' % n, (x, y, Z_POOP_TOP), 0.0))
+# braces and sheets search their pins within this distance (SailVisual 'Rope Connection Max Distance': horizontal for
+# braces, 3D for sheets; vanilla 7 / 16 / 18 here). Beyond it the game takes the nearest pin anywhere, ignoring the
+# side of the yard - every sheet (its sail corner 20-40 m up) and the fore braces always fell back (rig_check)
+ROPE_REACH = 60.0
+def set_script_var(e, script, name, value):
+    sc = next(x for x in e.findall('scripts/script') if x.get('name') == script)
+    vs = sc.find('variables')
+    if vs is None:
+        vs = ET.SubElement(sc, 'variables')
+    v = next((x for x in vs if x.get('name') == name), None)
+    if v is None:
+        v = ET.SubElement(vs, 'variable', name=name, type_name='float')
+    v.set('value', '%.3f' % value)
+
+def belay_pins(item):
+    _, mesh, (x, y, z), yaw = item
+    c, s_ = math.cos(yaw), math.sin(yaw)
+    return [(x + c * px - s_ * py, y + s_ * px + c * py, z + pz) for px, py, pz in BELAY_PINS['pins'][mesh]]
+PINS = [p for it in BELAY for p in belay_pins(it)]
+FASTENERS = PINS                                              # (rig_check / re-anchoring: ends go to the nearest pin)
+
 kh = files['knobs_holder']
-n = 0
-for e, wm, wp, pm, pp in walk(kh)[1:]:
-    if e.get('name') != 'cleat_a':
-        continue
-    side = 1 if wp[0] > 0 else -1
-    y = clear_of_boarding(min(max(wp[1], BOX_Y0 + 0.4), BOX_Y1 - 0.4))
-    set_world_pos(e, pm, pp, (side * X_CAP, y, Z_CAP))
-    write_tf(e, rot=(0.0, 0.0, tf(e)[1][2]))
-    FASTENERS.append((side * X_CAP, y, Z_CAP))
-    n += 1
-CLEAT_TMPL = next(c for c in kids(kh) if c.get('name') == 'cleat_a')
-N_RAIL_CLEATS = len(FASTENERS)
-report.append('knobs_holder: %d cleats on the cap rail (x +-%.2f, z %.2f)' % (n, X_CAP, Z_CAP))
+KNOT_TMPL = next(k for c in kids(kh) if c.get('name') == 'cleat_a' for k in kids(c) if k.get('name') == 'knot_point')
+flatten(kh)
+n_old = len(kids(kh)); drop(kh, 'children')
+BELAY_MISSING = [m for m in sorted({it[1] for it in BELAY})
+                 if not os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'Assets', m + '_geo.tpac'))]
+fits = []
+for i, it in enumerate(BELAY):
+    name, mesh, pos, yaw = it
+    seed = 'belay/%s' % name
+    e = new_entity(name, seed)
+    write_tf(e, pos=pos, rot=(0.0, 0.0, yaw))
+    bo = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'Assets', 'bo_%s_geo.tpac' % mesh)
+    if mesh.startswith('galleass_bitts_') and os.path.exists(bo) and os.path.getsize(bo) > 600:
+        e.append(el('physics', None, el('shape', {'type_name': 'string', 'value': 'bo_' + mesh}),
+                    el('body_flags', None, el('body_flag', {'name': 'moveable'})),
+                    el('move_to_batched_kinematic', {'type_name': 'bool', 'value': '1'})))
+    e.append(tags('galleass_belay')); e.append(mobility())
+    e.append(mesh_component(seed, mesh))
+    ks = []
+    for j, (px, py, pz) in enumerate(BELAY_PINS['pins'][mesh]):
+        k = copy_regen(KNOT_TMPL, '%s/pin/%d' % (seed, j))
+        write_tf(k, pos=(px, py, pz), rot=(0.0, 0.0, 0.0))
+        ks.append(k)
+    e.append(el('children', None, *ks))
+    e[:] = sorted(e, key=lambda c: ORDER.index(c.tag) if c.tag in ORDER else len(ORDER))
+    fits.append(e)
+kh.append(el('children', None, *fits))
+report.append('knobs_holder: %d vanilla cleats out; %d belaying fittings (%d pin rails, %d bitts), %d pins = knot points%s'
+              % (n_old, len(BELAY), sum('pinrail' in it[1] for it in BELAY), sum('bitts' in it[1] for it in BELAY), len(PINS),
+                 ('; KIT: import ' + ', '.join(BELAY_MISSING)) if BELAY_MISSING else ''))
+
+def fasten(surface):
+    """The belaying pin nearest to this point (the rope's end; the game re-picks braces / sheets at run time)."""
+    return min(PINS, key=lambda p: math.dist(p, surface))
 
 # --- masts: small (mizzen), large (main), medium (fore) lateen rigs through the model's mast partners ----------
 # sail_center_i <-> i-th <sail> in galleass_mission_ships.xml. Rake: gentler than vanilla so the fore yard
@@ -716,17 +822,16 @@ def rerig_ropes(rig, deck_z):
     sp = MD.MASTS[size]
     yard = next(e for e in rig.iter('entity') if e.get('name') == 'yard_axis_shift_entity')   # the yard's hoist
     stays, shrouds = [], []
-    for c in kids(srp):
+    for c in eff_kids(srp):                                       # (incl. the base's: the game merges them in)
         ends = [x for x in c.iter('entity') if x.get('name') in ('rope_start', 'rope_end')]
         on_yard = any('attached_to_yard' in own_tags(x) for x in ends)
         if 'big_rope' in own_tags(c):
             stays.append(c)
         elif not on_yard:
             shrouds.append(c)
-    tie = stays[0]
-    ch = srp.find('children')
-    for c in stays[1:] + shrouds:
-        ch.remove(c)
+    tie = next(c for c in stays if any(c is k for k in kids(srp)))
+    for c in [x for x in stays if x is not tie] + shrouds:
+        hide(srp, c)
     wm, wp = W[id(mm)][0], W[id(mm)][1]
     hx, _ = MD.calcese_half(sp)
     loc = (hx + 0.03, 0.0, MD.sheaves(sp)[0] - 0.05)
@@ -755,11 +860,21 @@ def rerig_ropes(rig, deck_z):
     n_sheets = 0
     if size == 'small':
         stp = next(e for e in rig.iter('entity') if e.get('name') == 'stability_ropes_parent')
-        for c in kids(stp):
+        for c in eff_kids(stp):
             if 'simple_rope' in own_tags(c):
-                stp.find('children').remove(c); n_sheets += 1
+                hide(stp, c); n_sheets += 1
     if n_sheets:
         report.append('%s: %d stability ropes (sheets to the clew beyond the stern) removed' % (rig.get('name'), n_sheets))
+    # vanilla rope hangers (rope_knot_point: peg + coil) on the mast whose rope is gone (the stays' upper ends, ~18 m up
+    # on main and fore - audit 2026-10-18): no rope end within 1 m -> out
+    W2 = {id(e): wp for e, _, wp, _, _ in walk(rig)}
+    ends = [W2[id(x)] for x in rig.iter('entity') if re.fullmatch(r'rope_start|rope_end|free_rope\d+|fixed_rope\d+|end_point_rope|end_target_point', x.get('name') or '')]
+    smast = next(e for e in rig.iter('entity') if e.get('name') == 'sail_mast')
+    n_hang = 0
+    for c in kids(smast):
+        if c.get('name') == 'rope_knot_point' and min(math.dist(W2[id(c)], q) for q in ends) > 1.0:
+            smast.find('children').remove(c); n_hang += 1
+    report.append('%s: %d rope hangers without a rope removed from the mast' % (rig.get('name'), n_hang))
     report.append('%s ropes: %d stays + %d shrouds removed; tie from the yard (%.2f, %.2f, %.2f) to the calcese '
                   '(%.2f, %.2f, %.2f)' % (rig.get('name'), len(stays) - 1, len(shrouds), *low, *top))
 
@@ -781,6 +896,7 @@ for rig, mast, zd, rake, vdeck in RIGS:
     MAST_AXES.append((MASTS[mast], zd, rake))
     write_tf(rig, pos=P, rot=(rake, 0.0, 0.0))
     swap_mast(rig)
+    set_script_var(rig, 'sail_visual', 'Rope Connection Max Distance', ROPE_REACH)
     new = {id(e): (wm, wp, pm, pp) for e, wm, wp, pm, pp in walk(rig)}
     moved = []
     done = set()
@@ -829,12 +945,6 @@ for rig, mast, zd, rake, vdeck in RIGS:
                      dict(sorted({m: moved.count(m) for m in moved}.items()))))
     rerig_ropes(rig, zd)
 
-# new cleats where the rigs' rope ends are made fast (rails and decks)
-for i, (x, y, z) in enumerate(FASTENERS[N_RAIL_CLEATS:]):
-    c = copy_regen(CLEAT_TMPL, 'galleass-cleat/%d/' % i)
-    write_tf(c, pos=(x, y, z), rot=(0.0, 0.0, 0.0))
-    kh.find('children').append(c)
-report.append('rope fasteners: %d new cleats (%d rail cleats reused)' % (len(FASTENERS) - N_RAIL_CLEATS, N_RAIL_CLEATS))
 rc = files['rope_cosmetics_holder']
 assert base(rc) is None
 n = len(kids(rc)); drop(rc, 'children')
@@ -1070,7 +1180,12 @@ for sw in SWIVELS:
         continue
     hx, hy = SW_STAND[0] + 0.05 + NAV_PAD, SW_STAND[1] + 0.05 + NAV_PAD
     STORE_FOOT.append((sw['pos'][0], sw['pos'][1], sw['deck_z'], sw['rot_z'], hx, hy))
-for sx, sy, sz, rot, hx, hy in STORE_FOOT:                     # stands and the poop's swivel locker
+for _name, _mesh, _pos, _yaw in BELAY:                         # bitts (belaying fittings on the poop): solid, cut out
+    if _mesh.startswith('galleass_bitts_'):
+        _n = int(_mesh.rsplit('_', 1)[1]); _bt = BELAY_PINS['bitts']
+        STORE_FOOT.append((_pos[0], _pos[1], _pos[2], _yaw, _bt['post'] / 2 + 0.05 + NAV_PAD,
+                           (_n * BELAY_PINS['pin_spacing'] + 0.10) / 2 + _bt['post'] + 0.05 + NAV_PAD))
+for sx, sy, sz, rot, hx, hy in STORE_FOOT:                     # stands, the poop's swivel locker, bitts
     if abs(sz - Z_POOP_TOP) < 0.5:
         ca, sa = math.cos(rot), math.sin(rot)
         for lx in (-hx, hx):
@@ -1907,6 +2022,8 @@ report.append('swivels: %d (%s), %d gunner steps, %d spare chambers' % (len(SWIV
 report.append('guns: %d (%s)' % (len(GUN_PLACES), ', '.join('%s %d' % kv for kv in sorted(Counter(g['kind'] for g in GUN_PLACES).items()))))
 
 # --- write --------------------------------------------------------------------------------------------------------
+if BELAY_MISSING and not os.environ.get('GALLEASS_ALLOW_MISSING'):   # (=1: a trial build for rig_check, not installed)
+    raise SystemExit('Kit meshes missing: %s - import them in the Modding Kit first' % ', '.join(BELAY_MISSING))
 ET.indent(folder, '\t', level=1)
 body = ET.tostring(folder, encoding='unicode').replace(' />', '/>')   # the editor's style
 with open(out_path, 'w', encoding='utf-8', newline='\n') as f:

@@ -1,6 +1,6 @@
 """Dump world positions of the gameplay entities of a ship prefab from NavalDLC's packed nested
 prefabs, resolving prefab inheritance (an entity without its own transform/tags/scripts takes them
-from the base entity its <prefab guid> points to). Rotation order follows TaleWorlds
+from the base entity its <prefab guid> points to; children: own overrides plus the base's not overridden). Rotation order follows TaleWorlds
 Mat3.ApplyEulerAngles (z, then x, then y).
 
 usage: python3 prefab_layout.py <packed xml>[,<base packed xml>...] <ship prefab> <out json>
@@ -10,18 +10,20 @@ galleass prefab on top of NavalDLC's)
 import json, math, re, sys
 import xml.etree.ElementTree as ET
 
-packed, ship, out = sys.argv[1:4]
-roots = []
-for path in packed.split(','):
-    s = re.sub(r'^<\?xml[^>]*\?>', '', open(path, encoding='utf-8').read())
-    roots.append(ET.fromstring('<r>' + s + '</r>'))
-root = roots[0]
-by_guid = {}
-for r in reversed(roots):                     # the ship's own file wins
-    for e in r.iter('entity'):
-        g = e.find('prefab_link/instance')
-        if g is not None:
-            by_guid[g.get('guid')] = e
+roots, root, by_guid = [], None, {}
+def load(packed):
+    """Read the packed file(s) (comma separated; the first holds the ship) - also for importers (rig_check.py)."""
+    global root
+    roots.clear(); by_guid.clear()
+    for path in packed.split(','):
+        s = re.sub(r'^<\?xml[^>]*\?>', '', open(path, encoding='utf-8').read())
+        roots.append(ET.fromstring('<r>' + s + '</r>'))
+    root = roots[0]
+    for r in reversed(roots):                 # the ship's own file wins
+        for e in r.iter('entity'):
+            g = e.find('prefab_link/instance')
+            if g is not None:
+                by_guid[g.get('guid')] = e
 
 ZERO = '{00000000-0000-0000-0000-000000000000}'
 def base(e):
@@ -73,14 +75,28 @@ def meshes(e):
     t = inherited(e, 'components')
     return [x.get('name') for x in t.findall('meta_mesh_component')] if t is not None else []
 
-def children(e):
+def children(e, depth=0):
+    """The children the game builds: e's own (overrides, each linked to the base child it replaces) plus every child
+    of its base that none of them overrides - NavalDLC's packs leave unchanged children out (804 entities), so an entity
+    that is still linked gets back whatever was deleted from its list (2026-10-18: the mizzen's vanilla backstay)."""
     own = e.findall('children/entity')
-    if own:
-        return own
     b = base(e)
-    return children(b) if b is not None else []
+    if b is None or depth > 20:
+        return own
+    taken = {c.find('prefab_link/prefab').get('guid') for c in own if c.find('prefab_link/prefab') is not None}
+    return own + [c for c in children(b, depth + 1) if c.find('prefab_link/instance').get('guid') not in taken]
 
-folder = next(f for f in root.find('prefab_folders') if f.get('name') == ship)
+def script_vars(e, script):
+    """Variables of one script, the instance's own values over its bases'."""
+    out, seen = {}, 0
+    while e is not None and seen < 20:
+        for sc in e.findall('scripts/script'):
+            if sc.get('name') == script:
+                for v in sc.iter('variable'):
+                    out.setdefault(v.get('name'), v.get('value'))
+        e = base(e); seen += 1
+    return out
+
 rows = []
 def walk(e, path, wm, wp, depth=0):
     m, p = local(e)
@@ -89,13 +105,23 @@ def walk(e, path, wm, wp, depth=0):
     fwd = [wm[0][1], wm[1][1], wm[2][1]]
     rows.append({'path': path + '/' + name, 'name': name, 'pos': [round(v, 3) for v in wp],
                  'fwd': [round(v, 3) for v in fwd], 'mat': [[round(v, 5) for v in row] for row in wm],
-                 'tags': tags(e), 'scripts': scripts(e), 'meshes': meshes(e)})
+                 'tags': tags(e), 'scripts': scripts(e), 'meshes': meshes(e), 'el': e})
     if depth < 12:
         for c in children(e):
             walk(c, path + '/' + name, wm, wp, depth + 1)
 
 I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
-for pf in folder:
-    walk(pf.find('entity'), '', I, [0, 0, 0])
-json.dump(rows, open(out, 'w'), indent=0)
-print(len(rows), 'entities ->', out)
+def layout(ship):
+    """Rows (world frames, tags, ...) of every entity of the ship prefab; row['el'] is the XML element."""
+    rows.clear()
+    folder = next(f for f in root.find('prefab_folders') if f.get('name') == ship)
+    for pf in folder:
+        walk(pf.find('entity'), '', I, [0, 0, 0])
+    return rows
+
+if __name__ == '__main__':
+    packed, ship, out = sys.argv[1:4]
+    load(packed)
+    layout(ship)
+    json.dump([{k: v for k, v in r.items() if k != 'el'} for r in rows], open(out, 'w'), indent=0)
+    print(len(rows), 'entities ->', out)

@@ -207,6 +207,30 @@ def calcese(B, sp, z0, z1):
     # cap
     box(B, 'bw_oar_wood_a', (0, 0, z1 + 0.05), (hx * 1.15, hy * 1.12, 0.05), chamfer=r * 0.4)
 
+# lubber's hole: the flag halyard (vanilla flag_capture_rope, the capture flag runs along it - it can't be rerouted)
+# crosses the floor 0.39 m from the axis at bearing -84 deg (mast-local, from the rig layout; it went through the
+# planking, user 2026-10-13/18)
+LUBBER_DEG, LUBBER_HALF = -84.0, 9.0
+
+def floor_ring(B, key, z, r0, r1, th, gap_c, gap_h, segs=20):
+    """Annular floor slab, open in the sector gap_c +- gap_h (radians)."""
+    bm = B.bms[key]; uvl = B.uv(key)
+    a0, a1 = gap_c + gap_h, gap_c - gap_h + 2 * math.pi
+    ring = []
+    for k in range(segs + 1):
+        a = a0 + (a1 - a0) * k / segs
+        ring.append([bm.verts.new((rr * math.cos(a), rr * math.sin(a), zz)) for rr, zz in ((r0, z), (r1, z), (r1, z + th), (r0, z + th))])
+    made = []
+    def face(vs):
+        f = bm.faces.new(vs); made.append(f)
+        for lp in f.loops: lp[uvl].uv = (-1.2 + 0.5 * lp.vert.co.x, 2.6 + 0.5 * lp.vert.co.y + 0.177 * lp.vert.co.z)
+    for p, q in zip(ring, ring[1:]):
+        for i in range(4):
+            j = (i + 1) % 4
+            face((p[i], q[i], q[j], p[j]))
+    face(ring[0]); face(ring[-1][::-1])
+    bmesh.ops.recalc_face_normals(bm, faces=made)
+
 def gabbia(B, sp, zf):
     """Round fighting top: two trestle cheeks under a planked floor, a ring of staves 1.0 m high with two iron
     hoops, a top rail."""
@@ -216,7 +240,7 @@ def gabbia(B, sp, zf):
         box(B, 'bw_oar_wood_a', (s * (r + 0.07), 0, zf - 0.14), (0.06, R * 0.85, 0.09))
     for s in (-1, 1):                                       # cross trees
         box(B, 'bw_oar_wood_a', (0, s * (r + 0.12), zf - 0.03), (R * 0.85, 0.05, 0.05))
-    lathe(B, 'bw_oar_wood_a', [(zf, r + 0.01), (zf, R), (zf + 0.06, R), (zf + 0.06, r + 0.01)], 20)   # floor ring
+    floor_ring(B, 'bw_oar_wood_a', zf, r + 0.01, R, 0.06, math.radians(LUBBER_DEG), math.radians(LUBBER_HALF))
     n = 22
     for k in range(n):                                      # staves
         a = 2 * math.pi * (k + 0.5) / n

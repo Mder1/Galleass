@@ -118,6 +118,32 @@ for r in rows:
         marker(r['pos'], M_BONE, 0.25)
         print('PV free bone', r['path'].split('/sail_holder/')[1].split('/')[0], r['name'], r['pos'], r['tags'])
 
+# RUNTIME=<rig_check --dump json> [RUNTIME_YAWS=0,45,90,135,170]: the braces / sheets where the game ties them at
+# those yaws (lines pin -> sail corner), the yard drawn between its two end bones; rest-pose yards and ropes hidden
+RUNTIME = os.environ.get('RUNTIME')
+rt_colls = {}
+if RUNTIME:
+    D = json.load(open(RUNTIME))
+    M_BRACE = mat((0.2, 0.9, 0.9, 1), 'pv_rt_brace'); M_SHEET = mat((1.0, 0.5, 0.1, 1), 'pv_rt_sheet'); M_RTYARD = mat((0.85, 0.1, 0.1, 1), 'pv_rt_yard')
+    for o in list(coll.objects):
+        o.hide_render = True                                   # (rest pose)
+    for p in D['knots']:
+        marker(p, M_KNOT, 0.07)
+    for y in os.environ.get('RUNTIME_YAWS', '0,45,90,135,170').split(','):
+        fr = D['yaws'].get(y)
+        if fr is None: continue
+        c = bpy.data.collections.new('rt_%s' % y); bpy.context.scene.collection.children.link(c); rt_colls[y] = c
+        before = set(bpy.data.objects)
+        for role, d in fr.items():
+            b = d['bones']
+            if 'yard_bone_fore' in b and 'yard_bone_back' in b:
+                line(b['yard_bone_fore'], b['yard_bone_back'], M_RTYARD, r=0.12)
+            for kind, a, bb in d['ropes']:
+                line(a, bb, M_SHEET if kind == 'sheet' else M_BRACE, r=0.035)
+        for o in set(bpy.data.objects) - before:
+            for uc in list(o.users_collection): uc.objects.unlink(o)
+            c.objects.link(o)
+
 if SAVE:
     bpy.ops.wm.save_as_mainfile(filepath=SAVE, copy=True)
 
@@ -134,6 +160,16 @@ def shot(fname, loc, tgt, lens=30, ortho=None):
     if ortho: cam.data.type = 'ORTHO'; cam.data.ortho_scale = ortho
     else: cam.data.type = 'PERSP'; cam.data.lens = lens
     sc.render.filepath = os.path.join(OUT, fname); bpy.ops.render.render(write_still=True)
+if RUNTIME:
+    for o in bpy.data.objects:
+        if any(m in o.name for m in ('ship_yard_lateen',)): o.hide_render = True
+    for y, c in rt_colls.items():
+        for c2 in rt_colls.values():
+            for o in c2.objects: o.hide_render = c2 is not c
+        shot('rt_%s_persp.png' % y, (28, 38, 26), (0, 0, 12), lens=28)
+        shot('rt_%s_top.png' % y, (0, 2, 90), (0, 2.001, 0), ortho=70)
+        shot('rt_%s_deck.png' % y, (7, -24, 10), (0, 10, 6), lens=24)
+    print('PV done'); sys.exit(0)
 shot('now_side.png', (60, 2, 16), (0, 2, 16), ortho=70)
 shot('now_top.png', (0, 2, 90), (0, 2.001, 0), ortho=70)
 shot('now_front.png', (0, 70, 16), (0, 0, 16), ortho=40)
