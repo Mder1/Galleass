@@ -323,7 +323,7 @@ for size, lst in objs.items():
 from mast_dims import (SPRIT_HEEL, SPRIT_RISE, SPRIT_LEN, SPRIT_R0, SPRIT_R1, SPRIT_SLING_Y, SPRIT_CHOCK,
                        SPRIT_PIN_HALF, SPRIT_WALL, SPRIT_HOLE, sprit_point, sprit_tip, sprit_pins)
 SPRIT_M = Matrix.Translation(Vector(SPRIT_HEEL)) @ Matrix.Rotation(SPRIT_RISE - math.pi / 2, 4, 'X')   # spar z -> ship
-SPRIT_BUTT = -0.20                                          # the heel's butt behind the step
+SPRIT_BUTT = -0.08                                          # the heel's butt (its lower edge stays above the platform)
 def sprit_r(t):
     return SPRIT_R0 + (SPRIT_R1 - SPRIT_R0) * max(t, 0.0) / SPRIT_LEN
 
@@ -344,7 +344,7 @@ def build_bowsprit(level):
                   segs)
     if level < 2:                                           # rope bands round the spar by the step
         tube, rs = (4, 18) if level == 0 else (4, 12)
-        for t0 in (0.35, sprit_t(SPRIT_WALL[1] + 0.175) + 0.30):     # inside behind the wall, outside by the ring
+        for t0 in (0.55, sprit_t(SPRIT_WALL[1] + 0.175) + 0.30):     # inside behind the wall, outside by the ring
             for i in range(WOOL_TURNS):
                 t = t0 + i * WOOL_ROPE * 2.05
                 rg.ring(B.bms['plank_stake_a'], (0, 0, t), (0, 0, 1), sprit_r(t) + WOOL_ROPE * 0.75, WOOL_ROPE,
@@ -361,23 +361,34 @@ def build_bowsprit(level):
         ring = [(r_h * math.cos(a), y_face, zc + r_h / math.cos(SPRIT_RISE) * math.sin(a))
                 for a in [2 * math.pi * k / 24 for k in range(25)]]
         rg.rope(B.bms['galleass_iron'], ring, 0.021, segs=6, caps=False)
-    cx, cy, ch = SPRIT_CHOCK
-    z_cap = SPRIT_HEEL[2] - SPRIT_R0 - ch
-    box(B, 'bw_oar_wood_a', (0.0, SPRIT_HEEL[1] + 0.12, z_cap + ch / 2), (cx, cy, ch / 2), chamfer=0.04)
+    # the bed: a sloped timber on the platform under the spar's whole inboard length, heel to the parapet's inner
+    # face, its top along the spar's underside (user 2026-10-19: longer heel and bed)
+    cx = SPRIT_CHOCK[0]
+    z_cap = 6.3                                             # platform
+    def under(y):
+        return sprit_point(y)[2] - SPRIT_R0 / math.cos(SPRIT_RISE) + 0.01
+    y0, y1 = SPRIT_HEEL[1] - 0.05, SPRIT_WALL[1] - 0.175 - 0.02
+    bmb = bmesh.new()
+    vs = [bmb.verts.new(v) for v in [(x, y, z) for y in (y0, y1) for x in (-cx, cx) for z in (z_cap, under(y))]]
+    q = lambda *i: bmb.faces.new([vs[k] for k in i])
+    q(0, 2, 3, 1); q(4, 5, 7, 6); q(0, 1, 5, 4); q(2, 6, 7, 3); q(1, 3, 7, 5); q(0, 4, 6, 2)
+    bmesh.ops.recalc_face_normals(bmb, faces=bmb.faces)
+    meb = bpy.data.meshes.new('bed'); bmb.to_mesh(meb); bmb.free()
+    _merge(B, 'bw_oar_wood_a', meb); bpy.data.meshes.remove(meb)
     if level < 2:
         # gammoning: each turn goes over the spar (clear of it: in a y plane the inclined spar is r / cos(rise) high)
         # and straight down both sides of the chock to an iron ring on the platform each side (user 2026-10-19: the
         # first turns, flat ellipses, ran into the spar's top and through the chock)
         z_ring = z_cap + 0.10                                # ring centre (radius 0.08) above the platform
         for i in range(3):
-            y = SPRIT_HEEL[1] + 0.02 + i * 0.07
+            y = SPRIT_HEEL[1] + 0.20 + i * 0.07
             zc = sprit_point(y)[2]
             hx = cx + WOOL_ROPE * 1.6
             hz = sprit_r(sprit_t(y)) / math.cos(SPRIT_RISE) + WOOL_ROPE * 1.3
             top = [(hx * math.cos(a), y, zc + hz * math.sin(a)) for a in [math.pi * k / 14 for k in range(15)]]
             pts = [(hx, y, z_ring)] + top + [(-hx, y, z_ring)]
             rg.rope(B.bms['plank_stake_a'], pts, WOOL_ROPE, segs=5, caps=True, u_range=WOOL_U, vpm=WOOL_VPM)
-        ym = SPRIT_HEEL[1] + 0.09
+        ym = SPRIT_HEEL[1] + 0.27
         for sx in (-1, 1):                                   # the rings the turns are made fast to
             rg.ring(B.bms['galleass_iron'], (sx * (cx + WOOL_ROPE * 1.6), ym, z_ring), (1, 0, 0), 0.08, 0.012,
                     segs=12, tube=5, role_uv='iron')
@@ -445,7 +456,7 @@ if RENDERS:
     for lst in objs.values(): lst[0].hide_render = True
     sprit[0].hide_render = False
     shot('bowsprit_side.png', (-14, 29.8, 9.2), (0, 29.8, 9.0), lens=35, res=(1600, 1000))
-    shot('bowsprit_heel.png', (-1.6, 23.3, 7.4), (0, 24.6, 6.6), lens=35, res=(1400, 1000))
+    shot('bowsprit_heel.png', (-2.0, 22.4, 7.7), (0, 24.2, 6.7), lens=35, res=(1400, 1000))
     shot('bowsprit_end.png', (-1.8, 32.6, 12.0), (0, 34.5, 11.3), lens=35, res=(1400, 1000))
     print('MAST renders in', RENDERS)
 if len(argv) > 2:                                          # blend for rig_preview.py (MASTS_BLEND)

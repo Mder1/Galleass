@@ -42,13 +42,17 @@ HALYARD_DZ = 0.10                        # the rope's end above the deck, where 
 # bowsprit (ship frame) runs out through the forecastle parapet where the centre falconet's embrasure was (user
 # 2026-10-19: that gun goes, its port becomes a hole that just takes the spar), its heel stepped on a chock on the
 # platform behind it; it rises at SPRIT_RISE over the spur, the yard hanging under it at SPRIT_SLING_Y
-SPRIT_WALL = (0.0, 25.275, 7.05)         # the axis in the middle of the parapet wall (old embrasure 6.7..7.4)
-SPRIT_RISE = 0.4363                      # 25 deg: the fore lateen yard's lower end (fore and aft, yaw ~85) clears it
-                                         # by 1.45 m, axis to axis (30 deg: 0.68)
-SPRIT_HEEL_Z = 6.65                      # heel axis: platform 6.3 + chock 0.15 + spar radius
+SPRIT_WALL = (0.0, 25.275, 7.30)         # the axis in the middle of the parapet wall (old embrasure 6.7..7.4; higher
+                                         # than its middle for a longer heel inboard, user 2026-10-19; the ring on the
+                                         # outer face stays under the cap at 7.7)
+SPRIT_RISE = 0.3840                      # 22 deg: the fore lateen yard's lower end (fore and aft, yaw ~85) clears it
+                                         # by ~1.7 m, axis to axis (30 deg: 0.68)
+SPRIT_BED_MIN = 0.06                     # the bed under the heel: its thinnest (aft) end on the platform (6.3)
+SPRIT_HEEL_Z = 6.3 + SPRIT_BED_MIN + 0.20 / __import__('math').cos(SPRIT_RISE)   # heel axis: spar resting on the bed
 SPRIT_HEEL = (0.0, SPRIT_WALL[1] - (SPRIT_WALL[2] - SPRIT_HEEL_Z) / __import__('math').tan(SPRIT_RISE), SPRIT_HEEL_Z)
-SPRIT_CHOCK = (0.28, 0.35, 0.15)         # step chock on the platform (half x, half y, height)
-SPRIT_LEN = 11.7                         # end at y ~35
+SPRIT_CHOCK = (0.28,)                    # half width of the bed (a sloped timber under the spar's whole inboard
+                                         # length, heel to parapet; user 2026-10-19: longer heel and bed)
+SPRIT_LEN = 12.4                         # end at y ~35
 SPRIT_R0, SPRIT_R1 = 0.20, 0.13          # heel / end radius
 SPRIT_HOLE = 0.02                        # the parapet's hole: spar radius + this (galleass_model.py)
 SPRIT_SLING_Y = 33.0
