@@ -400,7 +400,8 @@ for k in range(8):
     bm.faces.new((ring0[k], ring0[(k + 1) % 8], ring1[(k + 1) % 8], ring1[k]))
 bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
 me = bpy.data.meshes.new('bo_galleass_bowsprit'); bm.to_mesh(me); bm.free()
-me.materials.append(M_WOOD)
+me.materials.append(bpy.data.materials.get('wood') or bpy.data.materials.new('wood'))   # the PHYSICS material (as the
+                                                                                        # bitts' bo_): the Kit looks it up
 bo = bpy.data.objects.new('bo_galleass_bowsprit', me); bpy.context.scene.collection.objects.link(bo)
 for name, lst in (('galleass_bowsprit', sprit), ('bo_galleass_bowsprit', [bo])):
     bpy.ops.object.select_all(action='DESELECT')
