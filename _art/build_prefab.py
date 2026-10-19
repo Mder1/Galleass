@@ -225,6 +225,28 @@ strip_meshes('ship_ballista_holder', lambda m: m == 'ship_meditheavy_ballista_pl
 strip_meshes('ram_group', lambda m: m == 'adaptor_meditheavy', 'the ram adaptor')
 strip_meshes('figurehead_group', lambda m: m == 'figurehea_adapter_meditheavy', 'the figurehead adapter')
 
+# a flattened child no longer overrides anything, so the game merges the base child it replaced back in next to it
+# (hull_group: 5 plating upgrades twice, roof_group: two platforms). Where that base child is a bare marker (tags,
+# transform) the flattened one is linked to it again: it overrides it and, carrying everything itself, inherits nothing
+def relink_flattened(parent):
+    b, n = base(parent), 0
+    if b is None:
+        return 0
+    taken = {c.find('prefab_link/prefab').get('guid') for c in kids(parent)}
+    free = {}
+    for c in eff_kids(b):
+        g = c.find('prefab_link/instance').get('guid')
+        if g not in taken and base(c) is None and all(x.tag in ('prefab_link', 'transform', 'tags') for x in c):
+            free.setdefault(name_of(c), []).append(g)
+    for c in kids(parent):
+        if c.find('prefab_link/prefab').get('guid') == ZERO and free.get(c.get('name')):
+            c.find('prefab_link/prefab').set('guid', free[c.get('name')].pop(0)); n += 1
+    return n + sum(relink_flattened(c) for c in kids(parent))
+for group in ('hull_group', 'roof_group', 'ship_ballista_holder', 'ram_group', 'figurehead_group'):
+    n = relink_flattened(files[group])
+    if n:
+        report.append('%s: %d flattened children linked to their (marker-only) base child again' % (group, n))
+
 # --- no figureheads (user 2026-10-08): the bow carries a fixed spur in the hull mesh instead; can_equip_figurehead is
 # false in the hull XML, and the group is emptied like the fore weapon slot
 fg = files['figurehead_group']
@@ -977,6 +999,7 @@ if any(by_side.values()):
 
 # --- deck upgrades (ammo / arrow crates, boarding weapons): base mesh 0.095 below the entity -----------------
 du = files['deck_upgrade_holder']
+DU_MOVES = []                                     # (meditheavy pos, ours): the burning system's crate fires follow
 for c in kids(du):
     (x, y, z), _, _ = tf(c)
     if y < SC_Y1:
@@ -986,6 +1009,7 @@ for c in kids(du):
     else:
         p = (x, y, Z_DECK + 0.095)
     write_tf(c, pos=p)
+    DU_MOVES.append(((x, y, z), p))
     report.append('deck upgrade %.1f -> (%.2f, %.2f, %.3f)' % (y, *p))
 
 # --- floaters: columns filling OUR watertight body (vanilla physics: each floater is a box, origin = centre of its
@@ -2020,6 +2044,152 @@ report.append('swivels: %d (%s), %d gunner steps, %d spare chambers' % (len(SWIV
     '%s %+.0f..%+.0f' % (sw['name'], SWIVEL_LIM[sw['name']]['min_deg'], SWIVEL_LIM[sw['name']]['max_deg']) for sw in SWIVELS),
     sum(1 for sw in SWIVELS if sw['step']), SW_SPARES * len(SWIVELS)))
 report.append('guns: %d (%s)' % (len(GUN_PLACES), ', '.join('%s %d' % kv for kv in sorted(Counter(g['kind'] for g in GUN_PLACES).items()))))
+
+# --- burning system (2026-10-19): still the meditheavy's nodes (masts at its y -7 / 8.4, rails at x 4, deck nodes under
+# our deck). ShipBurningSystem: a hit lights every node within 6 m (RegisterBlow), flames burn AT the nodes, each group
+# spreads along its children as a ring (prev/next; its NodeIndex sort compares a node with itself = child order). The
+# vanilla nodes (flame variants a..i) are kept and moved: rails = one loop (starboard waist, forecastle parapet, port
+# waist, poop balustrade) in vanilla's loop order; deck = our three decks in vanilla's fore-and-aft order; masts = the
+# meditheavy's rings round its two masts on our three; crates follow their deck upgrade (DU_MOVES). Mast/yard/sail fire
+# is SailVisual's own (not these nodes).
+bs = {name_of(c): c for c in kids(files['ship_burning_system'])}
+def loop_angle(x, y, half_len, half_w):
+    return math.atan2(y / half_len, x / half_w)              # starboard 0, bow +pi/2, port pi, stern -pi/2
+
+RAIL_DZ = 0.7                                                  # vanilla rail nodes: ~0.7 above their deck
+def rail_loop():
+    """Polylines (points, z) round the ship inside the bulwarks."""
+    xw = W_IN - 0.15
+    waist = [(xw, y) for y in (SC_Y1 + 0.3, FC_YB - 0.3)]
+    fc = [(FC_R_IN, FC_YB + 0.3)] + [(FC_R_IN * math.cos(a), FC_CY + FC_R_IN * math.sin(a))
+                                     for a in [math.radians(d) for d in range(0, 181, 15)]] + [(-FC_R_IN, FC_YB + 0.3)]
+    ys = [SC_Y1 - 0.3 - k * (SC_Y1 - SC_Y0 - 0.6) / 8 for k in range(9)]
+    poop = [(-(sc_hw(y) - 0.3), y) for y in ys] + [((sc_hw(y) - 0.3), y) for y in reversed(ys)]
+    return [(waist, Z_DECK + RAIL_DZ), (fc, Z_FC + RAIL_DZ), ([(-x, y) for x, y in reversed(waist)], Z_DECK + RAIL_DZ),
+            (poop, Z_POOP_TOP + RAIL_DZ)]
+
+def sample(lines, n):
+    """n points spread evenly (by length) over the polylines, with the rail's direction."""
+    segs = [(a, b, z) for pts, z in lines for a, b in zip(pts, pts[1:])]
+    total = sum(math.dist(a, b) for a, b, _ in segs)
+    out, step = [], total / n
+    for k in range(n):
+        s = (k + 0.5) * step
+        for a, b, z in segs:
+            l = math.dist(a, b)
+            if s <= l:
+                t = s / l
+                out.append(((a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, z), math.atan2(b[1] - a[1], b[0] - a[0])))
+                break
+            s -= l
+    return out
+
+def move_group(group, spots):
+    """The group's nodes in vanilla loop/fore-and-aft order (key) onto spots in the same order."""
+    nodes = kids(bs[group])
+    assert len(nodes) == len(spots), (group, len(nodes), len(spots))
+    for c, (p, yaw) in zip(nodes, spots):
+        write_tf(c, pos=p, rot=(0.0, 0.0, yaw) if yaw is not None else (0.0, 0.0, tf(c)[1][2]))
+
+def order(group, key):
+    ch = bs[group].find('children')
+    ch[:] = sorted(ch, key=lambda c: key(tf(c)[0]))
+
+# rails: vanilla's 49 sorted round the meditheavy (half length 23, beam 4), ours round our loop
+order('railing_parent', lambda p: loop_angle(p[0], p[1], 23.0, 4.0))
+spots = sorted(sample(rail_loop(), len(kids(bs['railing_parent']))), key=lambda s: loop_angle(s[0][0], s[0][1], 25.0, 6.0))
+move_group('railing_parent', [(p, yaw) for p, yaw in spots])
+
+# deck: 3 on the poop, the rest on the gun deck between the castles, 3 on the forecastle platform (deck_spot keeps them off
+# stairs, hatches, mast steps and the guns' working areas)
+n_deck = len(kids(bs['ship_deck_parent']))
+n_gd = n_deck - 6
+deck_spots = [deck_spot(s * 1.2, y) for s, y in zip((1, -1, 1), (-22.5, -19.5, -16.5))]
+deck_spots += [deck_spot((1 if k % 2 else -1) * 1.6, SC_Y1 + 1.5 + k * (FC_YB - SC_Y1 - 3.0) / (n_gd - 1)) for k in range(n_gd)]
+deck_spots += [deck_spot(s * 1.0, y) for s, y in zip((-1, 1, -1), (19.8, 21.6, 23.2))]
+order('ship_deck_parent', lambda p: p[1])
+move_group('ship_deck_parent', [(p, None) for p in sorted(deck_spots, key=lambda p: p[1])])
+
+# masts: the meditheavy's two rings (10 nodes each, round y ~-7 and ~8.4); the aft ring goes to our main mast, the fore
+# ring's nodes alternately to the fore and mizzen masts. Offsets that would leave the mast's deck (forecastle platform
+# behind the fore mast, gun deck under the poop behind the mizzen) are turned forward
+mn = kids(bs['mast_parent'])
+rings = [[c for c in mn if tf(c)[0][1] < 0], [c for c in mn if tf(c)[0][1] >= 0]]
+def ring_centre(r):
+    ps = [tf(c)[0] for c in r]
+    return [sum(p[i] for p in ps) / len(ps) for i in range(2)] + [min(p[2] for p in ps)]
+CENTRES = [ring_centre(r) for r in rings]                       # before any node moves (fore + mizzen share a ring)
+steps = {round(y, 1): (y, z) for y, z in MASTS_AT}
+by_mast = {'main': rings[0], 'fore': rings[1][0::2], 'mizzen': rings[1][1::2]}
+mast_spots = []
+for mast, nodes in by_mast.items():
+    my, mz = next(v for k, v in steps.items() if abs(k - MASTS[mast]) < 0.2)
+    cx, cy, cz = CENTRES[0 if mast == 'main' else 1]
+    for c in nodes:
+        (x, y, z), r, _ = tf(c)
+        dx, dy = x - cx, y - cy
+        if (mast == 'fore' and my + dy < FC_YB + 0.3) or (mast == 'mizzen' and my + dy < SC_Y1 + 0.3):
+            dy = abs(dy)
+        write_tf(c, pos=(dx, my + dy, mz + max(z - cz, 0.0)))
+        mast_spots.append(mast)
+
+# crates: each node moves with its nearest deck upgrade
+for c in kids(bs['deck_upgrade_parent']):
+    (x, y, z), r, _ = tf(c)
+    (ox, oy, oz), (nx, ny, nz) = min(DU_MOVES, key=lambda m: math.hypot(m[0][0] - x, m[0][1] - y))
+    write_tf(c, pos=(x + nx - ox, y + ny - oy, z + nz - oz))
+
+# fire light (shown with the average fire progress): over the gun deck between the masts; sound nodes (each plays for
+# the nodes within 5 m) along both sides and over both castles
+for c, y in zip(kids(bs['light_parent']), (11.0, -6.5)):
+    write_tf(c, pos=(0.0, y, Z_DECK + 1.2))
+xs = W_IN - 0.6
+snd = [((xs, -6.0, Z_DECK + 0.8), None), ((xs, 7.0, Z_DECK + 0.8), None), ((0.0, 21.6, Z_FC + 0.8), None),
+       ((-xs, 7.0, Z_DECK + 0.8), None), ((-xs, -6.0, Z_DECK + 0.8), None), ((0.0, -19.5, Z_POOP_TOP + 0.8), None)]
+order('sound_parent', lambda p: loop_angle(p[0], p[1], 23.0, 4.0))
+move_group('sound_parent', sorted(snd, key=lambda s: loop_angle(s[0][0], s[0][1], 25.0, 6.0)))
+report.append('burning system: %d rail nodes round the bulwarks/parapet/balustrade, %d deck nodes (poop/gun deck/fc), '
+              '%d mast nodes (%s), %d crate nodes with their deck upgrades, %d lights, %d sound nodes' % (
+              len(kids(bs['railing_parent'])), n_deck, len(mast_spots), dict(Counter(mast_spots)),
+              len(kids(bs['deck_upgrade_parent'])), len(kids(bs['light_parent'])), len(kids(bs['sound_parent']))))
+
+# --- hull water: the simulation box = 2 x the largest |x|, |y|, |z| of the 'render_to_depth' meshes in the ship frame
+# (ShipWaterEffects.RecomputeWaterSimulationBoundingBox, only run by the editor button, so the stored value counts).
+# Ours is galleass_deckwater: x +-6.01, y -25.29..25.40, z 3.80..6.92 (the Kit's import, mesh_extract.py)
+DECKWATER_MAX = (6.01, 25.40, 6.92)
+for sc in files['ship_water_effects'].iter('script'):
+    for v in sc.iter('variable'):
+        if v.get('name') == 'Water Simulation Bounding Box':
+            v.set('value', '%.3f, %.3f, %.3f' % tuple(2 * m for m in DECKWATER_MAX))
+report.append('hull water box: %s (meditheavy 8.07 x 41.05 x 14.89)' % (tuple(2 * m for m in DECKWATER_MAX),))
+
+# --- wetness decals (wet patches on the hull sides, projected from outside): the meditheavy's six, moved out to our
+# beam and along our length (its hull: half beam ~4.0, waterline y -23..24; ours 4.55 + the outrigger, -25..25)
+for c in kids(files['wetness_decals']):
+    (x, y, z), r, s = tf(c)
+    write_tf(c, pos=(x * G['HB_WL'] / 4.0, y * 25.0 / 23.5, z))
+report.append('wetness decals: %d moved to our hull sides' % len(kids(files['wetness_decals'])))
+
+# --- port screen cameras: a selected slot's camera looks at '<slot tag>_point' (GauntletPortScreen; azimuth from its
+# side offset). Our slots: hull (origin), deck, oars, sail, roof; bow_point at the spur's tip. The thumbnail camera
+# (side view from +x, horizontal) backs off by our length ratio (deck water 50.8 / 41.05) and moves to our centre
+cam = {name_of(c): c for c in kids(files['cam_holder_nested'])}
+du_mid = min(DU_MOVES, key=lambda m: abs(m[1][1]))[1]                       # the waist's deck upgrade
+CAM_POINTS = {'deck_point': (du_mid[0], du_mid[1], du_mid[2] + 1.1),
+              'oars_point': (OAR_X - 2.7, (G['_OAR_FIRST'] + G['_OAR_LAST']) / 2, OAR_H + 0.5),
+              'sail_point': (0.0, sum(MASTS.values()) / 3, 20.5),          # about the yards (fore 21.0, main 24.3, mizzen 16.3)
+              'roof_point': (0.0, R_ORIGIN[1] + 3.66 * RSY, R_ORIGIN[2] + 1.66),   # over the middle of the roof
+              'ram_point': _tip}
+for c in kids(files['cam_holder_nested']):
+    nm = (inh(c, 'tags') is not None and [t.get('name') for t in inh(c, 'tags').iter('tag')]) or []
+    key = 'ram_point' if 'bow_point' in nm else next((t for t in nm if t in CAM_POINTS), None)
+    if key:
+        write_tf(c, pos=CAM_POINTS[key])
+    elif 'thumbnail_cam' in nm:
+        (x, y, z), r, _ = tf(c)
+        k = 50.8 / 41.05
+        write_tf(c, pos=(x * k, y + 2.5, z * k))
+report.append('port cameras: %s' % {k: tuple(round(v, 2) for v in p) for k, p in CAM_POINTS.items()})
 
 # --- write --------------------------------------------------------------------------------------------------------
 if BELAY_MISSING and not os.environ.get('GALLEASS_ALLOW_MISSING'):   # (=1: a trial build for rig_check, not installed)
