@@ -81,7 +81,7 @@ FC_PORT_Z = 3.1                          # culverin axis height at the ground-fl
 # culverin ports (user 2026-10-15): tall rounded slots (stadium) for elevations -3..+6 deg - the barrel through the
 # 0.35 m wall needs -0.30..+0.42 about the axis and +-0.23 across; top 3.52 stays just under the gilt moulding (3.53)
 FC_PORT_W, FC_PORT_H, FC_PORT_DZ = 0.46, 0.72, 0.06   # width, height, centre above the axis
-FC_GUN_DEGS = (-90, -45, 0, 45, 90)
+FC_GUN_DEGS = (-90, -45, 45, 90)                 # (the centre one went for the bowsprit, user 2026-10-19)
 # round gun ports of the lower tier: (bearing on the wall, gun heading), deg, + = starboard. The three culverins stand
 # side by side and parallel (2026-10-13 fc_gun_layout.py layout_H: radial guns collide; 2026-10-16 the +-10 deg toe-out
 # dropped: the side guns' trails walled the centre culverin in), so the side ports are cut along the gun's axis, 30 deg
@@ -989,6 +989,13 @@ def build_forecastle():
         r_in = fc_radius(FC_Z_PLATFORM) - 1.8
         gx, gy = fc_point(deg, r_in, back=0.6)
         box(f'fc_gun_{deg:+d}', gx - 0.1, gx + 0.1, gy - 0.1, gy + 0.1, FC_Z_PLATFORM, FC_Z_PLATFORM + 0.3, 'dark', 'markers')
+    # the bowsprit runs out through the parapet where the centre embrasure was (user 2026-10-19: a hole that just
+    # takes the spar; an iron collar on the spar covers its edge - mast_model.py): a round cut along the spar's axis
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import mast_dims as MDS
+    wx, wy, wz = MDS.SPRIT_WALL
+    r_hole = MDS.SPRIT_R0 + MDS.SPRIT_HOLE - (MDS.SPRIT_R0 - MDS.SPRIT_R1) * (wy - MDS.SPRIT_HEEL[1]) / math.cos(MDS.SPRIT_RISE) / MDS.SPRIT_LEN
+    cuts.append(cutter_cyl(wx, wy, wz - Z_LIFT, r_hole, 1.6, (MDS.SPRIT_RISE - math.pi / 2, 0.0, 0.0)))
     subtract(par, cuts)
     # mouldings: band at the platform level and cap of the parapet (no railing on top, user 2026-10-06)
     for name, (z0, z1, out, thick, role) in BANDS.items():   # same lines as along the side

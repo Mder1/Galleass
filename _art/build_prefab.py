@@ -697,6 +697,14 @@ for y, n in CAP_BOARDS:
     assert not hit, 'pin board at y %.2f hits %s' % (y, hit)
     for side in (-1, 1):
         BELAY.append(('pinrail_%+d_%.1f' % (side, y), 'galleass_pinrail_%d' % n, (side * X_CAP, y, Z_CAP), 0.0))
+# fore waist (user 2026-10-19): the cap rail beside the forecastle, forward of the boarding hook, takes the spritsail's
+# ropes that the game does not re-tie (their prefab rest ends hung over the water at the spur)
+FORE_WAIST_BOARDS = [(20.12, 3)]
+for y, n in FORE_WAIST_BOARDS:
+    half = (n * BELAY_PINS['pin_spacing'] + 0.16) / 2
+    assert all(abs(y - b_) - half >= 0.6 for b_ in BOARDING_Y) and y + half <= BOX_Y1 - 0.08, 'fore waist board'
+    for side in (-1, 1):
+        BELAY.append(('pinrail_fw_%+d' % side, 'galleass_pinrail_%d' % n, (side * X_CAP, y, Z_CAP), 0.0))
 R_PAR = FC_R - 0.175                                          # parapet's centre line (wall 0.35 thick)
 Z_PAR = G['FC_Z_PARAPET'] + LIFT + 0.1                        # its cap's top (= rail_point)
 for deg, n in FC_BOARDS:
@@ -1022,26 +1030,33 @@ for c in lifts:
     goal = MD.sprit_point(TIP[1] - 0.5) if outer else MD.sprit_point(MD.SPRIT_SLING_Y + 0.4)
     goal = (goal[0], goal[1], goal[2] - 0.15)                 # under the spar
     set_world_pos(start, Wsp[id(start)][2], Wsp[id(start)][3], goal)
-# brails (fold pulleys): the block and its target ride on the clew; of the rope ends not on the yard, those low at the
-# vanilla mast's foot belay on the nearest forecastle pin, those at its head lead from under the bowsprit's sling
+# every rope end of the rig the game does not move itself (rest positions: the vanilla mast's foot, now over the water
+# at the spur - user 2026-10-19) belays on the fore waist pin rail on its side: the brails' low ends, and the rest ends
+# of the braces and sheets (re-tied at run time, but shown like this during the furl / set animations). The brails'
+# ends at the vanilla masthead lead from under the bowsprit's sling instead
+FW_PINS = {s_: [p for it in BELAY if it[0] == 'pinrail_fw_%+d' % s_ for p in belay_pins(it)] for s_ in (-1, 1)}
+def fore_waist_pin(x, y, z):
+    return min(FW_PINS[1 if x >= 0 else -1], key=lambda p: math.dist(p, (x, y, z)))
 n_low = n_high = 0
-for fold in (e for e in sprit.iter('entity') if 'sail_fold_pulleys' in own_tags(e)):
-    for e in fold.iter('entity'):
-        if not re.fullmatch(r'free_rope\d+|fixed_rope\d+', e.get('name') or '') or 'attached_to_yard' in own_tags(e):
-            continue
-        _, wp, pm, pp = Wsp[id(e)]
-        z_local = (wp[2] - SPRIT_O[2]) / S_SC
-        if z_local < 10.0:
-            set_world_pos(e, pm, pp, fasten(deck_spot(wp[0], wp[1]))); n_low += 1
-        elif z_local > 13.0:
-            set_world_pos(e, pm, pp, (SLING[0], SLING[1], SLING[2] - 0.2)); n_high += 1
+for e in sprit.iter('entity'):
+    if not re.fullmatch(r'free_rope\d+|fixed_rope\d+|rope_start', e.get('name') or '') or 'attached_to_yard' in own_tags(e):
+        continue
+    if e.get('name') == 'rope_start' and not any(e is x for c in kids(next(q for q in sprit.iter('entity')
+                                                  if 'stability_ropes_parent' in own_tags(q))) for x in c.iter('entity')):
+        continue                                              # (lifts: done above)
+    _, wp, pm, pp = Wsp[id(e)]
+    z_local = (wp[2] - SPRIT_O[2]) / S_SC
+    if z_local < 10.0:
+        set_world_pos(e, pm, pp, fore_waist_pin(*wp)); n_low += 1
+    elif z_local > 13.0:
+        set_world_pos(e, pm, pp, (SLING[0], SLING[1], SLING[2] - 0.2)); n_high += 1
 for mmc in sprit.iter('meta_mesh_component'):                 # the yard: our mast wood tint
     if (mmc.get('name') or '').startswith('ship_yard_'):
         for f in mmc.iter('factor_color'):
             f.set('value', MAST_TINT)
 # the braces' and sheets' forward legs need pins ahead of the yard (SailVisual picks knots on the side the yard faces;
-# none there -> nearest pin anywhere): a pair at the bowsprit's end (step 2: a fitting on the bowsprit mesh)
-SPRIT_END_PINS = [(s_ * 0.18, MD.sprit_tip()[1] - 0.6, MD.sprit_point(MD.sprit_tip()[1] - 0.6)[2] - 0.12) for s_ in (-1, 1)]
+# none there -> nearest pin anywhere): the two ends of the belaying pin through the bowsprit near its end
+SPRIT_END_PINS = MD.sprit_pins()
 se = new_entity('sprit_end', 'belay/sprit_end')
 write_tf(se, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0))
 se.append(tags('galleass_belay')); se.append(mobility())
@@ -1049,11 +1064,36 @@ se.append(el('children', None, *[write_tf(k, pos=p, rot=(0.0, 0.0, 0.0)) or k fo
                                   ((copy_regen(KNOT_TMPL, 'belay/sprit_end/pin/%d' % j), p) for j, p in enumerate(SPRIT_END_PINS))]))
 kh.find('children').append(se)
 PINS.extend(SPRIT_END_PINS)
+# the bowsprit itself (mast_model.py: spar on a chock on the parapet's cap, gammoning, bands, sling + lift blocks, the
+# belaying pin above), in the ship frame under torch_holder like the standing rigging; mast wood tint; collision for
+# missiles. Before the Kit has it: listed as missing (a trial build passes, a real one refuses)
+bsp = new_entity('galleass_bowsprit', 'rig/bowsprit')
+write_tf(bsp, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0))
+bsp_kit = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'Assets', 'galleass_bowsprit_geo.tpac')
+bsp_bo = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'Assets', 'bo_galleass_bowsprit_geo.tpac')
+if os.path.exists(bsp_bo) and os.path.getsize(bsp_bo) > 600:
+    bsp.append(el('physics', None, el('shape', {'type_name': 'string', 'value': 'bo_galleass_bowsprit'}),
+                  el('body_flags', None, el('body_flag', {'name': 'moveable'})),
+                  el('move_to_batched_kinematic', {'type_name': 'bool', 'value': '1'})))
+else:
+    BELAY_MISSING.append('bo_galleass_bowsprit')
+bsp.append(tags('galleass_bowsprit')); bsp.append(mobility())
+comp = mesh_component('rig/bowsprit', 'galleass_bowsprit')
+if os.path.exists(bsp_kit):
+    ch = ET.SubElement(comp.find('meta_mesh_component'), 'children')
+    for sub in kit_submeshes('galleass_bowsprit', MAST_WOOD):
+        m = ET.SubElement(ch, 'mesh', name=sub)
+        ET.SubElement(ET.SubElement(m, 'misc'), 'factor_color', type_name='vec4', value=MAST_TINT)
+else:
+    BELAY_MISSING.append('galleass_bowsprit')
+bsp.append(comp)
+bsp[:] = sorted(bsp, key=lambda c: ORDER.index(c.tag) if c.tag in ORDER else len(ORDER))     # (into torch_holder
+                                                                                            # after the lanterns)
 Wsp = {id(e): wp for e, _, wp, _, _ in walk(sprit)}
 _bones = [Wsp[id(e)] for e in sprit.iter('entity') if e.get('name') == 'end_target_point'
           or (e.get('name') == 'rope_end' and 'attached_to_yard' in own_tags(e))]             # yard arms + clews
 report.append('spritsail: %s x%.2f, yard at (%.2f, %.2f, %.2f), rig origin (%.2f, %.2f, %.2f); sail corners z %.2f..%.2f, '
-              'y %.1f..%.1f; %d stays, flag halyard, %d lvl3 extras hidden; %d lifts to the bowsprit, brail ends %d to pins + %d to the sling'
+              'y %.1f..%.1f; %d stays, flag halyard, %d lvl3 extras hidden; %d lifts to the bowsprit, %d rest ends to the fore waist + %d to the sling'
               % (sprit.get('name'), S_SC, *YARD_AT, *SPRIT_O, min(b[2] for b in _bones), max(b[2] for b in _bones),
                  min(b[1] for b in _bones), max(b[1] for b in _bones), n_stay, n_l3, len(lifts), n_low, n_high))
 
@@ -1236,6 +1276,9 @@ for _st in _ST:
         elif _n.startswith('locker_'): _hx, _hy = _SD['lockers'][_n[7:]]['size'][0] / 2, _SD['lockers'][_n[7:]]['size'][1] / 2
         else: _hx = _hy = _SD['basket']['radius']
         STORE_FOOT.append((_it['pos'][0], _it['pos'][1], _st['z'], _it['rot_z'], _hx + 0.05 + NAV_PAD, _hy + 0.05 + NAV_PAD))
+# the bowsprit's heel on the forecastle platform: chock and the low spar up to the parapet's inner face - cut out
+_y0, _y1 = MD.SPRIT_HEEL[1] - 0.25, MD.SPRIT_WALL[1] - 0.175
+STORE_FOOT.append((0.0, (_y0 + _y1) / 2, Z_FC, 0.0, MD.SPRIT_CHOCK[0] + 0.05 + NAV_PAD, (_y1 - _y0) / 2 + NAV_PAD))
 def store_foot(x, y, z):
     for sx, sy, sz, rot, hx, hy in STORE_FOOT:
         if abs(sz - z) > 1.0: continue
@@ -2128,6 +2171,7 @@ write_tf(srig, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0))
 srig.append(tags('galleass_standing_rigging')); srig.append(mobility())
 srig.append(mesh_component('rig/standing', 'galleass_standing_rigging'))
 files['torch_holder'].find('children').append(srig)
+files['torch_holder'].find('children').append(bsp)
 files['torch_holder'].find('children').append(gg)          # ship frame (like the banners)
 from collections import Counter
 report.append('swivels: %d (%s), %d gunner steps, %d spare chambers' % (len(SWIVELS), ', '.join(

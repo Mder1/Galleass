@@ -315,8 +315,107 @@ for size, lst in objs.items():
                              bake_anim=False, path_mode='STRIP', add_leaf_bones=False)
     print('MAST exported galleass_mast_%s.fbx' % size)
 
+# --- bowsprit (re-rig phase 4, user 2026-10-19: the drawing's spar over the spur carrying the spritsail's yard), in
+# the SHIP frame (its prefab entity sits at the ship's origin, like the standing rigging): stepped on a chock on the
+# forecastle platform and out through the parapet (collar on its face), gammoned down to the chock, iron bands at the sling and the end, the yard's sling block
+# under it, a lift block at the end, and a belaying pin through it near the end (its two ends are knot points:
+# mast_dims.sprit_pins). Collision bo_galleass_bowsprit: the spar as one convex prism.
+from mast_dims import (SPRIT_HEEL, SPRIT_RISE, SPRIT_LEN, SPRIT_R0, SPRIT_R1, SPRIT_SLING_Y, SPRIT_CHOCK,
+                       SPRIT_PIN_HALF, SPRIT_WALL, SPRIT_HOLE, sprit_point, sprit_tip, sprit_pins)
+SPRIT_M = Matrix.Translation(Vector(SPRIT_HEEL)) @ Matrix.Rotation(SPRIT_RISE - math.pi / 2, 4, 'X')   # spar z -> ship
+SPRIT_BUTT = -0.20                                          # the heel's butt behind the step
+def sprit_r(t):
+    return SPRIT_R0 + (SPRIT_R1 - SPRIT_R0) * max(t, 0.0) / SPRIT_LEN
+
+def sprit_t(y):
+    """Spar-local z of the ship y on its axis."""
+    return (y - SPRIT_HEEL[1]) / math.cos(SPRIT_RISE)
+
+def build_bowsprit(level):
+    B = Builder()
+    segs = (16, 12, 8, 6)[level]
+    # spar-local parts (z along the spar from the heel), then into the ship frame
+    ts = [SPRIT_BUTT] + [SPRIT_LEN * k / 8 for k in range(9)]
+    lathe(B, 'bw_oar_wood_a', [(t, sprit_r(t)) for t in ts], segs, cap_top=True, cap_bottom=True)
+    if level < 3:
+        t_face = sprit_t(SPRIT_WALL[1] + 0.175) + 0.04          # the collar on the parapet's outer face covers the hole
+        for t, w in ((sprit_t(SPRIT_SLING_Y) - 0.32, 0.07), (sprit_t(SPRIT_SLING_Y) + 0.32, 0.07), (SPRIT_LEN - 0.12, 0.09),
+                     (t_face, 0.08)):
+            r = sprit_r(t) + (SPRIT_HOLE + 0.03 if abs(t - t_face) < 1e-6 else 0.012)
+            lathe(B, 'galleass_iron', [(t - w / 2, r - 0.01), (t - w / 2, r), (t + w / 2, r), (t + w / 2, r - 0.01)],
+                  segs)
+    if level < 2:                                           # rope bands round the spar by the step
+        tube, rs = (4, 18) if level == 0 else (4, 12)
+        for t0 in (0.35, sprit_t(SPRIT_WALL[1] + 0.175) + 0.25):     # inside behind the wall, outside by the collar
+            for i in range(WOOL_TURNS):
+                t = t0 + i * WOOL_ROPE * 2.05
+                rg.ring(B.bms['plank_stake_a'], (0, 0, t), (0, 0, 1), sprit_r(t) + WOOL_ROPE * 0.75, WOOL_ROPE,
+                        segs=rs, tube=tube, u_range=WOOL_U, vpm=WOOL_VPM)
+    for bm in B.bms.values():
+        bmesh.ops.transform(bm, matrix=SPRIT_M, verts=bm.verts)
+    # ship-frame parts
+    cx, cy, ch = SPRIT_CHOCK
+    z_cap = SPRIT_HEEL[2] - SPRIT_R0 - ch
+    box(B, 'bw_oar_wood_a', (0.0, SPRIT_HEEL[1] + 0.12, z_cap + ch / 2), (cx, cy, ch / 2), chamfer=0.04)
+    if level < 2:
+        # gammoning: each turn goes over the spar (clear of it: in a y plane the inclined spar is r / cos(rise) high)
+        # and straight down both sides of the chock to an iron ring on the platform each side (user 2026-10-19: the
+        # first turns, flat ellipses, ran into the spar's top and through the chock)
+        z_ring = z_cap + 0.10                                # ring centre (radius 0.08) above the platform
+        for i in range(3):
+            y = SPRIT_HEEL[1] + 0.02 + i * 0.07
+            zc = sprit_point(y)[2]
+            hx = cx + WOOL_ROPE * 1.6
+            hz = sprit_r(sprit_t(y)) / math.cos(SPRIT_RISE) + WOOL_ROPE * 1.3
+            top = [(hx * math.cos(a), y, zc + hz * math.sin(a)) for a in [math.pi * k / 14 for k in range(15)]]
+            pts = [(hx, y, z_ring)] + top + [(-hx, y, z_ring)]
+            rg.rope(B.bms['plank_stake_a'], pts, WOOL_ROPE, segs=5, caps=True, u_range=WOOL_U, vpm=WOOL_VPM)
+        ym = SPRIT_HEEL[1] + 0.09
+        for sx in (-1, 1):                                   # the rings the turns are made fast to
+            rg.ring(B.bms['galleass_iron'], (sx * (cx + WOOL_ROPE * 1.6), ym, z_ring), (1, 0, 0), 0.08, 0.012,
+                    segs=12, tube=5, role_uv='iron')
+    if level < 3:
+        # the yard's sling block hangs under the spar between the iron bands; the lift block under the end
+        for y, drop, size in ((SPRIT_SLING_Y, 0.30, (0.30, 0.20, 0.13)), (sprit_tip()[1] - 0.35, 0.26, (0.24, 0.16, 0.11))):
+            p = Vector(sprit_point(y)); r = sprit_r(sprit_t(y))
+            c = p - Vector((0, 0, r + drop))
+            rg.block(B.bms['bw_oar_wood_a'], c, (0, 0, 1), (1, 0, 0), *size)
+            rg.rope(B.bms['plank_stake_a'], [c + Vector((0, 0, size[0] / 2 - 0.02)), p - Vector((0, 0, r - 0.02))],
+                    0.018, segs=5, u_range=WOOL_U, vpm=WOOL_VPM)
+        # belaying pin through the spar
+        _, y0, z0 = sprit_pins()[0]
+        rg.rope(B.bms['bw_oar_wood_a'], [(-SPRIT_PIN_HALF, y0, z0), (SPRIT_PIN_HALF, y0, z0)], 0.025, segs=8)
+    o = B.obj('galleass_bowsprit' + ('' if level == 0 else '_lod%d' % level))
+    return o
+
+sprit = [build_bowsprit(lvl) for lvl in range(4)]
+print('BOWSPRIT tris %s' % [sum(len(p.vertices) - 2 for p in o.data.polygons) for o in sprit])
+bm = bmesh.new()                                            # collision: an 8-sided prism along the spar
+ring0 = [bm.verts.new(SPRIT_M @ Vector((SPRIT_R0 * math.cos(a), SPRIT_R0 * math.sin(a), SPRIT_BUTT)))
+         for a in [2 * math.pi * k / 8 for k in range(8)]]
+ring1 = [bm.verts.new(SPRIT_M @ Vector((SPRIT_R1 * math.cos(a), SPRIT_R1 * math.sin(a), SPRIT_LEN)))
+         for a in [2 * math.pi * k / 8 for k in range(8)]]
+bm.faces.new(ring0[::-1]); bm.faces.new(ring1)
+for k in range(8):
+    bm.faces.new((ring0[k], ring0[(k + 1) % 8], ring1[(k + 1) % 8], ring1[k]))
+bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+me = bpy.data.meshes.new('bo_galleass_bowsprit'); bm.to_mesh(me); bm.free()
+me.materials.append(M_WOOD)
+bo = bpy.data.objects.new('bo_galleass_bowsprit', me); bpy.context.scene.collection.objects.link(bo)
+for name, lst in (('galleass_bowsprit', sprit), ('bo_galleass_bowsprit', [bo])):
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in lst: o.select_set(True)
+    bpy.context.view_layer.objects.active = lst[0]
+    bpy.ops.export_scene.fbx(filepath=os.path.join(OUT, name + '.fbx'), use_selection=True,
+                             object_types={'MESH'}, use_mesh_modifiers=True, mesh_smooth_type='FACE',
+                             use_tspace=False, axis_forward='Y', axis_up='Z', apply_unit_scale=True, global_scale=1.0,
+                             bake_anim=False, path_mode='STRIP', add_leaf_bones=False)
+    print('MAST exported %s.fbx' % name)
+
 if RENDERS:
     os.makedirs(RENDERS, exist_ok=True)
+    for o in sprit[1:] + [bo]: o.hide_render = True
+    sprit[0].hide_render = True                            # (own shots below)
     sc = bpy.context.scene
     sc.render.engine = 'BLENDER_WORKBENCH'; sc.display.shading.color_type = 'MATERIAL'
     sc.display.shading.show_cavity = True
@@ -335,6 +434,11 @@ if RENDERS:
     shot('mast_large_top.png', (2.5, -3.5, 31.5), (0, 0, 29.0), lens=40, res=(1400, 1400))
     shot('mast_medium_top.png', (5.2, -2.6, 24.6), (3, 0, 23.2), lens=40, res=(1400, 1400))
     shot('mast_wool.png', (1.2, -1.6, 11.0), (0, 0, 10.0), lens=50, res=(1400, 1000))
+    for lst in objs.values(): lst[0].hide_render = True
+    sprit[0].hide_render = False
+    shot('bowsprit_side.png', (-14, 29.8, 9.2), (0, 29.8, 9.0), lens=35, res=(1600, 1000))
+    shot('bowsprit_heel.png', (-1.6, 23.3, 7.4), (0, 24.6, 6.6), lens=35, res=(1400, 1000))
+    shot('bowsprit_end.png', (-1.8, 32.6, 12.0), (0, 34.5, 11.3), lens=35, res=(1400, 1000))
     print('MAST renders in', RENDERS)
 if len(argv) > 2:                                          # blend for rig_preview.py (MASTS_BLEND)
     for lst in objs.values():

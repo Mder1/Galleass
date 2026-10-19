@@ -30,6 +30,7 @@ MISSION_SHIPS = os.path.join(HERE, '..', 'ModuleData', 'galleass_mission_ships.x
 Z_DECK, Z_POOP_TOP, Z_FC, Z_CAP = 3.8, 6.92, 6.3, 5.30
 X_IN = 6.0                                     # bulwark inner face
 Y_POOP_FRONT, Y_FC_BACK = -14.5, 18.6
+FC_CY, FC_R = 21.6, 3.85                       # forecastle: round front, straight sides
 YAW_STEP = 5
 
 # --- 4x4 frames: (m, p), m 3x3 row-major as prefab_layout ---------------------------------------------------------
@@ -55,10 +56,14 @@ def d2(a, b): return sum((a[i] - b[i]) ** 2 for i in range(3))
 def d2xy(a, b): return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
 
 # --- engine selection, as decompiled ------------------------------------------------------------------------------
-def closest_two(pos, knots, side, maxd):
+def sgn(v):
+    return (v > 0) - (v < 0)
+
+def closest_two(pos, knots, side, maxd, square=False):
+    # square sails also want the knot on the bone's side of the centre line (Sign(x) equal; lateens don't)
     lim, best, bd = maxd * maxd, [-1, -1], [1e12, 1e12]
     for i, k in enumerate(knots):
-        if k['right'] != side:
+        if k['right'] != side or (square and sgn(k['pos'][0]) != sgn(pos[0])):
             continue
         l = d2(pos, k['pos'])
         if d2xy(pos, k['pos']) < lim:
@@ -68,10 +73,10 @@ def closest_two(pos, knots, side, maxd):
                 bd[1], best[1] = l, i
     return best
 
-def closest_one(pos, knots, side, maxd):
+def closest_one(pos, knots, side, maxd, square=False):
     lim, res, num2 = maxd * maxd, -1, 1e12
     for i, k in enumerate(knots):
-        if k['right'] == side:
+        if k['right'] == side and not (square and sgn(k['pos'][0]) != sgn(pos[0])):
             l = d2(pos, k['pos'])
             if l < num2 and l < lim:
                 res, num2 = i, d2xy(pos, k['pos'])       # (sic: compares 3D, keeps XY)
@@ -113,7 +118,8 @@ def through_ship(a, b):
             continue
         p = [a[j] + (b[j] - a[j]) * t for j in range(3)]
         x, y, z = abs(p[0]), p[1], p[2]
-        floor = Z_POOP_TOP if y < Y_POOP_FRONT else Z_FC if y > Y_FC_BACK else Z_DECK
+        fc_in = y > Y_FC_BACK and x < math.sqrt(max(FC_R ** 2 - max(y - FC_CY, 0.0) ** 2, 0.0))
+        floor = Z_POOP_TOP if y < Y_POOP_FRONT else Z_FC if fc_in else Z_DECK   # (beside the round forecastle: deck)
         if x < X_IN and z < floor - 0.05:
             return 'below the deck at (%.1f, %.1f, %.1f)' % tuple(p)
         if X_IN <= x < X_IN + 0.3 and z < Z_CAP - 0.05 and -17.6 < y < 20.6:
@@ -232,7 +238,7 @@ def main():
                     for kind, lst in (('brace', rot.get(b, [])), ('sheet pulley', stab_p.get(b, []))):
                         if len(knots) > 1:
                             for n, r in enumerate(lst[:2]):
-                                two = closest_two(bp, knots, n == 0, maxd)
+                                two = closest_two(bp, knots, n == 0, maxd, square)
                                 for leg, i in zip(('fixed', 'free'), two):
                                     how = 'ok'
                                     if i == -1:
@@ -245,7 +251,7 @@ def main():
                                         record((kind, b, n, leg + ' THROUGH SHIP ' + rope_err.split(' at')[0]), i, yaw, 'ERR')
                     for n, r in enumerate(stab_r.get(b, [])[:2]):
                         if knots:
-                            i = closest_one(bp, knots, n == 0, maxd)
+                            i = closest_one(bp, knots, n == 0, maxd, square)
                             how = 'ok'
                             if i == -1:
                                 i, how = fallback(bp, knots), 'FALLBACK'
