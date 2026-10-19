@@ -101,7 +101,7 @@ def sail_limits():
     return out
 
 def rig_role(y):
-    return 'fore' if y > 12 else 'main' if y > -5 else 'mizzen'
+    return 'sprit' if y > 26 else 'fore' if y > 12 else 'main' if y > -5 else 'mizzen'
 
 def through_ship(a, b):
     """Does the straight rope a-b run through a deck or the bulwark (not counting 0.3 m at each end)?"""
@@ -149,14 +149,19 @@ def main():
         yaw_e = next(r for r in rows if r['path'].startswith(rig['path'] + '/') and 'yaw_rotation_entity' in r['tags']
                      and r['path'].count('/') == rig['path'].count('/') + 1)
         roll_e = first(under(rows, yaw_e), 'roll_rotation_entity')
-        shift_e = next(r for r in under(rows, roll_e) if 'yard_shift' in r['tags'] and r['path'].count('/') == roll_e['path'].count('/') + 1)
+        square = roll_e is None                                   # a square rig (the spritsail): yard and sail on the yaw
+        if square:                                                # entity itself, no lateen roll / yard shift
+            roll_e = shift_e = yaw_e
+            roll_deg = shift = 0.0
+        else:
+            shift_e = next(r for r in under(rows, roll_e) if 'yard_shift' in r['tags'] and r['path'].count('/') == roll_e['path'].count('/') + 1)
         skel = first(under(rows, shift_e), 'sail_mesh_entity')
         yard = first(under(rows, shift_e), 'sail_yard')
         bones = {r['name']: r for r in under(rows, skel) if 'free_bone' in r['tags']}
         # pulleys / ropes per bone (child order kept)
-        pp = next(r for r in sub_rows if r['name'] == 'pulley_systems_parent')
-        def kids(parent_name):
-            par = next((r for r in under(rows, pp) if r['name'] == parent_name), None)
+        pp = next(r for r in sub_rows if 'pulley_systems_parent' in (r['name'], *r['tags']))   # (square rigs name them
+        def kids(parent_name):                                                                   # differently: by tag)
+            par = next((r for r in under(rows, pp) if parent_name in (r['name'], *r['tags'])), None)
             if par is None:
                 return []
             return [r for r in under(rows, par) if r['path'].count('/') == par['path'].count('/') + 1]
@@ -174,6 +179,16 @@ def main():
             else:
                 b = bone_of(r, ('pulley_system',))
                 if b: stab_p.setdefault(b, []).append(r)
+        if square:                                                # its bone entities keep stale rest frames: the
+            for b_, r_ in list(bones.items()):                    # corner is where vanilla's own ropes end on it
+                for r in under(rows, pp):
+                    if b_ in r['tags']:
+                        mine = {id(x) for x in r['el'].iter('entity')}            # (sibling paths are not unique)
+                        end = next((x for x in under(rows, r) if id(x['el']) in mine and x['name'] in ('end_target_point', 'rope_end')
+                                    and ('attached_to_yard' in x['tags'] or x['name'] == 'end_target_point')), None)
+                        if end is not None:
+                            bones[b_] = end
+                            break
         role = rig_role(rig['pos'][1])
         left, right = limits[idx] if idx < len(limits) else (170, 5)
         print('\n== %s rig (%s, y %.1f): max distance %.1f, roll %.0f, shift %.2f, yaw %g..%g; bones %s; braces %s, '
@@ -194,7 +209,8 @@ def main():
             y180 = yaw
             while y180 > 180: y180 -= 180
             while y180 < -180: y180 += 180
-            if y180 < -lim - 90 or y180 > lim + 90: states = [-1]
+            if square: states = [1]
+            elif y180 < -lim - 90 or y180 > lim + 90: states = [-1]
             elif lim - 90 < y180 < 90 - lim: states = [1]
             else: states = [1, -1]
             for st in states:

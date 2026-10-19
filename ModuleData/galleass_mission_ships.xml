@@ -32,7 +32,10 @@
 		<deployment_area
 			width="12.10"
 			length="59.93" />
-		<!-- sail i = prefab rig tagged sail_center_i: 0 main (large lateen), 1 fore (medium), 2 mizzen (small).
+		<!-- sail i = prefab rig tagged sail_center_i: 0 main (large lateen), 1 fore (medium), 2 mizzen (small), 3 spritsail
+		     (vanilla small square rig scaled 0.65 under the bowsprit, user 2026-10-19).
+		     NO comments inside <sails>: MissionShipObject reads every child node as a sail - a comment there made the
+		     whole ship invalid ('Null object reference found with ID: ship_galleass', campaign map crash 2026-10-19).
 		     Mizzen left limit 150 (not 170): pointing aft its lower yard end ran through the stern lantern (user 2026-10-13) -->
 		<sails>
 			<sail
@@ -53,6 +56,12 @@
 				left_rotation_limit="150"
 				right_rotation_limit="5"
 				rotation_rate="16" />
+			<sail
+				type="square"
+				force_multiplier="2"
+				left_rotation_limit="50"
+				right_rotation_limit="50"
+				rotation_rate="18" />
 		</sails>
 		<linear_friction_multiplier
 			side="1.0"

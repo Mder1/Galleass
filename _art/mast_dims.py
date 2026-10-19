@@ -37,3 +37,25 @@ def sheaves(sp):
 # up at deck + 3.2), fore to starboard (lantern aft, tie tackle forward to port)
 HALYARD_FOOT = {'large': (0.55, -0.55), 'medium': (0.65, -0.15), 'small': (0.55, -0.55)}
 HALYARD_DZ = 0.10                        # the rope's end above the deck, where the heap begins
+
+# spritsail (re-rig phase 4, user 2026-10-19: a working sail, vanilla's small square rig scaled to the drawing). The
+# bowsprit (ship frame) is stepped on the forecastle parapet's cap at the bow, above the embrasures, and rises at
+# SPRIT_RISE over the spur; the yard hangs under it at SPRIT_SLING_Y, SPRIT_YARD_DROP below the spar's axis
+SPRIT_HEEL = (0.0, 25.0, 8.5)
+SPRIT_RISE = 0.5236                      # 30 deg
+SPRIT_LEN = 12.0
+SPRIT_R0, SPRIT_R1 = 0.20, 0.13          # heel / tip radius
+SPRIT_SLING_Y = 32.0
+SPRIT_YARD_DROP = 0.75
+SPRIT_SCALE = 0.65                       # of sail_square_small_nested (15.4 m yard, ~15 x 9 m sail)
+
+def sprit_point(y):
+    """The bowsprit's axis at ship y."""
+    import math
+    x0, y0, z0 = SPRIT_HEEL
+    return (x0, y, z0 + (y - y0) * math.tan(SPRIT_RISE))
+
+def sprit_tip():
+    import math
+    x0, y0, z0 = SPRIT_HEEL
+    return (x0, y0 + SPRIT_LEN * math.cos(SPRIT_RISE), z0 + SPRIT_LEN * math.sin(SPRIT_RISE))

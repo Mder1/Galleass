@@ -967,6 +967,96 @@ for rig, mast, zd, rake, vdeck in RIGS:
                      dict(sorted({m: moved.count(m) for m in moved}.items()))))
     rerig_ropes(rig, zd)
 
+# --- spritsail (re-rig phase 4, user 2026-10-19: a WORKING sail, sized to the drawing): vanilla's small square rig
+# (galley_ship_nested; 15.4 m yard) scaled by MD.SPRIT_SCALE, its yard slung under the bowsprit (mast_dims SPRIT_*).
+# sail_center_3 <-> the 4th <sail> (square) in galleass_mission_ships.xml. The rig keeps its own (vertical) yaw axis
+# through the sling. Its vanilla mast goes: sail_mast is shrunk to a point inside the bowsprit with its tags kept
+# (SailVisual reads 'mast_entity' for the mast colour and the mast fire, not everywhere null-checked); stays, the flag
+# halyard and the level-3 topsail extras are hidden; the yard lifts run up to the bowsprit; brails come to the
+# forecastle pins. Braces and sheets pick their pins at run time like the lateens'
+sprit = copy_regen(next(e for e in nav_file('galley_ship_nested', 'sail_holder').iter('entity')
+                        if e.get('name') == 'sail_square_small_nested'), 'galleass-rig/sprit/')
+if sprit.find('tags') is None:                                 # the galley's instance inherits its tags (sail_center_0)
+    sprit.insert(len([c for c in sprit if c.tag in ('prefab_link', 'transform', 'physics')]), copy.deepcopy(inh(sprit, 'tags')))
+for t in sprit.find('tags').iter('tag'):
+    if t.get('name', '').startswith('sail_center_'):
+        t.set('name', 'sail_center_3')
+assert [t.get('name') for t in inh(sprit, 'tags').iter('tag') if t.get('name').startswith('sail_center_')] == ['sail_center_3']
+sh.find('children').append(sprit)
+S_SC = MD.SPRIT_SCALE
+s_yard = next(e for e in sprit.iter('entity') if e.get('name') == 'sail_yard')
+YARD_LOCAL = tf(s_yard)[0]                                    # the yard's hoist in the rig frame (yaw entity at 0)
+SLING = MD.sprit_point(MD.SPRIT_SLING_Y)
+YARD_AT = (0.0, SLING[1], SLING[2] - MD.SPRIT_YARD_DROP)
+SPRIT_O = tuple(YARD_AT[i] - S_SC * YARD_LOCAL[i] for i in range(3))
+set_transform(sprit, pos=SPRIT_O, rot=(0.0, 0.0, 0.0), scale=(S_SC, S_SC, S_SC))
+set_script_var(sprit, 'sail_visual', 'Rope Connection Max Distance', ROPE_REACH)
+def to_rig(p):
+    return tuple((p[i] - SPRIT_O[i]) / S_SC for i in range(3))
+# the vanilla mast and everything on it (bollards, hangers, blocks, mast ropes): a point at the sling, in the spar
+s_mast = next(e for e in sprit.iter('entity') if e.get('name') == 'sail_mast')
+hal = next(c for c in kids(s_mast) if 'flag_capture_rope' in own_tags(c))
+hide(s_mast, hal)
+set_transform(s_mast, pos=to_rig(SLING), rot=(0.0, 0.0, 0.0), scale=(0.001, 0.001, 0.001))
+# level-3 upgrade extras of the square rig (two small topsail lateens over the yard)
+s_yaw = next(e for e in sprit.iter('entity') if e.get('name') == 'yaw_rotation_entity')
+n_l3 = 0
+for c in kids(s_yaw):
+    if 'lvl3_lateens' in own_tags(c):
+        hide(s_yaw, c); n_l3 += 1
+# static ropes: the two stays go; the four yard lifts run from the yard to the bowsprit (outer pair to the tip, inner
+# pair to the sling)
+s_srp = next(e for e in sprit.iter('entity') if e.get('name') == 'static_ropes_parent')
+TIP = MD.sprit_tip()
+n_stay, lifts = 0, []
+for c in kids(s_srp):
+    if 'big_rope' in own_tags(c):
+        hide(s_srp, c); n_stay += 1
+    elif 'attached_to_yard' in own_tags(c):
+        lifts.append(c)
+Wsp = {id(e): (wm, wp, pm, pp) for e, wm, wp, pm, pp in walk(sprit)}
+for c in lifts:
+    end = next(x for x in c.iter('entity') if x.get('name') == 'rope_end')
+    start = next(x for x in c.iter('entity') if x.get('name') == 'rope_start')
+    outer = abs(Wsp[id(end)][1][0]) > 2.0
+    goal = MD.sprit_point(TIP[1] - 0.5) if outer else MD.sprit_point(MD.SPRIT_SLING_Y + 0.4)
+    goal = (goal[0], goal[1], goal[2] - 0.15)                 # under the spar
+    set_world_pos(start, Wsp[id(start)][2], Wsp[id(start)][3], goal)
+# brails (fold pulleys): the block and its target ride on the clew; of the rope ends not on the yard, those low at the
+# vanilla mast's foot belay on the nearest forecastle pin, those at its head lead from under the bowsprit's sling
+n_low = n_high = 0
+for fold in (e for e in sprit.iter('entity') if 'sail_fold_pulleys' in own_tags(e)):
+    for e in fold.iter('entity'):
+        if not re.fullmatch(r'free_rope\d+|fixed_rope\d+', e.get('name') or '') or 'attached_to_yard' in own_tags(e):
+            continue
+        _, wp, pm, pp = Wsp[id(e)]
+        z_local = (wp[2] - SPRIT_O[2]) / S_SC
+        if z_local < 10.0:
+            set_world_pos(e, pm, pp, fasten(deck_spot(wp[0], wp[1]))); n_low += 1
+        elif z_local > 13.0:
+            set_world_pos(e, pm, pp, (SLING[0], SLING[1], SLING[2] - 0.2)); n_high += 1
+for mmc in sprit.iter('meta_mesh_component'):                 # the yard: our mast wood tint
+    if (mmc.get('name') or '').startswith('ship_yard_'):
+        for f in mmc.iter('factor_color'):
+            f.set('value', MAST_TINT)
+# the braces' and sheets' forward legs need pins ahead of the yard (SailVisual picks knots on the side the yard faces;
+# none there -> nearest pin anywhere): a pair at the bowsprit's end (step 2: a fitting on the bowsprit mesh)
+SPRIT_END_PINS = [(s_ * 0.18, MD.sprit_tip()[1] - 0.6, MD.sprit_point(MD.sprit_tip()[1] - 0.6)[2] - 0.12) for s_ in (-1, 1)]
+se = new_entity('sprit_end', 'belay/sprit_end')
+write_tf(se, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0))
+se.append(tags('galleass_belay')); se.append(mobility())
+se.append(el('children', None, *[write_tf(k, pos=p, rot=(0.0, 0.0, 0.0)) or k for k, p in
+                                  ((copy_regen(KNOT_TMPL, 'belay/sprit_end/pin/%d' % j), p) for j, p in enumerate(SPRIT_END_PINS))]))
+kh.find('children').append(se)
+PINS.extend(SPRIT_END_PINS)
+Wsp = {id(e): wp for e, _, wp, _, _ in walk(sprit)}
+_bones = [Wsp[id(e)] for e in sprit.iter('entity') if e.get('name') == 'end_target_point'
+          or (e.get('name') == 'rope_end' and 'attached_to_yard' in own_tags(e))]             # yard arms + clews
+report.append('spritsail: %s x%.2f, yard at (%.2f, %.2f, %.2f), rig origin (%.2f, %.2f, %.2f); sail corners z %.2f..%.2f, '
+              'y %.1f..%.1f; %d stays, flag halyard, %d lvl3 extras hidden; %d lifts to the bowsprit, brail ends %d to pins + %d to the sling'
+              % (sprit.get('name'), S_SC, *YARD_AT, *SPRIT_O, min(b[2] for b in _bones), max(b[2] for b in _bones),
+                 min(b[1] for b in _bones), max(b[1] for b in _bones), n_stay, n_l3, len(lifts), n_low, n_high))
+
 rc = files['rope_cosmetics_holder']
 assert base(rc) is None
 n = len(kids(rc)); drop(rc, 'children')
@@ -2162,6 +2252,20 @@ for sc in files['ship_water_effects'].iter('script'):
         if v.get('name') == 'Water Simulation Bounding Box':
             v.set('value', '%.3f, %.3f, %.3f' % tuple(2 * m for m in DECKWATER_MAX))
 report.append('hull water box: %s (meditheavy 8.07 x 41.05 x 14.89)' % (tuple(2 * m for m in DECKWATER_MAX),))
+
+# --- water clip: the sea surface is cut away inside the volume of the SDF texture, placed by the entity's frame
+# (signed_distance_field.SetSDFParams: texture bbox frame -> entity global frame, so the entity's scale stretches it).
+# The meditheavy's ended at y -20 / +18 on the waterline - water inside our stern (user 2026-10-19). Fitted over all
+# vanilla SDFs against our hull's waterline (z -0.5..1, inside the hull + outrigger, never past them): the Sturgian
+# heavy longship's, x/y scaled 1.225, follows it to within ~0.2 m except the last metre or two at each end
+WATER_CLIP_SDF, WATER_CLIP_SCALE = 'sdf_ship_sturgian_heavy_long', (1.225, 1.225, 1.0)
+wc = files['ship_water_clip']
+for v in wc.iter('variable'):
+    if v.get('name') == 'SDF Texture':
+        v.set('value', WATER_CLIP_SDF)
+set_transform(wc, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0), scale=WATER_CLIP_SCALE)
+wc[:] = sorted(wc, key=lambda c: ORDER.index(c.tag) if c.tag in ORDER else len(ORDER))
+report.append('water clip: %s scaled %s' % (WATER_CLIP_SDF, WATER_CLIP_SCALE))
 
 # --- wetness decals (wet patches on the hull sides, projected from outside): the meditheavy's six, moved out to our
 # beam and along our length (its hull: half beam ~4.0, waterline y -23..24; ours 4.55 + the outrigger, -25..25)
