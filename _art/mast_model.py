@@ -317,7 +317,7 @@ for size, lst in objs.items():
 
 # --- bowsprit (re-rig phase 4, user 2026-10-19: the drawing's spar over the spur carrying the spritsail's yard), in
 # the SHIP frame (its prefab entity sits at the ship's origin, like the standing rigging): stepped on a chock on the
-# forecastle platform and out through the parapet (collar on its face), gammoned down to the chock, iron bands at the sling and the end, the yard's sling block
+# forecastle platform and out through the parapet (iron ring on its face), gammoned down to the chock, iron bands at the sling and the end, the yard's sling block
 # under it, a lift block at the end, and a belaying pin through it near the end (its two ends are knot points:
 # mast_dims.sprit_pins). Collision bo_galleass_bowsprit: the spar as one convex prism.
 from mast_dims import (SPRIT_HEEL, SPRIT_RISE, SPRIT_LEN, SPRIT_R0, SPRIT_R1, SPRIT_SLING_Y, SPRIT_CHOCK,
@@ -338,15 +338,13 @@ def build_bowsprit(level):
     ts = [SPRIT_BUTT] + [SPRIT_LEN * k / 8 for k in range(9)]
     lathe(B, 'bw_oar_wood_a', [(t, sprit_r(t)) for t in ts], segs, cap_top=True, cap_bottom=True)
     if level < 3:
-        t_face = sprit_t(SPRIT_WALL[1] + 0.175) + 0.04          # the collar on the parapet's outer face covers the hole
-        for t, w in ((sprit_t(SPRIT_SLING_Y) - 0.32, 0.07), (sprit_t(SPRIT_SLING_Y) + 0.32, 0.07), (SPRIT_LEN - 0.12, 0.09),
-                     (t_face, 0.08)):
-            r = sprit_r(t) + (SPRIT_HOLE + 0.03 if abs(t - t_face) < 1e-6 else 0.012)
+        for t, w in ((sprit_t(SPRIT_SLING_Y) - 0.32, 0.07), (sprit_t(SPRIT_SLING_Y) + 0.32, 0.07), (SPRIT_LEN - 0.12, 0.09)):
+            r = sprit_r(t) + 0.012
             lathe(B, 'galleass_iron', [(t - w / 2, r - 0.01), (t - w / 2, r), (t + w / 2, r), (t + w / 2, r - 0.01)],
                   segs)
     if level < 2:                                           # rope bands round the spar by the step
         tube, rs = (4, 18) if level == 0 else (4, 12)
-        for t0 in (0.35, sprit_t(SPRIT_WALL[1] + 0.175) + 0.25):     # inside behind the wall, outside by the collar
+        for t0 in (0.35, sprit_t(SPRIT_WALL[1] + 0.175) + 0.30):     # inside behind the wall, outside by the ring
             for i in range(WOOL_TURNS):
                 t = t0 + i * WOOL_ROPE * 2.05
                 rg.ring(B.bms['plank_stake_a'], (0, 0, t), (0, 0, 1), sprit_r(t) + WOOL_ROPE * 0.75, WOOL_ROPE,
@@ -354,6 +352,15 @@ def build_bowsprit(level):
     for bm in B.bms.values():
         bmesh.ops.transform(bm, matrix=SPRIT_M, verts=bm.verts)
     # ship-frame parts
+    if level < 3:
+        # iron ring round the hole, flat on the parapet's outer face (a collar square to the spar sank into the wall:
+        # the spar meets the wall at SPRIT_RISE, user 2026-10-19): the hole's outline, r wide and r / cos(rise) high
+        y_face = SPRIT_WALL[1] + 0.175 + 0.021
+        r_h = sprit_r(sprit_t(y_face)) + 0.016                 # tube 0.021: spar surface to past the hole's edge
+        zc = sprit_point(y_face)[2]
+        ring = [(r_h * math.cos(a), y_face, zc + r_h / math.cos(SPRIT_RISE) * math.sin(a))
+                for a in [2 * math.pi * k / 24 for k in range(25)]]
+        rg.rope(B.bms['galleass_iron'], ring, 0.021, segs=6, caps=False)
     cx, cy, ch = SPRIT_CHOCK
     z_cap = SPRIT_HEEL[2] - SPRIT_R0 - ch
     box(B, 'bw_oar_wood_a', (0.0, SPRIT_HEEL[1] + 0.12, z_cap + ch / 2), (cx, cy, ch / 2), chamfer=0.04)

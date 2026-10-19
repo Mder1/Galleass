@@ -1065,7 +1065,7 @@ se.append(el('children', None, *[write_tf(k, pos=p, rot=(0.0, 0.0, 0.0)) or k fo
 kh.find('children').append(se)
 PINS.extend(SPRIT_END_PINS)
 # the bowsprit itself (mast_model.py: spar on a chock on the parapet's cap, gammoning, bands, sling + lift blocks, the
-# belaying pin above), in the ship frame under torch_holder like the standing rigging; mast wood tint; collision for
+# belaying pin above), in the ship frame under mesh_holder like the standing rigging (kept on the campaign map); mast wood tint; collision for
 # missiles. Before the Kit has it: listed as missing (a trial build passes, a real one refuses)
 bsp = new_entity('galleass_bowsprit', 'rig/bowsprit')
 write_tf(bsp, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0))
@@ -1087,8 +1087,8 @@ if os.path.exists(bsp_kit):
 else:
     BELAY_MISSING.append('galleass_bowsprit')
 bsp.append(comp)
-bsp[:] = sorted(bsp, key=lambda c: ORDER.index(c.tag) if c.tag in ORDER else len(ORDER))     # (into torch_holder
-                                                                                            # after the lanterns)
+bsp[:] = sorted(bsp, key=lambda c: ORDER.index(c.tag) if c.tag in ORDER else len(ORDER))     # (into mesh_holder
+                                                                                            # with the standing rig)
 Wsp = {id(e): wp for e, _, wp, _, _ in walk(sprit)}
 _bones = [Wsp[id(e)] for e in sprit.iter('entity') if e.get('name') == 'end_target_point'
           or (e.get('name') == 'rope_end' and 'attached_to_yard' in own_tags(e))]             # yard arms + clews
@@ -1826,7 +1826,7 @@ def banner(name, pos, normal, s):
 bl = [banner(b['name'], (b['pin'][0], b['pin'][1], b['pin'][2] + LIFT), b['normal'], b['scale']) for b in G['banner_mounts']()]
 grp = new_entity('galleass_banners', 'banners')
 grp.append(mobility()); grp.append(el('children', None, *bl))
-files['torch_holder'].find('children').append(grp)          # ship frame (like the stern lantern)
+files['mesh_holder'].find('children').append(grp)           # ship frame; kept on the campaign map (see the bowsprit)
 report.append('banners: %d (%s)' % (len(bl), ', '.join(b.get('name') for b in bl)))
 import json
 os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'renders'), exist_ok=True)
@@ -2170,9 +2170,12 @@ srig = new_entity('galleass_standing_rigging', 'rig/standing')
 write_tf(srig, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0))
 srig.append(tags('galleass_standing_rigging')); srig.append(mobility())
 srig.append(mesh_component('rig/standing', 'galleass_standing_rigging'))
-files['torch_holder'].find('children').append(srig)
-files['torch_holder'].find('children').append(bsp)
-files['torch_holder'].find('children').append(gg)          # ship frame (like the banners)
+# (mesh_holder, not torch_holder: the campaign map's ship visual drops torch_holder, knobs_holder and the other
+# mission-only holders - VisualShipFactory.CreateShipEntityForCache; user 2026-10-19: no bowsprit, guns or banners
+# on the map)
+files['mesh_holder'].find('children').append(srig)
+files['mesh_holder'].find('children').append(bsp)
+files['mesh_holder'].find('children').append(gg)            # (guns, stores, gun ropes: also on the map, user 2026-10-19)
 from collections import Counter
 report.append('swivels: %d (%s), %d gunner steps, %d spare chambers' % (len(SWIVELS), ', '.join(
     '%s %+.0f..%+.0f' % (sw['name'], SWIVEL_LIM[sw['name']]['min_deg'], SWIVEL_LIM[sw['name']]['max_deg']) for sw in SWIVELS),
