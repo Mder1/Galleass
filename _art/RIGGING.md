@@ -40,6 +40,32 @@ The game builds an entity's children as its own list plus every child of its bas
 | `mast_model.py` | Masts. The main's fighting top has a lubber's hole (`LUBBER_DEG`) for the flag halyard. The capture flag runs along that halyard, so it can't be rerouted. |
 | `install_prefab.sh` | Builds the prefab, runs `rig_check.py --strict`, and installs to `AssetPackages` + `EmAssetPackages` only if both pass. |
 
+## The spritsail (sail 3)
+
+A working square sail under the bowsprit, the 4th `<sail>` in `ModuleData/galleass_mission_ships.xml` (`sail_center_3`).
+
+- **Geometry:** shared by the mesh, the hull's hole and the prefab, all in `mast_dims.py` (`SPRIT_*`, `sprit_point()`, `sprit_tip()`, `sprit_pins()`).
+  - The bowsprit passes the forecastle parapet where the centre falconet's embrasure was. That gun is gone (`FC_GUN_DEGS` in `galleass_model.py`), and the hull has a round hole there.
+  - It rises at 22°. Steeper puts it into the fore lateen yard's lower end when that yard lies fore and aft (yaw ~85°).
+  - Its heel lies on a sloped bed on the forecastle platform.
+- **Mesh:** `mast_model.py` builds `galleass_bowsprit` and `bo_galleass_bowsprit` in the ship frame. The parts are:
+  - the bed;
+  - the lashing to iron rings beside the bed;
+  - an iron ring flat on the parapet's face around the hole;
+  - the sling and lift blocks;
+  - a belaying pin through the spar near its end.
+
+  The collision mesh needs a **physics** material name (`wood`), not the visual one.
+- **Rig:** `build_prefab.py` copies vanilla's `sail_square_small_nested` from `galley_ship_nested` and scales it by `SPRIT_SCALE`, so its yard hangs under the sling.
+  - **Tags:** the copy needs its **own** tags, because the galley's instance inherits `sail_center_0`.
+  - **Vanilla mast:** `sail_mast` is shrunk to a point in the spar with its tags kept, because SailVisual reads `mast_entity`. Don't `hide()` it.
+  - **Hidden:** the stays, the flag halyard and the level-3 topsail extras.
+- **Ropes:** braces and sheets are re-tied at run time, but a square sail wants knots on its own side of the centre line (same sign of x) as well as the yard side.
+  - Forward legs go to the pin through the bowsprit end, two knot points a side.
+  - Aft legs go to the forecastle pins.
+  - Every rope end the game does not move (the rest ends, shown during furl and set) belays on the fore-waist pin boards beside the forecastle (`FORE_WAIST_BOARDS`), or under the sling.
+- **Campaign map:** the map's ship visual drops `torch_holder` and the other mission-only holders (`VisualShipFactory.CreateShipEntityForCache`). The bowsprit, standing rigging, guns and banners therefore live in `mesh_holder`.
+
 ## Redo / change the rigging
 
 1. **Change belaying places:** edit `CAP_BOARDS` / `FC_BOARDS` / `POOP_BITTS` in `build_prefab.py`. A board that hits an obstacle fails `board_clear` with an assert.
