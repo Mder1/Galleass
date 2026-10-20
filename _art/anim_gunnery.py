@@ -29,7 +29,8 @@ argv = sys.argv[sys.argv.index('--') + 1:]
 RENDERS = None
 if '--renders' in argv:
     i = argv.index('--renders'); RENDERS = argv[i + 1]; argv = argv[:i] + argv[i + 2:]
-CLIP, GUNS = argv[0], (argv[1:] or ['culverin', 'falcon', 'falconet'])
+CLIP, GUNS = argv[0], (argv[1:] or ['falcon'])        # (user 2026-10-20: falcons first, the other guns once
+                                                        # the falcon clips work in the game)
 REF = os.path.join(HERE, 'ref')
 OUT_FBX = os.path.join(HERE, '..', 'AssetSources', 'anim')
 OUT_TRACK = os.path.join(REF, 'anim')
