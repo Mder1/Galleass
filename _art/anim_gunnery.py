@@ -73,10 +73,14 @@ def sponge_clip(g):
         'tool': 'galleass_sponge_' + g, 'frames': n,
         'tip_z': 3 * STAFF[g] / 4 + 0.012 + ls,              # the tool's +Z end in its item frame
         'grips': (g_near, g_far),
-        'd': [(0, 0.20), (P + 14, 0.20), (P + 40, dmax), (P + 86, dmax), (P + 110, 0.14), (n, 0.14)],
-        'phi': [(0, 0.0), (P + 40, 0.0), (P + 52, 70.0), (P + 64, -60.0), (P + 76, 60.0), (P + 86, 0.0), (n, 0.0)],
-        'bend': [(0, STAND_BEND), (P, 40.0), (P + 14, 40.0), (P + 40, 46.0), (P + 86, 46.0), (P + 110, 43.0), (P + W, 43.0), (n, STAND_BEND)],
-        'drop': [(0, 0.0), (P, 0.10), (P + 14, 0.10), (P + 40, 0.14), (P + 86, 0.14), (P + 110, 0.12), (P + W, 0.12), (n, 0.0)],
+        # sponge at the mouth -> push in (lunging towards the gun) -> scrub twice (draw back 12 cm, push again, rolling the
+        # staff) -> pull it right out
+        'd': [(0, 0.0), (P + 10, 0.0), (P + 34, dmax), (P + 46, dmax - 0.12), (P + 58, dmax), (P + 70, dmax - 0.12),
+              (P + 82, dmax), (P + 108, -0.05), (n, -0.05)],
+        'phi': [(0, 0.0), (P + 34, 0.0), (P + 46, 60.0), (P + 58, -40.0), (P + 70, 60.0), (P + 82, 0.0), (n, 0.0)],
+        'lunge': [(0, 0.0), (P + 10, 0.0), (P + 34, 0.10), (P + 82, 0.10), (P + 108, 0.03), (P + W, 0.03), (n, 0.0)],
+        'bend': [(0, STAND_BEND), (P, 40.0), (P + 10, 40.0), (P + 34, 46.0), (P + 82, 46.0), (P + 108, 45.0), (P + W, 45.0), (n, STAND_BEND)],
+        'drop': [(0, 0.0), (P, 0.10), (P + 10, 0.10), (P + 34, 0.14), (P + 82, 0.14), (P + 108, 0.13), (P + W, 0.13), (n, 0.0)],
         'grip': [(0, 0.0), (P, 1.0), (P + W, 1.0), (n, 0.0)],             # hands on the staff (0 = hanging at rest)
     }
 CLIPS = {'sponge': sponge_clip}
@@ -175,7 +179,9 @@ def build(g, side, clip):
         grips = {'near': tip - w * clip['grips'][0] / AUTHOR_SCALE, 'far': tip - w * clip['grips'][1] / AUTHOR_SCALE}
         mid = (grips['near'] + grips['far']) / 2
         twist = math.degrees(math.atan2(-mid.x, mid.y)) * hold   # chest turned towards the hands
-        arm.location = (0, 0, -drop); arm.keyframe_insert('location', frame=k)
+        lunge = smooth(clip['lunge'], k) if 'lunge' in clip else 0.0   # body shifted along the staff towards the gun
+        wh = Vector((w.x, w.y, 0)).normalized()
+        arm.location = wh * lunge + Vector((0, 0, -drop)); arm.keyframe_insert('location', frame=k)
         for bone, b_deg, t_part in (('pelvis', 0.15, 0.25), ('spine', 0.30, 0.25), ('spine1', 0.30, 0.25), ('spine2', 0.25, 0.25)):
             work = spin(bone, (0, 0, 1), twist * t_part) @ spin(bone, (1, 0, 0), -bend * b_deg)
             pbs[bone].rotation_quaternion = q_idle[bone].slerp(work, hold)
