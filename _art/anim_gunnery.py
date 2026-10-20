@@ -192,6 +192,7 @@ def build(g, side, clip):
             if (want - got).length > worst: worst, worst_at = (want - got).length, (k, hs)
     print('ANIM %s: %d frames, worst hand miss %.3f m (frame %s, %s hand)' % (name, n + 1, worst, *worst_at))
     for o in [o for o in bpy.data.objects if o.type == 'EMPTY']: bpy.data.objects.remove(o)
+    clip['yaw'] = yaw
     return arm, act, track, G2A, m_a, w, worst
 
 def preview(g, side, clip, arm, G2A, m_a, w, track):
@@ -246,8 +247,9 @@ for g in GUNS:
         tw_rig.export_fbx(arm, os.path.join(OUT_FBX, name + '.fbx'))
         sx, sy = STANCE[g]
         json.dump({'clip': name, 'fps': FPS, 'frames': clip['n'], 'tool': clip['tool'], 'tip_z': clip['tip_z'],
-                   'stance': [sx if side == 'r' else -sx, sy], 'worst_hand_miss': round(worst, 3),
-                   'note': 'stance: x off the bore axis, y ahead of the recoiled muzzle (gun frame); track: frame, '
+                   'stance': [sx if side == 'r' else -sx, sy], 'yaw': round(clip['yaw'], 5), 'worst_hand_miss': round(worst, 3),
+                   'note': 'stance: x off the bore axis, y ahead of the muzzle (gun root frame); yaw: his facing, rad, '
+                           '(-sin, cos) in the gun frame; track: frame, '
                            'depth of the tool tip inside the muzzle (m), roll about the staff (deg)',
                    'track': track}, open(os.path.join(OUT_TRACK, name + '.json'), 'w'), indent=0)
         if RENDERS and side == 'r':
