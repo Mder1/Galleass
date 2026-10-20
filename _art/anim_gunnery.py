@@ -40,6 +40,11 @@ STAFF = json.load(open(os.path.join(REF, 'galleass_stores.json')))['staff']
 RECOIL = {'culverin': 1.0, 'falcon': 0.8, 'falconet': 0.6}            # = GalleassGunnery Config defaults
 BORE = {'culverin': gp.CV['bore'], 'falcon': gp.FALCON['bore'], 'falconet': gp.FALCONET['bore']}
 # load stance in the recoiled gun's frame (right side): off the bore axis, ahead of the muzzle (m)
+# Every clip starts and ends in the game's STANDING IDLE (root at 0): the Kit stores the root track relative to the first
+# frame, so a clip that began crouched would play that much too high in the game - and it blends from/to the idle
+PRE, POST = 16, 16                                            # frames to crouch and take hold / let go and stand up
+STAND_BEND = 6.0
+IDLE = ('anim_stand_non_combat', 1.0)                         # the game's unarmed standing idle (stand_non_combat clip), frame
 GRIP_CURL = 55.0                                              # finger0 curl for a closed grip (deg)
 STANCE = {'culverin': (0.36, 0.16), 'falcon': (0.34, 0.14), 'falconet': (0.32, 0.10)}
 
@@ -59,15 +64,18 @@ def sponge_clip(g):
     g_near = ls + 0.30                                       # grips, from the sponge's tip along the staff
     g_far = g_near + 0.26
     dmax = g_near - 0.10                                     # the near hand stops 10 cm short of the muzzle
-    n = 120
+    P = PRE                                                  # standing -> crouched with the hands on the staff
+    W = 120                                                  # the work itself
+    n = P + W + POST
     return {
         'tool': 'galleass_sponge_' + g, 'frames': n,
         'tip_z': 3 * STAFF[g] / 4 + 0.012 + ls,              # the tool's +Z end in its item frame
         'grips': (g_near, g_far),
-        'd': [(0, 0.20), (14, 0.20), (40, dmax), (86, dmax), (110, 0.14), (n, 0.14)],
-        'phi': [(0, 0.0), (40, 0.0), (52, 70.0), (64, -60.0), (76, 60.0), (86, 0.0), (n, 0.0)],
-        'bend': [(0, 40.0), (14, 40.0), (40, 46.0), (86, 46.0), (110, 43.0), (n, 43.0)],      # spine forward, deg
-        'drop': [(0, 0.10), (14, 0.10), (40, 0.14), (86, 0.14), (110, 0.12), (n, 0.12)],      # pelvis lowered, m
+        'd': [(0, 0.20), (P + 14, 0.20), (P + 40, dmax), (P + 86, dmax), (P + 110, 0.14), (n, 0.14)],
+        'phi': [(0, 0.0), (P + 40, 0.0), (P + 52, 70.0), (P + 64, -60.0), (P + 76, 60.0), (P + 86, 0.0), (n, 0.0)],
+        'bend': [(0, STAND_BEND), (P, 40.0), (P + 14, 40.0), (P + 40, 46.0), (P + 86, 46.0), (P + 110, 43.0), (P + W, 43.0), (n, STAND_BEND)],
+        'drop': [(0, 0.0), (P, 0.10), (P + 14, 0.10), (P + 40, 0.14), (P + 86, 0.14), (P + 110, 0.12), (P + W, 0.12), (n, 0.0)],
+        'grip': [(0, 0.0), (P, 1.0), (P + W, 1.0), (n, 0.0)],             # hands on the staff (0 = hanging at rest)
     }
 CLIPS = {'sponge': sponge_clip}
 
@@ -105,12 +113,22 @@ def build(g, side, clip):
     m_a = G2A @ muzzle_g
     w = (G2A.to_3x3() @ Vector((0, -1, 0))).normalized()     # into the bore
 
-    skel, _ = tw_rig.game_data()
+    skel, idle = tw_rig.game_data(IDLE[0])
     arm, rest_w = tw_rig.build_armature(skel)
     names = [b for b, _, _ in skel]
     arm.name = name
     pbs = arm.pose.bones
     for b in pbs: b.rotation_mode = 'QUATERNION'
+    # the game's standing idle (first and last frames of every clip): its world frames and pose rotations
+    rest_l = [tw_rig.rest_local(r) for _, _, r in skel]
+    idle_w = tw_rig.world_frames(skel, [tw_rig.local_at(idle['bones'][i], rest_l[i], IDLE[1]) for i in range(len(skel))])
+    bpy.context.view_layer.update()
+    for i, b in enumerate(names):
+        pbs[b].matrix = idle_w[i] @ tw_rig.G2B.to_4x4()
+        bpy.context.view_layer.update()
+    q_idle = {b: pbs[b].rotation_quaternion.copy() for b in names}
+    for b in names: pbs[b].matrix_basis = Matrix()
+    bpy.context.view_layer.update()
 
     def empty(nm, size=0.05):
         e = bpy.data.objects.new(nm, None); e.empty_display_size = size; sc.collection.objects.link(e); return e
@@ -130,8 +148,8 @@ def build(g, side, clip):
             pbs[b].lock_ik_x = pbs[b].lock_ik_y = pbs[b].lock_ik_z = True
         for b in (hs + '_upperarm_twist', hs + '_foretwist'):
             pbs[b].ik_stretch = 0.0
-    for hs in ('l', 'r'):                                    # legs: feet planted where they stand at rest
-        ft = rest_w[names.index(hs + '_foot')]
+    for hs in ('l', 'r'):                                    # legs: feet planted where the idle has them
+        ft = idle_w[names.index(hs + '_foot')]
         t = empty('ik_%s_foot' % hs); t.matrix_world = ft @ tw_rig.G2B.to_4x4()
         ik = pbs[hs + '_calf'].constraints.new('IK'); ik.target = t; ik.chain_count = 2; ik.use_tail = True
         pole = empty('pole_%s_knee' % hs); pole.location = rest_w[names.index(hs + '_calf')].translation + Vector((0, 0.6, 0))
@@ -148,27 +166,35 @@ def build(g, side, clip):
     track = []
     for k in range(n + 1):
         dd = smooth(clip['d'], k); phi = math.radians(smooth(clip['phi'], k))
-        bend = smooth(clip['bend'], k); drop = smooth(clip['drop'], k)
+        bend = smooth(clip['bend'], k); drop = smooth(clip['drop'], k); hold = smooth(clip['grip'], k)
         tip = m_a + w * dd
         grips = {'near': tip - w * clip['grips'][0], 'far': tip - w * clip['grips'][1]}
         mid = (grips['near'] + grips['far']) / 2
-        twist = math.degrees(math.atan2(-mid.x, mid.y))     # chest turned towards the hands
+        twist = math.degrees(math.atan2(-mid.x, mid.y)) * hold   # chest turned towards the hands
         arm.location = (0, 0, -drop); arm.keyframe_insert('location', frame=k)
         for bone, b_deg, t_part in (('pelvis', 0.15, 0.25), ('spine', 0.30, 0.25), ('spine1', 0.30, 0.25), ('spine2', 0.25, 0.25)):
-            pbs[bone].rotation_quaternion = spin(bone, (0, 0, 1), twist * t_part) @ spin(bone, (1, 0, 0), -bend * b_deg)
+            work = spin(bone, (0, 0, 1), twist * t_part) @ spin(bone, (1, 0, 0), -bend * b_deg)
+            pbs[bone].rotation_quaternion = q_idle[bone].slerp(work, hold)
             pbs[bone].keyframe_insert('rotation_quaternion', frame=k)
         for bone, deg in (('neck', 0.4), ('head', 0.6)):     # look down at the muzzle
-            pbs[bone].rotation_quaternion = spin(bone, (1, 0, 0), bend * deg * 0.6)
+            pbs[bone].rotation_quaternion = q_idle[bone].slerp(spin(bone, (1, 0, 0), bend * deg * 0.6), hold)
+            pbs[bone].keyframe_insert('rotation_quaternion', frame=k)
+        for bone in ('l_clavicle', 'r_clavicle', 'l_upperarm_twist1', 'r_upperarm_twist1', 'l_foretwist1', 'r_foretwist1',
+                     'l_toe0', 'r_toe0'):                    # not posed by the clip: from the idle to rest while working
+            pbs[bone].rotation_quaternion = q_idle[bone].slerp(Quaternion(), hold if 'toe' not in bone else 0.0)
             pbs[bone].keyframe_insert('rotation_quaternion', frame=k)
         for hs in ('l', 'r'):                                # fingers closed round the staff (vanilla curls finger0
             fb = hs + '_finger0'                             # about its f axis; the tool is no held item, so the
-            pbs[fb].rotation_quaternion = Quaternion((-1, 0, 0), math.radians(GRIP_CURL))   # engine won't close the hand)
+            pbs[fb].rotation_quaternion = q_idle[fb].slerp(Quaternion((-1, 0, 0), math.radians(GRIP_CURL)), hold)   # engine won't close the hand)
             pbs[fb].keyframe_insert('rotation_quaternion', frame=k)
         for hs in ('l', 'r'):
             P = grips[hand_of[hs]]
             sh = Vector(rest_w[names.index(hs + '_upperarm_twist')].translation) + Vector((0, 0.25, -0.12 - drop))
             toward = (sh - P); toward -= w * toward.dot(w); toward.normalize()
-            tgt[hs].matrix_world = grip_frame(P, w, toward, hs == 'r', phi * 0.5)
+            on_staff = grip_frame(P, w, toward, hs == 'r', phi * 0.5)
+            hanging = idle_w[names.index(hs + '_hand')] @ tw_rig.G2B.to_4x4()
+            hanging = Matrix.Translation((0, 0, -drop)) @ hanging
+            tgt[hs].matrix_world = hanging.lerp(on_staff, hold)
             tgt[hs].keyframe_insert('location', frame=k); tgt[hs].keyframe_insert('rotation_euler', frame=k)
         track.append([k, round(dd, 4), round(math.degrees(phi), 2)])
 
