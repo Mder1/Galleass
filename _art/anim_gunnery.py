@@ -44,6 +44,8 @@ BORE = {'culverin': gp.CV['bore'], 'falcon': gp.FALCON['bore'], 'falconet': gp.F
 # frame, so a clip that began crouched would play that much too high in the game - and it blends from/to the idle
 PRE, POST = 16, 16                                            # frames to crouch and take hold / let go and stand up
 STAND_BEND = 6.0
+AUTHOR_SCALE = 1.07                                           # median soldier scale (Agent.AgentScale; 118 men 2026-10-20:
+                                                              # 0.994 .. 1.123, p10 1.021, p90 1.112)
 IDLE = ('anim_stand_non_combat', 1.0)                         # the game's unarmed standing idle (stand_non_combat clip), frame
 GRIP_CURL = 55.0                                              # finger0 curl for a closed grip (deg)
 STANCE = {'culverin': (0.36, 0.16), 'falcon': (0.34, 0.14), 'falconet': (0.32, 0.10)}
@@ -109,7 +111,9 @@ def build(g, side, clip):
     muzzle_g = Vector((0.0, d['muzzle_y'] - rc, d['axis_h']))
     aim = Vector((0.0, muzzle_g.y + 0.75, 0.0))              # he faces a point on the axis ahead of the muzzle
     yaw = math.atan2(-(aim.x - stance.x), aim.y - stance.y)
-    G2A = Matrix.Rotation(-yaw, 4, 'Z') @ Matrix.Translation(-stance)   # gun frame -> agent frame
+    # gun frame -> agent frame, shrunk by the soldiers' typical scale: the game scales a clip with the man, so a clip made
+    # round a gun 1/S the size fits a man of scale S exactly
+    G2A = Matrix.Scale(1.0 / AUTHOR_SCALE, 4) @ Matrix.Rotation(-yaw, 4, 'Z') @ Matrix.Translation(-stance)
     m_a = G2A @ muzzle_g
     w = (G2A.to_3x3() @ Vector((0, -1, 0))).normalized()     # into the bore
 
@@ -167,8 +171,8 @@ def build(g, side, clip):
     for k in range(n + 1):
         dd = smooth(clip['d'], k); phi = math.radians(smooth(clip['phi'], k))
         bend = smooth(clip['bend'], k); drop = smooth(clip['drop'], k); hold = smooth(clip['grip'], k)
-        tip = m_a + w * dd
-        grips = {'near': tip - w * clip['grips'][0], 'far': tip - w * clip['grips'][1]}
+        tip = m_a + w * dd / AUTHOR_SCALE                    # (lengths along the staff shrunk with the gun)
+        grips = {'near': tip - w * clip['grips'][0] / AUTHOR_SCALE, 'far': tip - w * clip['grips'][1] / AUTHOR_SCALE}
         mid = (grips['near'] + grips['far']) / 2
         twist = math.degrees(math.atan2(-mid.x, mid.y)) * hold   # chest turned towards the hands
         arm.location = (0, 0, -drop); arm.keyframe_insert('location', frame=k)
@@ -251,8 +255,8 @@ def preview(g, side, clip, arm, G2A, m_a, w, track):
         sc.frame_set(k)
         R = Matrix((x0, w.cross(x0), w)).transposed()       # tool frame columns X, Y, Z(= w)
         M = (Matrix.Rotation(math.radians(phi), 4, w) @ R.to_4x4())
-        M.translation = m_a + w * dd - w * clip['tip_z']
-        tool.matrix_world = M
+        M.translation = m_a + (w * dd - w * clip['tip_z']) / AUTHOR_SCALE
+        tool.matrix_world = M @ Matrix.Scale(1.0 / AUTHOR_SCALE, 4)
         hands = sum(((arm.matrix_world @ arm.pose.bones[h + '_hand'].head) for h in ('l', 'r')), Vector()) / 2
         for view, loc_c, tgt_c, lens in (('profile', (2.8, 0.25, 1.0), (0.0, 0.25, 0.9), 35),
                                          ('front', (-0.9, 2.6, 1.6), (0.0, 0.3, 0.9), 35),
