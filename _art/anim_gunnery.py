@@ -73,14 +73,18 @@ def sponge_clip(g):
         'tool': 'galleass_sponge_' + g, 'frames': n,
         'tip_z': 3 * STAFF[g] / 4 + 0.012 + ls,              # the tool's +Z end in its item frame
         'grips': (g_near, g_far),
-        # sponge at the mouth -> push in (lunging towards the gun) -> scrub twice (draw back 12 cm, push again, rolling the
-        # staff) -> pull it right out
-        'd': [(0, 0.0), (P + 10, 0.0), (P + 34, dmax), (P + 46, dmax - 0.12), (P + 58, dmax), (P + 70, dmax - 0.12),
-              (P + 82, dmax), (P + 108, -0.05), (n, -0.05)],
-        'phi': [(0, 0.0), (P + 34, 0.0), (P + 46, 60.0), (P + 58, -40.0), (P + 70, 60.0), (P + 82, 0.0), (n, 0.0)],
-        'lunge': [(0, 0.0), (P + 10, 0.0), (P + 34, 0.10), (P + 82, 0.10), (P + 108, 0.03), (P + W, 0.03), (n, 0.0)],
-        'bend': [(0, STAND_BEND), (P, 40.0), (P + 10, 40.0), (P + 34, 46.0), (P + 82, 46.0), (P + 108, 45.0), (P + W, 45.0), (n, STAND_BEND)],
-        'drop': [(0, 0.0), (P, 0.10), (P + 10, 0.10), (P + 34, 0.14), (P + 82, 0.14), (P + 108, 0.13), (P + W, 0.13), (n, 0.0)],
+        # sponge at the mouth -> three full strokes (push in lunging towards the gun, draw back to the mouth; a small twist
+        # at the bottom of each) -> pull it right out
+        'd': [(0, 0.0), (P + 10, 0.0), (P + 26, dmax), (P + 42, 0.04), (P + 58, dmax), (P + 74, 0.04), (P + 90, dmax),
+              (P + 108, -0.05), (n, -0.05)],
+        'phi': [(0, 0.0), (P + 22, 0.0), (P + 28, 20.0), (P + 34, 0.0), (P + 54, 0.0), (P + 60, -20.0), (P + 66, 0.0),
+                (P + 86, 0.0), (P + 92, 20.0), (P + 98, 0.0), (n, 0.0)],
+        'lunge': [(0, 0.0), (P + 10, 0.0), (P + 26, 0.10), (P + 42, 0.03), (P + 58, 0.10), (P + 74, 0.03), (P + 90, 0.10),
+                  (P + 108, 0.03), (P + W, 0.03), (n, 0.0)],
+        'bend': [(0, STAND_BEND), (P, 40.0), (P + 10, 40.0), (P + 26, 46.0), (P + 42, 43.0), (P + 58, 46.0), (P + 74, 43.0),
+                 (P + 90, 46.0), (P + 108, 45.0), (P + W, 45.0), (n, STAND_BEND)],
+        'drop': [(0, 0.0), (P, 0.10), (P + 10, 0.10), (P + 26, 0.14), (P + 42, 0.12), (P + 58, 0.14), (P + 74, 0.12),
+                 (P + 90, 0.14), (P + 108, 0.13), (P + W, 0.13), (n, 0.0)],
         'grip': [(0, 0.0), (P, 1.0), (P + W, 1.0), (n, 0.0)],             # hands on the staff (0 = hanging at rest)
     }
 CLIPS = {'sponge': sponge_clip}
