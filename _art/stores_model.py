@@ -207,6 +207,64 @@ def build_ladle(gun, charged):
         v.co.x, v.co.y, v.co.z = x, -z, y
     return finish(bm, 'galleass_ladle_%s%s' % (gun, '_charged' if charged else ''), sharp=50)
 
+# ---------------------------------------------------------------- sponge-rammer and linstock (gunnery animations, 2026-10-20)
+# Crew props for the custom clips: the sponge-rammer (scovolo / calcatoio) lies at each gun - the sponge swabs the bore
+# before loading, the rammer end drives the ball home (the powder is rammed with the ladle's own rammer end). Sheepskin
+# sponge a hair over the bore (it is pressed in) -> galleass_sack; staff and rammer head as the ladle's. Built straight
+# in the ladle's item frame: staff along +Z, sponge at +Z, origin a quarter of the staff from the rammer end.
+def build_sponge(gun):
+    bm = bmesh.new()
+    rb = BORE[gun] / 2 * 0.9
+    L = STAFF[gun]
+    sr = 0.018 if gun == 'culverin' else 0.016 if gun == 'falcon' else 0.014
+    z0, z1 = -L / 4, 3 * L / 4
+    lathe(bm, [(z0, sr), (z1, sr)], 'wood', segs=10, cap0=True, cap1=True)
+    lathe(bm, [(z0 - 0.06 * (rb / 0.056) - 0.02, rb * 0.95), (z0, rb * 0.95)], 'wood', segs=16, cap0=True, cap1=True)
+    # sponge: a fleece bolster on a wooden core, rounded at the head, bound to the staff by an iron collar
+    rs, ls = BORE[gun] / 2 * 1.02, 1.8 * BORE[gun]
+    lathe(bm, [(z1 - 0.01, sr * 1.4), (z1 + 0.012, sr * 1.4)], 'iron', segs=12, cap0=True, cap1=True)
+    prof = [(z1 + 0.012, sr * 1.25), (z1 + 0.012 + 0.10 * ls, rs * 0.92), (z1 + 0.012 + 0.22 * ls, rs)]
+    prof += [(z1 + 0.012 + ls * (0.78 + 0.22 * math.sin(math.pi / 2 * k / 4)), rs * math.cos(math.pi / 2 * k / 4.4)) for k in range(5)]
+    fl = lathe(bm, prof, 'sack', segs=16, cap1=True)
+    uv_sack(bm, fl, rs)
+    return finish(bm, 'galleass_sponge_%s' % gun, sharp=50)
+
+# linstock (buttafuoco): ash staff with an iron spike foot (stuck in the deck by the gun), an iron fork at the head with
+# a clamp on each arm; the slow match is wound round the upper staff and clamped in the arms, the lit end on the +X arm
+# (charred tip -> galleass_dark; the glow is an effect). Item frame: staff along +Z, origin a quarter from the foot.
+LINSTOCK_L = 1.1
+def build_linstock():
+    bm = bmesh.new()
+    L, sr = LINSTOCK_L, 0.015
+    z0, z1 = -L / 4, 3 * L / 4
+    lathe(bm, [(z0, sr), (z1, sr)], 'wood', segs=10, cap0=True, cap1=True)
+    lathe(bm, [(z0 - 0.09, 0.0005), (z0 - 0.03, sr * 0.8), (z0 + 0.03, sr * 1.15), (z0 + 0.045, sr * 1.15)], 'iron', segs=10, cap1=True)
+    lathe(bm, [(z1 - 0.035, sr * 1.2), (z1 + 0.015, sr * 1.2), (z1 + 0.03, sr * 0.7)], 'iron', segs=12, cap0=True, cap1=True)
+    tips = []
+    for sx in (1, -1):                                          # fork arms curving out and up, a clamp at each tip
+        arm = [Vector((sx * x, 0, z1 + z)) for x, z in ((0.0, 0.02), (0.022, 0.045), (0.045, 0.085), (0.056, 0.13), (0.058, 0.16))]
+        n0 = len(bm.faces); rg.rope(bm, rg.catmull(arm, 0.01), 0.0055, segs=8)
+        bm.faces.ensure_lookup_table(); tag(bm, bm.faces[n0:], 'iron')
+        tip = arm[-1]; tips.append(tip)
+        box(bm, tip.x - 0.009, tip.x + 0.009, -0.009, 0.009, tip.z - 0.004, tip.z + 0.012, 'iron')
+    rm = 0.0045                                                 # slow match: a thin loosely-laid cord
+    za, zb, turns = z1 - 0.40, z1 - 0.07, 6.5
+    helix = []
+    for k in range(int(turns * 16) + 1):
+        a = 2 * math.pi * k / 16
+        helix.append(Vector(((sr + rm) * math.cos(a + math.pi), (sr + rm) * math.sin(a + math.pi), zb - (zb - za) * k / (turns * 16))))
+    lit = tips[0]
+    lead = [lit + Vector((0.004, 0, 0.035)), lit + Vector((0, 0, 0.004)), lit + Vector((-0.006, 0.006, -0.03)),
+            Vector((0.036, 0.014, z1 + 0.06)), Vector((0.024, 0.022, z1 + 0.005)), Vector((-0.004, 0.026, z1 - 0.035)),
+            Vector((-0.022, 0.012, zb + 0.012))]
+    rope_part(bm, lambda: rg.rope(bm, rg.catmull(lead + helix, 0.012), rm, segs=6))
+    spare = tips[1]                                             # the other end clamped in the -X arm, hanging a little
+    rope_part(bm, lambda: rg.rope(bm, rg.catmull([spare + Vector((0, 0, 0.02)), spare + Vector((0, 0, -0.01)),
+                                                  spare + Vector((0.006, 0.004, -0.05)), spare + Vector((0.012, 0.01, -0.09))], 0.01), rm, segs=6))
+    # charred, glowing tip of the lit end
+    lathe(bm, [(lit.z + 0.035, rm * 1.05), (lit.z + 0.05, rm * 1.0), (lit.z + 0.056, 0.0008)], 'dark', at=(lit.x + 0.004, 0, 0), segs=6)
+    return finish(bm, 'galleass_linstock', sharp=50)
+
 # ---------------------------------------------------------------- wicker basket + scattershot bags
 def rope_part(bm, build):
     """Run a rope_geom builder and tag its new faces as rope."""
@@ -488,6 +546,8 @@ for g in ('falcon', 'falconet'):
 for g in ('culverin', 'falcon', 'falconet'):
     objs.append(build_ladle(g, False)); objs.append(build_ladle(g, True))
     objs.append(build_rack(g, seats))
+    objs.append(build_sponge(g))
+objs.append(build_linstock())
 lockers = {}
 objs.append(build_locker('falconet', lockers))
 objs.append(build_locker('petriera', lockers))
@@ -557,6 +617,13 @@ if RENDERS:
     shot('stores_keg.png', (-1.2 + 0.9, 0.6 - 0.9, 0.95), (-1.2, 0.6, 0.35), 50)
     shot('stores_racks.png', (0.0, -1.6, 1.3), (0.0, 0.4, 0.1), 40)
     shot('stores_ladles.png', (2.6, -1.4, 0.8), (2.6, 1.6, 0.0), 45)
+    for i, g in enumerate(('culverin', 'falcon', 'falconet')):          # sponge-rammers and the linstock on the floor
+        sp = bpy.data.objects['galleass_sponge_' + g]
+        sp.location = (4.0 + i * 0.35, 0.2 - STAFF[g] / 4, BORE[g] / 2); sp.rotation_euler = (math.radians(-90), 0, 0)
+    ls = bpy.data.objects['galleass_linstock']; ls.location = (5.2, 0.2, 0.0); ls.rotation_euler = (0, 0, 0)
+    shot('stores_tools.png', (4.6, -1.6, 1.2), (4.6, 1.0, 0.2), 40)
+    shot('stores_sponges.png', (4.85, 2.25, 0.45), (4.35, 1.35, 0.05), 40)
+    shot('stores_linstock.png', (5.6, 0.2 - 0.5, 0.95), (5.2, 0.2, 0.74), 55)
     shot('stores_scoops.png', (3.0, 2.1, 0.45), (2.6, 1.7, 0.03), 50)
 bpy.ops.wm.save_as_mainfile(filepath=OUT_BLEND)
 print('stores done')
