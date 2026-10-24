@@ -2,8 +2,9 @@
 
     blender -b --factory-startup --python anim_gunnery.py -- <clip> [<gun> ...] [--renders renders/anim]
 
-Clips (so far): sponge - the loader swabs the bore of the recoiled gun: sponge just in the muzzle, push in, roll the
-staff back and forth, draw it out.
+Clips (so far): sponge - the loader swabs the bore of the recoiled gun: sponge just in the muzzle, three strokes with
+a small twist at the bottom, draw it out. ladle - the charged ladle goes in scoop up, is turned over at the bottom
+(powder out, the game swaps in the empty ladle at 'empty_at'), tapped twice and drawn out scoop down.
 
 Per gun kind (culverin, falcon, falconet) and side (r: the loader on the gun's +X side, l: mirrored) one clip
 galleass_<clip>_<gun>_<side>:
@@ -87,7 +88,38 @@ def sponge_clip(g):
                  (P + 90, 0.14), (P + 108, 0.13), (P + W, 0.13), (n, 0.0)],
         'grip': [(0, 0.0), (P, 1.0), (P + W, 1.0), (n, 0.0)],             # hands on the staff (0 = hanging at rest)
     }
-CLIPS = {'sponge': sponge_clip}
+def ladle_clip(g):
+    ls = 0.05 + 2.5 * BORE[g]                                # head block + copper scoop (stores_model build_ladle)
+    g_near = 1.8 * BORE[g] + 0.30                            # grips as far from the tip as on the sponge: 0.11 m further
+                                                             # out and he can't reach them with the scoop at the mouth
+    g_far = g_near + 0.26
+    dmax = g_near - 0.10
+    P = PRE
+    W = 100
+    n = P + W + POST
+    return {
+        # the carried charged ladle goes in; once he has turned it over the game shows the empty one (empty_at)
+        'tool': 'galleass_ladle_%s_charged' % g, 'tool_empty': 'galleass_ladle_' + g, 'empty_at': P + 52,
+        'frames': n,
+        'tip_z': 3 * STAFF[g] / 4 + ls,
+        'grips': (g_near, g_far),
+        # scoop open side up (roll 180: the item's open side is -Y, the bore frame's Y is up) at the mouth -> eased in
+        # level to the bottom -> turned over (powder out) -> two taps on the bore's floor -> drawn out scoop down
+        'd': [(0, 0.0), (P + 10, 0.0), (P + 36, dmax), (P + 58, dmax), (P + 61, dmax - 0.03), (P + 64, dmax),
+              (P + 67, dmax - 0.03), (P + 70, dmax), (P + 94, -0.05), (n, -0.05)],
+        'phi': [(0, 180.0), (P + 40, 180.0), (P + 56, 0.0), (n, 0.0)],
+        # the hands' roll on the staff (deg; default half the tool's): neutral at the mouth, where he reaches furthest; at
+        # the bottom they take hold for the turn (+45), turn with it (-45) and ease back while drawing it out
+        'hroll': [(0, 0.0), (P + 34, 0.0), (P + 40, 45.0), (P + 56, -45.0), (P + 70, -45.0), (P + 94, 0.0), (n, 0.0)],
+        'mirror_l': True,                                    # the l side man turns it the mirrored way
+        'lunge': [(0, 0.0), (P + 10, 0.0), (P + 36, 0.10), (P + 70, 0.10), (P + 94, 0.03), (P + W, 0.03), (n, 0.0)],
+        'bend': [(0, STAND_BEND), (P, 40.0), (P + 10, 40.0), (P + 36, 46.0), (P + 70, 46.0), (P + 94, 44.0), (P + W, 44.0),
+                 (n, STAND_BEND)],
+        'drop': [(0, 0.0), (P, 0.10), (P + 10, 0.10), (P + 36, 0.14), (P + 70, 0.14), (P + 94, 0.12), (P + W, 0.12), (n, 0.0)],
+        'grip': [(0, 0.0), (P, 1.0), (P + W, 1.0), (n, 0.0)],
+        'stills': (P + 20, P + 36, P + 50, P + 66, P + 90),
+    }
+CLIPS = {'sponge': sponge_clip, 'ladle': ladle_clip}
 
 # ---------------------------------------------------------------- geometry helpers
 def game_frame_to_bone(s, f, u, origin):
@@ -177,7 +209,9 @@ def build(g, side, clip):
         return Quaternion(local_axis[bone] @ Vector(axis), math.radians(deg))
     track = []
     for k in range(n + 1):
-        dd = smooth(clip['d'], k); phi = math.radians(smooth(clip['phi'], k))
+        sgn = -1 if side == 'l' and clip.get('mirror_l') else 1
+        dd = smooth(clip['d'], k); phi = sgn * math.radians(smooth(clip['phi'], k))
+        hroll = sgn * math.radians(smooth(clip['hroll'], k)) if 'hroll' in clip else phi * 0.5
         bend = smooth(clip['bend'], k); drop = smooth(clip['drop'], k); hold = smooth(clip['grip'], k)
         tip = m_a + w * dd / AUTHOR_SCALE                    # (lengths along the staff shrunk with the gun)
         grips = {'near': tip - w * clip['grips'][0] / AUTHOR_SCALE, 'far': tip - w * clip['grips'][1] / AUTHOR_SCALE}
@@ -205,7 +239,7 @@ def build(g, side, clip):
             P = grips[hand_of[hs]]
             sh = Vector(rest_w[names.index(hs + '_upperarm_twist')].translation) + Vector((0, 0.25, -0.12 - drop))
             toward = (sh - P); toward -= w * toward.dot(w); toward.normalize()
-            on_staff = grip_frame(P, w, toward, hs == 'r', phi * 0.5)
+            on_staff = grip_frame(P, w, toward, hs == 'r', hroll)
             hanging = idle_w[names.index(hs + '_hand')] @ tw_rig.G2B.to_4x4()
             hanging = Matrix.Translation((0, 0, -drop)) @ hanging
             tgt[hs].matrix_world = hanging.lerp(on_staff, hold)
@@ -231,6 +265,7 @@ def build(g, side, clip):
             want = tgt[hs].matrix_world.translation
             got = arm.matrix_world @ arm.pose.bones[hs + '_hand'].head
             if (want - got).length > worst: worst, worst_at = (want - got).length, (k, hs)
+            if os.environ.get('ANIM_MISS'): print('MISS %3d %s %.3f' % (k, hs, (want - got).length))
     print('ANIM %s: %d frames, worst hand miss %.3f m (frame %s, %s hand)' % (name, n + 1, worst, *worst_at))
     for o in [o for o in bpy.data.objects if o.type == 'EMPTY']: bpy.data.objects.remove(o)
     clip['yaw'] = yaw
@@ -248,10 +283,12 @@ def preview(g, side, clip, arm, G2A, m_a, w, track):
     arm.animation_data.action = act; arm.location = loc
     with bpy.data.libraries.load(os.path.join(REF, 'galleass_guns.blend'), link=False) as (src, dst):
         dst.objects = ['galleass_' + g]
+    tools = [clip['tool']] + ([clip['tool_empty']] if 'tool_empty' in clip else [])
     with bpy.data.libraries.load(os.path.join(REF, 'galleass_stores.blend'), link=False) as (src, dst2):
-        dst2.objects = [clip['tool']]
-    gun = dst.objects[0]; tool = dst2.objects[0]
-    sc.collection.objects.link(gun); sc.collection.objects.link(tool)
+        dst2.objects = tools
+    gun = dst.objects[0]
+    sc.collection.objects.link(gun)
+    for t in dst2.objects: sc.collection.objects.link(t)
     gun.matrix_world = G2A @ Matrix.Translation((0, -RECOIL[g], 0))
     bpy.ops.mesh.primitive_plane_add(size=6, location=(0, 0, 0)); bpy.context.active_object.name = 'deck'
     bpy.context.active_object.data.materials.append(crew_figure.material('deck', (0.42, 0.36, 0.28, 1)))
@@ -260,9 +297,11 @@ def preview(g, side, clip, arm, G2A, m_a, w, track):
     sc.render.resolution_x, sc.render.resolution_y = 1000, 800
     cam = bpy.data.objects.new('cam', bpy.data.cameras.new('cam')); sc.collection.objects.link(cam); sc.camera = cam
     os.makedirs(RENDERS, exist_ok=True)
-    for k in (0, 40, 64, n_last(track)):
+    for k in clip.get('stills', (0, 40, 64, n_last(track))):
         _, dd, phi = track[k]
         sc.frame_set(k)
+        tool = dst2.objects[1 if len(dst2.objects) > 1 and k >= clip['empty_at'] else 0]
+        for t in dst2.objects: t.hide_render = t is not tool
         R = Matrix((x0, w.cross(x0), w)).transposed()       # tool frame columns X, Y, Z(= w)
         M = (Matrix.Rotation(math.radians(phi), 4, w) @ R.to_4x4())
         M.translation = m_a + (w * dd - w * clip['tip_z']) / AUTHOR_SCALE
@@ -288,6 +327,7 @@ for g in GUNS:
         tw_rig.export_fbx(arm, os.path.join(OUT_FBX, name + '.fbx'))
         sx, sy = STANCE[g]
         json.dump({'clip': name, 'fps': FPS, 'frames': clip['n'], 'tool': clip['tool'], 'tip_z': clip['tip_z'],
+                   **({'tool_empty': clip['tool_empty'], 'empty_at': clip['empty_at']} if 'tool_empty' in clip else {}),
                    'stance': [sx if side == 'r' else -sx, sy], 'yaw': round(clip['yaw'], 5), 'worst_hand_miss': round(worst, 3),
                    'note': 'stance: x off the bore axis, y ahead of the muzzle (gun root frame); yaw: his facing, rad, '
                            '(-sin, cos) in the gun frame; track: frame, '
