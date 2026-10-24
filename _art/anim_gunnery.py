@@ -2,7 +2,9 @@
 
     blender -b --factory-startup --python anim_gunnery.py -- <clip> [<gun> ...] [--renders renders/anim]
 
-Clips (so far): sponge - the loader swabs the bore of the recoiled gun: sponge just in the muzzle, three strokes with
+Clips (so far): rammer - (user 2026-10-24) the near hand puts the ball in the mouth, the sponge-rammer turned round
+rams it home (push, regrip, two thrusts) and is drawn out; the ball's place per frame is in the json ('ball').
+sponge - the loader swabs the bore of the recoiled gun: sponge just in the muzzle, three strokes with
 a small twist at the bottom, draw it out. ladle - the charged ladle goes in scoop up, is turned over at the bottom
 (powder out, the game swaps in the empty ladle at 'empty_at'), tapped twice and drawn out scoop down.
 
@@ -119,7 +121,53 @@ def ladle_clip(g):
         'grip': [(0, 0.0), (P, 1.0), (P + W, 1.0), (n, 0.0)],
         'stills': (P + 20, P + 36, P + 50, P + 66, P + 90),
     }
-CLIPS = {'sponge': sponge_clip, 'ladle': ladle_clip}
+BALL_R = {'culverin': 0.06, 'falcon': 0.038, 'falconet': 0.0265}      # = export_guns.py galleass_shot*
+BALL_PALM, BALL_REACH = 0.025, 0.065                          # ball centre in front of the palm / along the fingers (m)
+
+def rammer_clip(g):
+    """(user 2026-10-24: the ball goes in by hand, then it is rammed.) The sponge-rammer turned round, rammer end at the
+    bore. The far hand holds the staff just behind the head, the head well out of the mouth; the near hand brings the ball
+    and pushes it just into the mouth, then takes the staff while the far hand slides back; first push, both hands
+    regrip further back, two thrusts down to the sponge's depth, rammer drawn out."""
+    rh = 0.06 * (BORE[g] / 2 * 0.9 / 0.056) + 0.02         # rammer head length (stores_model build_sponge)
+    r = BALL_R[g]
+    gs_near = 1.8 * BORE[g] + 0.30                           # the sponge's grips (reach)
+    gs_far = gs_near + 0.26
+    dmax = gs_near - 0.10
+    d_off = -0.24                                            # rammer head out of the mouth while the ball goes in
+    rest = r + 0.007                                         # ball centre just inside the mouth
+    P = PRE
+    W = 146
+    n = P + W + POST
+    return {
+        'tool': 'galleass_sponge_' + g, 'reverse': True, 'frames': n,
+        'tip_z': STAFF[g] / 4 + rh,                          # the rammer (-Z) end in the item frame
+        # ball: in the near hand (centre at 'offset' in the hand bone's game frame s, f, u) until 'release', then in the
+        # bore at max(rest, rammer depth + radius) (world m)
+        'ball': {'mesh': 'galleass_shot_' + g, 'r': r, 'rest': rest, 'release': P + 24,
+                 'offset': [BALL_REACH, r / AUTHOR_SCALE + BALL_PALM, 0.0]},
+        'grips': ([(0, 0.22), (P + 70, 0.22), (P + 80, gs_near), (n, gs_near)],
+                  [(0, 0.20), (P + 34, 0.20), (P + 44, 0.46), (P + 80, 0.46), (P + 90, gs_far), (n, gs_far)]),
+        'hands': {'near': [(0, 'hang'), (P, ('ball', -0.10)), (P + 10, ('ball', -0.10)), (P + 20, ('ball', rest)),
+                           (P + 24, ('ball', rest)), (P + 34, 'staff'), (P + W, 'staff'), (n, 'hang')],
+                  'far': [(0, 'hang'), (P, 'staff'), (P + W, 'staff'), (n, 'hang')]},
+        'd': [(0, d_off), (P + 44, d_off), (P + 62, 0.10), (P + 90, 0.10), (P + 100, dmax), (P + 106, dmax - 0.07),
+              (P + 112, dmax), (P + 118, dmax), (P + 140, -0.05), (n, -0.05)],
+        'phi': [(0, 0.0), (n, 0.0)],
+        'lunge': [(0, 0.0), (P, 0.02), (P + 44, 0.02), (P + 62, 0.08), (P + 90, 0.03), (P + 100, 0.11), (P + 106, 0.06),
+                  (P + 112, 0.11), (P + 118, 0.10), (P + 140, 0.03), (P + W, 0.03), (n, 0.0)],
+        'bend': [(0, STAND_BEND), (P, 42.0), (P + 44, 42.0), (P + 62, 45.0), (P + 90, 43.0), (P + 100, 47.0),
+                 (P + 106, 45.0), (P + 112, 47.0), (P + 140, 44.0), (P + W, 44.0), (n, STAND_BEND)],
+        'drop': [(0, 0.0), (P, 0.11), (P + 44, 0.11), (P + 62, 0.13), (P + 90, 0.12), (P + 100, 0.15), (P + 112, 0.15),
+                 (P + 140, 0.12), (P + W, 0.12), (n, 0.0)],
+        'grip': [(0, 0.0), (P, 1.0), (P + W, 1.0), (n, 0.0)],             # body: idle -> working
+        'stills': (P + 10, P + 22, P + 40, P + 62, P + 100, P + 130),
+    }
+CLIPS = {'sponge': sponge_clip, 'ladle': ladle_clip, 'rammer': rammer_clip}
+
+def val(x, k):
+    """A constant or keyed value at frame k."""
+    return smooth(x, k) if isinstance(x, list) else x
 
 # ---------------------------------------------------------------- geometry helpers
 def game_frame_to_bone(s, f, u, origin):
@@ -136,6 +184,16 @@ def grip_frame(P, w, toward, right_hand, roll):
     u = w if right_hand else -w
     s = f.cross(u).normalized()
     wrist = P + a * 0.045 - s * 0.07
+    return game_frame_to_bone(s, f, u, wrist)
+
+def ball_frame(C, w, toward, right_hand, r):
+    """Blender bone matrix of a hand pushing a ball (centre C) into the bore (direction w) from behind and from the man's
+    side ('toward': unit, perpendicular to w, towards him): palm onto the ball, thumb up (u = up right / -up left)."""
+    f = (w - toward * 0.7).normalized()
+    up = Vector((0, 0, 1)); up -= f * up.dot(f); up.normalize()
+    u = up if right_hand else -up
+    s = f.cross(u).normalized()
+    wrist = C - f * r - s * BALL_REACH - f * BALL_PALM
     return game_frame_to_bone(s, f, u, wrist)
 
 def build(g, side, clip):
@@ -214,7 +272,7 @@ def build(g, side, clip):
         hroll = sgn * math.radians(smooth(clip['hroll'], k)) if 'hroll' in clip else phi * 0.5
         bend = smooth(clip['bend'], k); drop = smooth(clip['drop'], k); hold = smooth(clip['grip'], k)
         tip = m_a + w * dd / AUTHOR_SCALE                    # (lengths along the staff shrunk with the gun)
-        grips = {'near': tip - w * clip['grips'][0] / AUTHOR_SCALE, 'far': tip - w * clip['grips'][1] / AUTHOR_SCALE}
+        grips = {'near': tip - w * val(clip['grips'][0], k) / AUTHOR_SCALE, 'far': tip - w * val(clip['grips'][1], k) / AUTHOR_SCALE}
         mid = (grips['near'] + grips['far']) / 2
         twist = math.degrees(math.atan2(-mid.x, mid.y)) * hold   # chest turned towards the hands
         lunge = smooth(clip['lunge'], k) if 'lunge' in clip else 0.0   # body shifted along the staff towards the gun
@@ -231,19 +289,32 @@ def build(g, side, clip):
                      'l_toe0', 'r_toe0'):                    # not posed by the clip: from the idle to rest while working
             pbs[bone].rotation_quaternion = q_idle[bone].slerp(Quaternion(), hold if 'toe' not in bone else 0.0)
             pbs[bone].keyframe_insert('rotation_quaternion', frame=k)
-        for hs in ('l', 'r'):                                # fingers closed round the staff (vanilla curls finger0
-            fb = hs + '_finger0'                             # about its f axis; the tool is no held item, so the
-            pbs[fb].rotation_quaternion = q_idle[fb].slerp(Quaternion((-1, 0, 0), math.radians(GRIP_CURL)), hold)   # engine won't close the hand)
-            pbs[fb].keyframe_insert('rotation_quaternion', frame=k)
+        curl = {}
         for hs in ('l', 'r'):
             P = grips[hand_of[hs]]
             sh = Vector(rest_w[names.index(hs + '_upperarm_twist')].translation) + Vector((0, 0.25, -0.12 - drop))
             toward = (sh - P); toward -= w * toward.dot(w); toward.normalize()
-            on_staff = grip_frame(P, w, toward, hs == 'r', hroll)
             hanging = idle_w[names.index(hs + '_hand')] @ tw_rig.G2B.to_4x4()
             hanging = Matrix.Translation((0, 0, -drop)) @ hanging
-            tgt[hs].matrix_world = hanging.lerp(on_staff, hold)
+            def target(mode):
+                if mode == 'hang': return hanging
+                if mode == 'staff': return grip_frame(P, w, toward, hs == 'r', hroll)
+                return ball_frame(m_a + w * mode[1] / AUTHOR_SCALE, w, toward, hs == 'r', clip['ball']['r'] / AUTHOR_SCALE)
+            if 'hands' in clip:                              # keyed targets per hand (hang / staff / ('ball', depth))
+                keys = clip['hands'][hand_of[hs]]
+                i = max([j for j, (t, _) in enumerate(keys) if t <= k] or [0]); i = min(i, len(keys) - 2)
+                (t0, m0), (t1, m1) = keys[i], keys[i + 1]
+                u = min(max((k - t0) / (t1 - t0), 0.0), 1.0); u = u * u * (3 - 2 * u)
+                tgt[hs].matrix_world = target(m0).lerp(target(m1), u)
+                curl[hs] = (m0 != 'hang') * (1 - u) + (m1 != 'hang') * u
+            else:
+                tgt[hs].matrix_world = hanging.lerp(target('staff'), hold)
+                curl[hs] = hold
             tgt[hs].keyframe_insert('location', frame=k); tgt[hs].keyframe_insert('rotation_euler', frame=k)
+        for hs in ('l', 'r'):                                # fingers closed round the staff / ball (vanilla curls finger0
+            fb = hs + '_finger0'                             # about its f axis; the tool is no held item, so the
+            pbs[fb].rotation_quaternion = q_idle[fb].slerp(Quaternion((-1, 0, 0), math.radians(GRIP_CURL)), curl[hs])   # engine won't close the hand)
+            pbs[fb].keyframe_insert('rotation_quaternion', frame=k)
         track.append([k, round(dd, 4), round(math.degrees(phi), 2)])
 
     # bake to plain keys
@@ -269,6 +340,7 @@ def build(g, side, clip):
     print('ANIM %s: %d frames, worst hand miss %.3f m (frame %s, %s hand)' % (name, n + 1, worst, *worst_at))
     for o in [o for o in bpy.data.objects if o.type == 'EMPTY']: bpy.data.objects.remove(o)
     clip['yaw'] = yaw
+    clip['ball_hand'] = 'l' if near_left else 'r'
     return arm, act, track, G2A, m_a, w, worst
 
 def preview(g, side, clip, arm, G2A, m_a, w, track):
@@ -293,6 +365,11 @@ def preview(g, side, clip, arm, G2A, m_a, w, track):
     bpy.ops.mesh.primitive_plane_add(size=6, location=(0, 0, 0)); bpy.context.active_object.name = 'deck'
     bpy.context.active_object.data.materials.append(crew_figure.material('deck', (0.42, 0.36, 0.28, 1)))
     x0 = Vector((0, 0, 1)).cross(w).normalized()
+    ball = None
+    if 'ball' in clip:
+        bpy.ops.mesh.primitive_uv_sphere_add(radius=clip['ball']['r'] / AUTHOR_SCALE, segments=16, ring_count=10)
+        ball = bpy.context.active_object; ball.name = 'ball'
+        ball.data.materials.append(crew_figure.material('iron', (0.12, 0.12, 0.13, 1)))
     sc.render.engine = 'BLENDER_WORKBENCH'; sc.display.shading.color_type = 'MATERIAL'; sc.display.shading.show_cavity = True
     sc.render.resolution_x, sc.render.resolution_y = 1000, 800
     cam = bpy.data.objects.new('cam', bpy.data.cameras.new('cam')); sc.collection.objects.link(cam); sc.camera = cam
@@ -303,13 +380,24 @@ def preview(g, side, clip, arm, G2A, m_a, w, track):
         tool = dst2.objects[1 if len(dst2.objects) > 1 and k >= clip['empty_at'] else 0]
         for t in dst2.objects: t.hide_render = t is not tool
         R = Matrix((x0, w.cross(x0), w)).transposed()       # tool frame columns X, Y, Z(= w)
+        if clip.get('reverse'):                              # working end at -Z: turned over about X
+            R = Matrix((x0, -w.cross(x0), -w)).transposed()
+        if ball:
+            b = clip['ball']
+            if k < b['release']:                             # in the hand: offset in the hand bone's game frame
+                hm = arm.matrix_world @ arm.pose.bones[clip['ball_hand'] + '_hand'].matrix
+                ball.location = hm @ (tw_rig.G2B.inverted() @ Vector(b['offset']))
+            else:
+                ball.location = m_a + w * max(b['rest'], dd + b['r']) / AUTHOR_SCALE
         M = (Matrix.Rotation(math.radians(phi), 4, w) @ R.to_4x4())
         M.translation = m_a + (w * dd - w * clip['tip_z']) / AUTHOR_SCALE
         tool.matrix_world = M @ Matrix.Scale(1.0 / AUTHOR_SCALE, 4)
         hands = sum(((arm.matrix_world @ arm.pose.bones[h + '_hand'].head) for h in ('l', 'r')), Vector()) / 2
-        for view, loc_c, tgt_c, lens in (('profile', (2.8, 0.25, 1.0), (0.0, 0.25, 0.9), 35),
-                                         ('front', (-0.9, 2.6, 1.6), (0.0, 0.3, 0.9), 35),
-                                         ('hands', tuple(hands + Vector((0.35, 0.75, 0.45))), tuple(hands), 50)):
+        views = [('profile', (2.8, 0.25, 1.0), (0.0, 0.25, 0.9), 35), ('front', (-0.9, 2.6, 1.6), (0.0, 0.3, 0.9), 35),
+                 ('hands', tuple(hands + Vector((0.35, 0.75, 0.45))), tuple(hands), 50)]
+        if ball:                                             # the muzzle from outboard and below the staff
+            views.append(('ball', tuple(m_a - w * 0.25 + Vector((-0.5, 0.45, 0.10))), tuple(m_a - w * 0.05), 50))
+        for view, loc_c, tgt_c, lens in views:
             cam.location = loc_c; cam.data.lens = lens
             cam.rotation_euler = (Vector(tgt_c) - Vector(loc_c)).to_track_quat('-Z', 'Y').to_euler()
             sc.render.filepath = os.path.join(RENDERS, '%s_%03d_%s.png' % (sc.name, k, view))
@@ -328,6 +416,8 @@ for g in GUNS:
         sx, sy = STANCE[g]
         json.dump({'clip': name, 'fps': FPS, 'frames': clip['n'], 'tool': clip['tool'], 'tip_z': clip['tip_z'],
                    **({'tool_empty': clip['tool_empty'], 'empty_at': clip['empty_at']} if 'tool_empty' in clip else {}),
+                   **({'reverse': True} if clip.get('reverse') else {}),
+                   **({'ball': dict(clip['ball'], hand=clip['ball_hand'])} if 'ball' in clip else {}),
                    'stance': [sx if side == 'r' else -sx, sy], 'yaw': round(clip['yaw'], 5), 'worst_hand_miss': round(worst, 3),
                    'note': 'stance: x off the bore axis, y ahead of the muzzle (gun root frame); yaw: his facing, rad, '
                            '(-sin, cos) in the gun frame; track: frame, '
