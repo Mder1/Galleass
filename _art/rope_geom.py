@@ -149,15 +149,18 @@ def coil_points(c, r_rope, r_in, r_out, turns=2.5, step=0.06, start_dir=None):
         pts.append(c + Vector((math.cos(a) * rr, math.sin(a) * rr, 0.0)))
     return pts
 
-def heap_points(c, r_rope, seed, scale=1.0, step=0.05, start_dir=None):
+def heap_points(c, r_rope, seed, scale=1.0, step=0.05, start_dir=None, max_h=None):
     """Hauling end left lying in a loose heap of loops on the deck (user 2026-10-13: not a neat flat coil, and no two
     alike): 5-8 irregular loops, each a wobbly ellipse with its own centre drift, size and tilt, rising by a rope's
-    thickness per loop so the loops lie on each other instead of through each other. Deterministic per seed."""
+    thickness per loop so the loops lie on each other instead of through each other. Deterministic per seed.
+    max_h: cap the heap's height - a thick rope makes fewer loops (2026-10-27: thick heaps stood up like springs)."""
     import random
     rnd = random.Random(seed)
     c = Vector(c)
     a = math.atan2(start_dir.y, start_dir.x) if start_dir is not None else rnd.uniform(0, 2 * math.pi)
     turns = rnd.uniform(5.5, 8.0)
+    if max_h is not None:
+        turns = max(min(turns, max_h / (2.15 * r_rope)), 2.0)
     sense = rnd.choice((-1, 1))
     total = turns * 2 * math.pi
     rise = 2.15 * r_rope / (2 * math.pi)                  # per radian: one rope diameter (+) per loop

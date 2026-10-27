@@ -10,6 +10,9 @@ Meshes (material galleass_trim = oak, galleass_iron = bolts / straps):
   ORIGIN ON THE DECK under the middle, crossbar along +-Y. With a convex collision body bo_galleass_bitts_<n>.
 The pins' rope points (a hand above the bar, where the fall is turned round the pin) go to ref/galleass_belay_pins.json
 in each fitting's frame; the prefab puts one knot_point there per pin (the game ties braces and sheets to the nearest).
+Every pin carries crossing belaying turns round its shank (material galleass_rope, rope_geom UVs) centred on that point,
+as vanilla's cleats carry their knot mesh (knot_point_a_1): the game's rope then runs into the turns (user 2026-10-27:
+the falls ended bare at the pins).
 """
 import bpy, bmesh, json, math, os, sys
 from mathutils import Vector
@@ -17,16 +20,20 @@ from mathutils import Vector
 argv = sys.argv[sys.argv.index('--') + 1:]
 OUT_BLEND, OUT_FBX, RENDERS = argv[0], argv[1], (argv[2] if len(argv) > 2 else None)
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import rope_geom as rg
 
-ROLE = {'wood': 'galleass_trim', 'iron': 'galleass_iron'}
+ROLE = {'wood': 'galleass_trim', 'iron': 'galleass_iron', 'rope': 'galleass_rope'}
 UV_S = {'galleass_trim': 0.135, 'galleass_iron': 0.5}
-COL = {'wood': (0.36, 0.24, 0.14, 1), 'iron': (0.16, 0.16, 0.17, 1)}
+COL = {'wood': (0.36, 0.24, 0.14, 1), 'iron': (0.16, 0.16, 0.17, 1), 'rope': (0.80, 0.72, 0.55, 1)}
 ROLES = list(ROLE)
 
 PIN_SPACING = 0.20
 PIN = [(-0.20, 0.014), (-0.02, 0.016), (-0.02, 0.026), (0.0, 0.026), (0.01, 0.019), (0.10, 0.017), (0.13, 0.021),
        (0.15, 0.020), (0.16, 0.012), (0.165, 0.0)]                    # turned pin: (z above the bar top, radius)
 ROPE_DZ = 0.06                                                          # rope point above the bar top
+TURNS = dict(r=0.016, n=4, half_h=0.02, gap=0.0, zc=0.06)               # belaying turns: rope radius, crossing turns, half their
+                                                                        # tilt height, play off the pin, centre above the bar
 BOARD = dict(width=0.24, thick=0.05)                                    # pin board on the cap rail
 BITTS = dict(post=0.14, height=1.0, bar_z=0.78, bar_h=0.11, bar_d=0.12, cap=0.04)
 
@@ -91,6 +98,30 @@ def finish(bm, name):
     o = bpy.data.objects.new(name, me); bpy.context.scene.collection.objects.link(o)
     return o
 
+def belay_turns(bm, y, z0):
+    """Figure-of-eight turns of the fall round the pin at y whose bar top is z0: n turns round the shank, each a loop
+    tilted the other way (z = centre +- h sin(angle): they cross on the near and far side), a little further out each
+    turn so they lie on each other; the end tucked under the last turn, down to the bar."""
+    r, h = TURNS['r'], TURNS['half_h']
+    zc = z0 + TURNS['zc']                       # round ROPE_DZ, thick enough to hide the game's rope end (user 2026-10-27)
+    R0 = max(rr for zz, rr in PIN if 0.0 < zz < 0.11) + r + TURNS['gap']   # round the shank, clear of it
+    pts = []
+    steps = 12
+    for k in range(TURNS['n']):
+        s = 1 if k % 2 == 0 else -1
+        R = R0 + 0.2 * r * k
+        for i in range(steps):
+            a = 2 * math.pi * (k + i / steps)
+            pts.append(Vector((R * math.cos(a), y + R * math.sin(a), zc + s * h * math.sin(a))))
+    R = R0 + 0.2 * r * TURNS['n']
+    pts.append(Vector((R, y, zc)))
+    pts.append(Vector((R + 0.006, y + 0.02, z0 + r + 0.012)))           # the tail laid down on the bar
+    pts.append(Vector((R + 0.01, y + 0.06, z0 + r)))
+    n0 = len(bm.faces)
+    rg.rope(bm, rg.catmull(pts, 0.02), r, segs=6)            # ~550 tris a pin (56 pins aboard)
+    bm.faces.ensure_lookup_table()
+    tag(bm.faces[n0:], 'rope')
+
 def pin_ys(n):
     return [PIN_SPACING * (i - (n - 1) / 2) for i in range(n)]
 
@@ -107,6 +138,7 @@ def build_pinrail(n, pins):
             bolt(bm, k * w * 0.3, s * (L / 2 - 0.04), t, 'z', r=0.011, l=0.006)   # nail / spike heads
     for y in pin_ys(n):
         lathe(bm, [(z + t, r) for z, r in PIN], (0.0, y, 0.0))
+        belay_turns(bm, y, t)
     name = 'galleass_pinrail_%d' % n
     pins[name] = [[0.0, round(y, 4), round(t + ROPE_DZ, 4)] for y in pin_ys(n)]
     return finish(bm, name)
@@ -123,6 +155,7 @@ def build_bitts(n, pins):
     box(bm, -bd / 2, bd / 2, -L / 2 - p, L / 2 + p, bz - bh, bz)               # crossbar, through both posts
     for y in pin_ys(n):
         lathe(bm, PIN, (0.0, y, bz))
+        belay_turns(bm, y, bz)
     name = 'galleass_bitts_%d' % n
     pins[name] = [[0.0, round(y, 4), round(bz + ROPE_DZ, 4)] for y in pin_ys(n)]
     return finish(bm, name)
@@ -134,6 +167,8 @@ def add_uvs(o):
         n = poly.normal
         ax = max(range(3), key=lambda i: abs(n[i]))
         i, j = [k for k in range(3) if k != ax]
+        if ROLES[poly.material_index] == 'rope':
+            continue
         s = UV_S[ROLE[ROLES[poly.material_index]]]
         for li in poly.loop_indices:
             p = me.vertices[me.loops[li].vertex_index].co

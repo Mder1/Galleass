@@ -37,7 +37,7 @@ YARD_CLEAR = 0.35                      # yard (~0.15 radius) + shroud + margin
 MASTS = {
     'main':   dict(rig='lateen_sail_large_nested', size='large', deck=G['Z_GUN_DECK'] + LIFT, feet=(3.9, 0.3, -1.6), r=0.020, tie_eye=(-0.3, -0.95)),
     'fore':   dict(rig='lateen_sail_medium_nested', size='medium', deck=G['FC_Z_PLATFORM'] + LIFT, feet=(16.8, 15.0), r=0.018, tie_eye=(-0.55, 0.55)),
-    'mizzen': dict(rig='lateen_sail_small_nested', size='small', deck=G['Z_GUN_DECK'] + LIFT, feet=(-14.6, -16.0), r=0.017, tie_eye=(-0.3, -0.95)),
+    'mizzen': dict(rig='lateen_sail_small_nested', size='small', deck=G['Z_GUN_DECK'] + LIFT, feet=(-14.6, -16.0), r=0.017, tie_eye=(-0.45, -0.5)),   # (user 2026-10-27: at -0.95 aft the eyebolt sat 0.15 m inside the cabin front)
 }
 FOOT_Z = G['Z_GUN_DECK'] + LIFT + 0.75          # ringbolts on the gun deck bulwark's inner face
 
@@ -124,6 +124,18 @@ def ringbolt(bms, W, N, k=1.0):
     side = side.normalized() if side.length > 1e-6 else Vector((1, 0, 0))
     rg.ring(bms['iron'], W + N * 0.06 * k - Vector((0, 0, 0.04 * k)), side, 0.04 * k, 0.008 * k, segs=8, tube=4, role_uv='iron')
 
+FALL = 0.8                                             # tackle falls + hauling part, x the tackle's rope (user 2026-10-27:
+                                                       # at 0.6 the heap looked thinner than the three falls it leaves)
+HALYARD_R = 0.020                                      # the vanilla flag halyard (sail_rope_pile vector_argument_w)
+HEAP_H = 0.13                                          # heaps no higher than the old thin ones (thick rope: fewer loops)
+
+def off_cabin(pts, r):
+    """Heaps on the gun deck stay clear of the cabin front (user 2026-10-27: the mizzen tie's heap lay in it): shift the
+    points forward by what they lack."""
+    inside = [p.y for p in pts if abs(p.x) < G['sc_hw'](G['SC_Y_FORE']) + 0.1 and p.z < G['SC_Z_FLOOR'] + LIFT]
+    lack = (G['SC_Y_FORE'] + r + 0.04) - min(inside) if inside else 0.0
+    return [p + Vector((0, lack, 0)) for p in pts] if lack > 0 else pts
+
 def tackle(bms, top, bottom, r, segs, level, seed, deck_z, inboard):
     """Two blocks between 'top' (the shroud's end) and 'bottom' (the ring), three falls, hauling part to a heap."""
     d = (bottom - top).normalized()
@@ -138,17 +150,17 @@ def tackle(bms, top, bottom, r, segs, level, seed, deck_z, inboard):
             rg.block(bms['wood'], cc, d, up, bl, bl * 0.62, bl * 0.42)
         rg.rope(bms['rope'], [b2 + d * bl * 0.45, bottom], r * 0.7, segs=segs)
     for o2 in (-1.2, 0.0, 1.2):
-        rg.rope(bms['rope'], [b1 + off * o2 * r * 1.6 + d * bl * 0.3, b2 + off * o2 * r * 1.6 - d * bl * 0.3], r * 0.6,
+        rg.rope(bms['rope'], [b1 + off * o2 * r * 1.6 + d * bl * 0.3, b2 + off * o2 * r * 1.6 - d * bl * 0.3], r * FALL,
                 segs=max(segs - 1, 3))
     if level < 3:                                      # hauling part, belayed and heaped on deck inboard
         rr = random.Random(seed)
         cc = Vector((b2.x, b2.y, deck_z)) + inboard * (0.35 + rr.uniform(0, 0.15)) + \
              Vector((-inboard.y, inboard.x, 0)) * rr.uniform(-0.15, 0.15)
         start = Vector((-(cc - b2).x, -(cc - b2).y, 0))
-        heap = rg.heap_points(cc, r * 0.6, seed=seed, scale=0.9, step=0.035 if level == 0 else 0.09,
-                              start_dir=start.normalized() if start.length > 1e-6 else None)
+        heap = off_cabin(rg.heap_points(cc, r * FALL, seed=seed, scale=1.1, step=0.035 if level == 0 else 0.09, max_h=HEAP_H,
+                                        start_dir=start.normalized() if start.length > 1e-6 else None), r * FALL)
         drop = rg.catmull([b2 - off * r * 2.2, (b2 + heap[0]) / 2 + inboard * 0.05 + Vector((0, 0, 0.05)), heap[0]], 0.08)
-        rg.rope(bms['rope'], drop[:-1] + heap, r * 0.6, segs=max(segs - 2, 3))
+        rg.rope(bms['rope'], drop[:-1] + heap, r * FALL, segs=max(segs - 2, 3))
     return b1
 
 def build(level):
@@ -219,10 +231,10 @@ def build(level):
             hx_, hy_ = MD.HALYARD_FOOT[sp['size']]
             foot = mm @ Vector((hx_, hy_, zb)); foot.z = sp['deck'] + MD.HALYARD_DZ
             out = Vector((foot.x - foot_c.x, foot.y - foot_c.y, 0)).normalized()
-            hp = rg.heap_points(Vector((foot.x, foot.y, sp['deck'])) + out * 0.16, 0.009, seed='%s/halyard' % mast,
-                                scale=0.7, step=0.035 if level == 0 else 0.09, start_dir=-out)
+            hp = off_cabin(rg.heap_points(Vector((foot.x, foot.y, sp['deck'])) + out * 0.16, HALYARD_R, seed='%s/halyard' % mast,
+                                          scale=1.0, step=0.035 if level == 0 else 0.09, start_dir=-out, max_h=HEAP_H), HALYARD_R)
             rg.rope(bms['rope'], rg.catmull([foot, (foot + hp[0]) / 2 + Vector((0, 0, 0.02)), hp[0]], 0.04)[:-1] + hp,
-                    0.009, segs=max(segs - 2, 3))
+                    HALYARD_R, segs=max(segs - 2, 3))
     return bms, report
 
 MAT = {'rope': 'galleass_rope', 'iron': 'galleass_iron', 'wood': 'galleass_trim'}

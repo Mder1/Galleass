@@ -801,8 +801,12 @@ def build_sides():
                     md = m.modifiers.new(f'hole{i}', 'BOOLEAN'); md.object = hole; md.operation = 'DIFFERENCE'; md.solver = 'EXACT'
             for yend, d in ((Y1, 1), (Y0, -1)):                    # across the end walls (outer face at yend)
                 xi = min(box_inner_x(yend) + 0.1, end_surface_x(yend, (z0 + z1) / 2) - 0.1)
-                me_ = box(name + '_end', *sorted((side * xi, side * (W + out - thick))),
-                    *sorted((yend + d * out, yend + d * (out - (thick if name == 'cap_rail' else min(thick, SIDE_T))))),
+                ya, yb = sorted((yend + d * out, yend + d * (out - (thick if name == 'cap_rail' else min(thick, SIDE_T)))))
+                if name == 'cap_rail' and SC_Y_AFT < yend < SC_Y_FORE:
+                    # the aft cap runs along the cabin's side: it stops at the cabin's outer face (user 2026-10-27: its
+                    # end showed 4 cm inside the cabin, the cabin narrowing aft)
+                    xi = max(xi, sc_hw(ya), sc_hw(yb))
+                me_ = box(name + '_end', *sorted((side * xi, side * (W + out - thick))), ya, yb,
                     z0, z1, role)   # the cap covers the end wall's whole top, like along the side
                 if name == 'moulding' and yend == Y0:              # stern chaser's ring, one band with the moulding
                     hw = (z1 - z0) / 2
@@ -1025,7 +1029,9 @@ def build_forecastle():
                          stadium_prism('fc_ring_hole', fn, w2 + 0.07, h2 + 0.07, -0.06, 0.1)))
     subtract(lower, cuts)
     horseshoe_slab('fc_floor_low', fc_radius(FC_Z_BASE) - 0.35, FC_Z_BASE + 0.01, Z_GUN_DECK, 'deck')   # inside the wall, 1 cm up: no shared plane
-    horseshoe_slab('fc_platform', fc_radius(FC_Z_PLATFORM) - 0.05, FC_Z_PLATFORM - 0.15, FC_Z_PLATFORM, 'deck')
+    # (its back edge 3 mm inside the walls' end faces: in one plane they flickered, user 2026-10-27)
+    horseshoe_slab('fc_platform', fc_radius(FC_Z_PLATFORM) - 0.05, FC_Z_PLATFORM - 0.15, FC_Z_PLATFORM, 'deck',
+                   y_back=FC_Y_BACK + 0.003)
     par = horseshoe_wall('fc_parapet', FC_Z_PLATFORM, FC_Z_PARAPET, 0.35, 'paint')
     cuts = []
     for deg in FC_GUN_DEGS:
