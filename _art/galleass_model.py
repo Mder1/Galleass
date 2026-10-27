@@ -124,11 +124,12 @@ POOP_SWIVEL_GAPS = (9, 15)
 HATCH_YS = (-6.5, 12.0)                   # deck hatches (gratings), centre y
 SC_STAIR_X, SC_STAIR_HW = 3.05, 0.7       # centre line of the two stairs up to the poop (widened inboard: the outer
                                           # edge 3.75 is the poop's walkable edge)
-# steep companion stairs (user 2026-10-27, ref. the Andalucia replica's poop ladder): 48 = the steepest vanilla ship stair
-# (heavy dromon, roundship); at 55 neither the player nor the AI could climb them (user 2026-10-27)
-# one angle for the model, the physics ramps and the prefab's navmesh (build_prefab reads the runs)
-STAIR_DEG = 48
-SC_STAIR_RUN = (SC_Z_FLOOR - Z_GUN_DECK) / math.tan(math.radians(STAIR_DEG))
+# steep companion stairs (user 2026-10-27, ref. the Andalucia replica's poop ladder): at 55 deg neither the player nor
+# the AI could climb them, at 48 (the steepest vanilla ship stair) walkers still stuck now and then; 45 deg
+# one angle for the model, the physics ramps and the prefab's navmesh (build_prefab reads the runs); the poop stair
+# climbs to the poop deck's top (+0.12)
+STAIR_DEG = 45
+SC_STAIR_RUN = (SC_Z_FLOOR + 0.12 - Z_GUN_DECK) / math.tan(math.radians(STAIR_DEG))
 FC_STAIR_RUN = (FC_Z_PLATFORM - Z_GUN_DECK) / math.tan(math.radians(STAIR_DEG))
 
 # LIFT (user 2026-10-07, in game the ship sat too low; a galleass's rowing level was ~1.5-2 m above the water):
@@ -968,19 +969,23 @@ def stairs(name, x0, x1, y_bottom, z_bottom, y_top, z_top, role='trim', step=0.2
     m = h / g
     Y = lambda s: y_bottom + d * s                          # s = distance along the run from the foot
     depth, nose, t = max(g + 0.04, 0.22), 0.04, 0.05
+    # the walking line (navmesh + physics ramp: straight from the foot to the head) crosses each tread ON of its depth
+    # behind the nosing (user 2026-10-27: on treads ending at the line feet sank a riser deep, centred still too much)
+    ON = 0.3
     for i in range(n):
-        s1 = min(g * (i + 1), run - land); s0 = s1 - depth
-        if i == n - 1: s0 = g * (i + 1) - depth             # (the top tread keeps its front edge)
+        f = g * (i + 1) - depth * ON                        # front (nosing) of tread i
+        s0, s1 = f, min(f + depth, run - land)
         z = z_bottom + h * (i + 1)
         box(f'{name}_tread', x0, x1, *sorted((Y(s0), Y(s1))), z - t, z, 'deck')
-        sr = g * (i + 1) - depth + 0.02                     # riser: just behind the nosing, on the tread below
+        sr = f + 0.02                                       # riser: just behind the nosing, on the tread below
         box(f'{name}_riser', x0 + 0.01, x1 - 0.01, *sorted((Y(sr), Y(sr + 0.025))), z_bottom + h * i, z - t, role)
-    nosing = lambda s: z_bottom + h + m * s                 # line over the tread fronts
+    nosing = lambda s: z_bottom + m * (s + depth * ON)       # line over the tread fronts
     top = lambda s: nosing(s) + 0.10                        # the cheeks' upper edge
     D = 0.30 * math.sqrt(1 + m * m)                         # 0.30 across the slope, measured plumb
-    s_toe, s_heel = -(h + 0.10) / m, (D - h - 0.10) / m     # upper / lower edge reach the deck
+    s_toe = -(m * depth * ON + 0.10) / m                    # upper / lower edge reach the deck
+    s_heel = (D - m * depth * ON - 0.10) / m
     s_end = run - land
-    s_cap = s_end - h / m                                   # upper edge levels off 0.10 over the landing
+    s_cap = run - depth * ON                                # upper edge levels off 0.10 over the landing
     cheek = [(s_toe, z_bottom), (s_heel, z_bottom), (s_end, top(s_end) - D), (s_end, z_top + 0.10),
              (s_cap, z_top + 0.10)]
     rail_h = 0.88                                           # hand rail top over the nosing line
@@ -991,9 +996,10 @@ def stairs(name, x0, x1, y_bottom, z_bottom, y_top, z_top, role='trim', step=0.2
         box(f'{name}_newel', xc - 0.06, xc + 0.06, *sorted((Y(s_r0 - 0.06), Y(s_r0 + 0.06))), z_bottom, z_bottom + 1.10, role)
         box(f'{name}_newel_cap', xc - 0.075, xc + 0.075, *sorted((Y(s_r0 - 0.075), Y(s_r0 + 0.075))),
             z_bottom + 1.10, z_bottom + 1.13, role)
-        if head_post:
-            box(f'{name}_head_post', xc - 0.06, xc + 0.06, *sorted((Y(run), Y(run + 0.12))), z_top, z_top + 1.25, role)
-            box(f'{name}_head_cap', xc - 0.075, xc + 0.075, *sorted((Y(run - 0.015), Y(run + 0.135))),
+        if head_post:                                       # beside the stairway: inner face on the stair's edge
+            xp = xc + side * 0.03
+            box(f'{name}_head_post', xp - 0.06, xp + 0.06, *sorted((Y(run), Y(run + 0.12))), z_top, z_top + 1.25, role)
+            box(f'{name}_head_cap', xp - 0.075, xp + 0.075, *sorted((Y(run - 0.015), Y(run + 0.135))),
                 z_top + 1.25, z_top + 1.28, role)
         rt = lambda s: nosing(s) + rail_h
         yz_prism(f'{name}_handrail', xc - 0.025, xc + 0.025,
@@ -1079,6 +1085,8 @@ def build_forecastle():
         n = max(int(round((x1 - x0) / 0.6)), 1)
         for k in range(n + 1):
             x = x0 + (x1 - x0) * k / n
+            if abs(r - abs(x)) > 1e-6:                    # at a stair opening: beside it, not in it (user 2026-10-27)
+                x += 0.04 if k == 0 else -0.04
             box('fc_back_post', x - 0.04, x + 0.04, yb - 0.04, yb + 0.04, FC_Z_PLATFORM, FC_Z_PLATFORM + 0.98, 'trim')
     # stairs from the gun deck up to the platform, one per side behind the forecastle
     for side in (-1, 1):
@@ -1502,6 +1510,8 @@ def build_stern_balcony():
         for k in range(1, n):
             lathe('sc_baluster', prof, 'trim', at=(x0 + (x1 - x0) * k / n, yf, zb), segs=10)
         for x in (x0, x1):
+            if abs(wf - abs(x)) > 1e-6:                   # at a stair opening: beside it, not half in it (user 2026-10-27:
+                x += 0.09 if x == x0 else -0.09           # men climbing walked into them and fell)
             box('sc_post', x - 0.09, x + 0.09, yf - 0.09, yf + 0.09, zb, SC_Z_RAIL + 0.1, 'trim')
     # awning frame (tendalino) over the after part of the poop: it carries the roof upgrades, so its beams follow the
     # roofs' base edge (roof_edge) and are flat at SC_Z_AWNING; the roofs rest on the beam tops (user 2026-10-07:
@@ -2141,7 +2151,8 @@ for yf, d, dx in ((SC_Y_FORE, -1, SC_DOOR_X), (SC_Y_AFT, 1, 0.0)):
     for xa, xb in ((-wf, dx - SC_DOOR_W / 2), (dx + SC_DOOR_W / 2, wf)):
         bx(xa, xb, *sorted((yf, yf + d * SC_WALL)), (Z_GUN_DECK + Z_LIFT), (SC_Z_FLOOR + Z_LIFT))
     bx(dx - SC_DOOR_W / 2, dx + SC_DOOR_W / 2, *sorted((yf, yf + d * SC_WALL)), (Z_GUN_DECK + Z_LIFT) + 2.1, (SC_Z_FLOOR + Z_LIFT))
-convex_piece(bmb, [(sd * (sc_hw(y) + 0.08), y, z) for y in (SC_Y_AFT - 0.3, SC_Y_FORE + 0.08) for sd in (-1, 1)
+# (flush with the cabin front: the visual deck's 8 cm overhang made a lip at the stair heads, user 2026-10-27)
+convex_piece(bmb, [(sd * (sc_hw(y) + 0.08), y, z) for y in (SC_Y_AFT - 0.3, SC_Y_FORE) for sd in (-1, 1)
                    for z in ((SC_Z_FLOOR + Z_LIFT), (SC_Z_FLOOR + Z_LIFT) + 0.12)])
 convex_piece(bmb, [(x, y, z) for x, y in [(-sc_hw(SC_Y_AFT) - 0.1, SC_Y_AFT), (sc_hw(SC_Y_AFT) + 0.1, SC_Y_AFT),
                                           (-1.0, SC_Y_AFT - BALC_RY), (1.0, SC_Y_AFT - BALC_RY)]
@@ -2151,10 +2162,10 @@ _w, _wf, _yf = sc_hw(SC_Y_AFT) - POOP_INSET, sc_hw(SC_Y_FORE) - POOP_INSET, SC_Y
 _zp = ((SC_Z_FLOOR + Z_LIFT) + 0.12, (SC_Z_RAIL + Z_LIFT) + 0.02)
 bx(-_w, _w, SC_Y_AFT - 0.1, SC_Y_AFT + 0.1, *_zp)
 for x0, x1 in ((-_wf, -SC_STAIR_X - SC_STAIR_HW), (-SC_STAIR_X + SC_STAIR_HW, SC_STAIR_X - SC_STAIR_HW), (SC_STAIR_X + SC_STAIR_HW, _wf)):
-    bx(x0 - 0.09, x1 + 0.09, _yf - 0.1, _yf + 0.1, *_zp)
+    bx(x0, x1, _yf - 0.1, _yf + 0.1, *_zp)                          # (ends at the stair openings)
 _r, _yb = fc_radius(FC_Z_PLATFORM) - 0.35, FC_Y_BACK + 0.05
 for x0, x1 in ((-_r, -FC_STAIR_X - FC_STAIR_HW), (-FC_STAIR_X + FC_STAIR_HW, FC_STAIR_X - FC_STAIR_HW), (FC_STAIR_X + FC_STAIR_HW, _r)):
-    bx(x0 - 0.05, x1 + 0.05, _yb - 0.08, _yb + 0.08, (FC_Z_PLATFORM + Z_LIFT), (FC_Z_PLATFORM + Z_LIFT) + 1.0)
+    bx(x0, x1, _yb - 0.08, _yb + 0.08, (FC_Z_PLATFORM + Z_LIFT), (FC_Z_PLATFORM + Z_LIFT) + 1.0)
 # hatches: coaming + grating as one low block (agents step over it, missiles stop)
 for y in HATCH_YS:
     bx(-0.9, 0.9, y - 0.75, y + 0.75, (Z_GUN_DECK + Z_LIFT) - 0.05, (Z_GUN_DECK + Z_LIFT) + 0.2)
@@ -2166,6 +2177,15 @@ for sd in (-1, 1):
     x = sd * FC_STAIR_X
     convex_piece(bmb, [(x + dx, y, z) for dx in (-FC_STAIR_HW, FC_STAIR_HW) for (y, z) in
                        ((FC_Y_BACK - FC_STAIR_RUN, (Z_GUN_DECK + Z_LIFT)), (FC_Y_BACK, (FC_Z_PLATFORM + Z_LIFT)), (FC_Y_BACK, (Z_GUN_DECK + Z_LIFT)))])
+# the stairs' sides up to the hand rail (user 2026-10-27: pushed men fell off the open sides): a wall where each cheek is,
+# from under the walking line to 1.0 m over it, foot to head
+def stair_walls(xc, hw, y_foot, y_head, z_head):
+    zf, zh = Z_GUN_DECK + Z_LIFT, z_head + Z_LIFT
+    for xa, xb in ((xc - hw - 0.06, xc - hw), (xc + hw, xc + hw + 0.06)):
+        convex_piece(bmb, [(xx, y, z + dz) for xx in (xa, xb) for y, z in ((y_foot, zf), (y_head, zh)) for dz in (-0.1, 1.0)])
+for sd in (-1, 1):
+    stair_walls(sd * SC_STAIR_X, SC_STAIR_HW, SC_Y_FORE + SC_STAIR_RUN, SC_Y_FORE, SC_Z_FLOOR + 0.12)
+    stair_walls(sd * FC_STAIR_X, FC_STAIR_HW, FC_Y_BACK - FC_STAIR_RUN, FC_Y_BACK, FC_Z_PLATFORM)
 # spur (missiles, feet): the timber in two tapered pieces, the point as one
 for ya, yb in ((SPUR[0][0], 27.5), (27.5, SPUR_TIP[0] + 0.25)):
     convex_piece(bmb, [(sx * w, y, zc + sz * h + Z_LIFT) for y in (ya, yb) for zc, w, h in [spur_at(y)]

@@ -180,11 +180,14 @@ def export(o):
                                                     [m.name for m in o.data.materials]))
 
 def body(o):
-    """The desk's footprint box (build_prefab cuts it from the navmesh). Not exported any more: the table has no
-    physics (user 2026-10-27: a body keeps walkers a capsule radius, 0.37 m, off the table)."""
+    """Collision: one box round the LEGS (user 2026-10-27: without a body one walked through the table; the old box over
+    the whole top kept walkers further off), up to the top; returns it and the desk's footprint (build_prefab cuts that
+    from the navmesh)."""
     xs, ys, zs = zip(*[v.co for v in o.data.vertices])
+    d = DESK
+    lx = d['half'] - d['inset'] + d['leg'] / 2
     bm = bmesh.new()
-    box(bm, min(xs), max(xs), min(ys), max(ys), 0.0, max(zs))
+    box(bm, -lx, lx, d['y0'] + d['inset'] - d['leg'] / 2, d['y1'] - d['inset'] + d['leg'] / 2, 0.0, max(zs))
     name = 'bo_' + o.name
     me = bpy.data.meshes.new(name); bm.to_mesh(me); bm.free()
     me.materials.append(bpy.data.materials.get('wood') or bpy.data.materials.new('wood'))
@@ -198,6 +201,7 @@ add_uvs(helm); helm.data.name = helm.name
 os.makedirs(OUT_FBX, exist_ok=True)
 export(helm)
 bo, foot = body(helm)
+export(bo)
 hand = (HAND[0], HAND[1], round(top_z(HAND[1]) + WRIST_DZ, 4))
 json.dump({'hand': hand, 'desk': DESK, 'foot': [round(v, 4) for v in foot],    # foot = x0, x1, y0, y1, height (desk frame)
            'slope': {'origin': [0.0, DESK['y0'], DESK['z0']], 'pitch': round(SLOPE, 5)},

@@ -344,12 +344,16 @@ STAIR_CLEAR = []                                               # (x0, x1, y0, y1
 for _sx0, _sx1, _ya, _yb, _up in STAIRS:
     _d = 1.0 if _yb > _ya else -1.0                            # foot -> head
     STAIR_CLEAR.append((_sx0 - 0.2, _sx1 + 0.2, min(_ya, _ya - _d * 1.5), max(_ya, _ya - _d * 1.5), Z_DECK))
-    STAIR_CLEAR.append((_sx0 - 0.2, _sx1 + 0.2, min(_yb, _yb + _d * 1.0), max(_yb, _yb + _d * 1.0), LEVEL_Z[_up]))   # head: 1 m
+    _h = 1.5 if _up == 'poop' else 1.0                         # head (poop 1.5 m, user 2026-10-27: the crowd there blocked climbers)
+    STAIR_CLEAR.append((_sx0 - 0.2, _sx1 + 0.2, min(_yb, _yb + _d * _h), max(_yb, _yb + _d * _h), LEVEL_Z[_up]))
 # the forecastle platform's back strip (2026-10-16): the way from both stair heads round the fore mast to the guns -
 # no gun store, no parked crew there (the store row had left 0.5 m gaps by the mast and the port gun's trail)
 STAIR_CLEAR.append((-(FC_STAIR_X + FC_STAIR_HW + 0.2), FC_STAIR_X + FC_STAIR_HW + 0.2, FC_YB + 1.0, FC_YB + 1.7, Z_FC))   # in front of the bays by the mast
-def in_stair_clear(x, y, z):
-    return any(x0 <= x <= x1 and y0 <= y <= y1 and abs(z - zz) < 0.6 for x0, x1, y0, y1, zz in STAIR_CLEAR)
+# ... and the cabin's fore door (user 2026-10-27: the aft gun store's keg stood in it, men crowded at the cabin front)
+_dx, _dw = G['SC_DOOR_X'], G['SC_DOOR_W'] / 2 + 0.3
+STAIR_CLEAR.append((_dx - _dw, _dx + _dw, SC_Y1, SC_Y1 + 1.5, Z_DECK))
+def in_stair_clear(x, y, z, pad=0.0):
+    return any(x0 - pad <= x <= x1 + pad and y0 - pad <= y <= y1 + pad and abs(z - zz) < 0.6 for x0, x1, y0, y1, zz in STAIR_CLEAR)
 json.dump({'stair_clear': [[round(v, 3) for v in r] for r in STAIR_CLEAR]},
           open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ref', 'galleass_keepclear.json'), 'w'), indent=1)
 
@@ -1349,8 +1353,7 @@ HELM = json.load(open(os.path.join(_ART, 'ref', 'galleass_helm.json')))
 DESK_Y = -15.30                                                # desk's aft edge (its front 0.18 m short of the front rail)
 _hx0, _hx1, _hy0, _hy1, _ = HELM['foot']
 assert DESK_Y + _hy1 < SC_Y1 - G['POOP_INSET'] - 0.15, 'command desk into the poop front rail'
-# the table has NO physics body (user 2026-10-27: its box kept the player ~0.4 m off - a body capsule's radius 0.37):
-# only this cut keeps walkers out, and it lets a man's centre come DESK_PAD past the table's edge (chest at the edge)
+# the table's body is a box round its legs (helm_model.py); this cut keeps the AI a hand's breadth off its edge
 DESK_PAD = 0.15
 STORE_FOOT.append(((_hx0 + _hx1) / 2, DESK_Y + (_hy0 + _hy1) / 2, Z_POOP_TOP, 0.0,
                    (_hx1 - _hx0) / 2 + DESK_PAD, (_hy1 - _hy0) / 2 + DESK_PAD))
@@ -1694,9 +1697,17 @@ for e in kids(files['control_point_holder']):
                 el('move_to_batched_kinematic', {'type_name': 'bool', 'value': '1'})))
     e[:] = sorted(e, key=lambda c: ORDER.index(c.tag) if c.tag in ORDER else len(ORDER))
     moved['control_point_holder'] = 1
-# the table: in the ship frame under mesh_holder (kept on the campaign map); no collision (see DESK_PAD)
+# the table: in the ship frame under mesh_holder (kept on the campaign map), collision round its legs (user 2026-10-27:
+# without a body one walked through it)
 desk = new_entity('galleass_command_desk', 'helm/desk')
 write_tf(desk, pos=(0.0, DESK_Y, Z_POOP_TOP), rot=(0.0, 0.0, 0.0))
+_desk_bo = os.path.join(_ART, '..', 'Assets', 'bo_galleass_command_desk_geo.tpac')
+if os.path.exists(_desk_bo) and os.path.getsize(_desk_bo) > 600:
+    desk.append(el('physics', None, el('shape', {'type_name': 'string', 'value': 'bo_galleass_command_desk'}),
+                   el('body_flags', None, el('body_flag', {'name': 'moveable'})),
+                   el('move_to_batched_kinematic', {'type_name': 'bool', 'value': '1'})))
+else:
+    BELAY_MISSING.append('bo_galleass_command_desk')
 if not os.path.exists(os.path.join(_ART, '..', 'Assets', 'galleass_command_desk_geo.tpac')):
     BELAY_MISSING.append('galleass_command_desk')
 desk.append(tags('galleass_command_desk')); desk.append(mobility())
@@ -2118,8 +2129,17 @@ _LOADERS = json.load(open(os.path.join(_ART, 'ref', 'galleass_loader_spots.json'
 _STATIONS = json.load(open(os.path.join(_ART, 'ref', 'galleass_stations.json')))
 _GSP = os.path.join(_ART, 'ref', 'galleass_gunner_spots.json')
 _LOADERS = dict(_LOADERS, **{k + '/gunner': v for k, v in (json.load(open(_GSP)).items() if os.path.exists(_GSP) else [])})
+def _in_cabin(x, y, z):
+    return SC_Y0 < y < SC_Y1 and abs(x) < sc_hw(y) + 0.1 and abs(z - Z_DECK) < 0.6
+def _on_stair(x, y, z):
+    """On a stair's ramp or under it (any height: its top end is at the upper deck's height)."""
+    return any(sx0 - 0.25 <= x <= sx1 + 0.25 and min(ya, yb) - 0.05 <= y <= max(ya, yb) + 0.05
+               and Z_DECK - 0.6 < z < LEVEL_Z[up] + 0.6 for sx0, sx1, ya, yb, up in STAIRS)
 def _crew_spot_bad(x, y, z):
-    if in_gun_area(x, y, z) or in_stair_clear(x, y, z):
+    # (the cabin floor is at deck height: spots pushed off the stern chasers went through its wall; one more stood at
+    # the wall under a poop stair, three on the poop stairs' top steps - user 2026-10-27)
+    # a man parked there stands a body's width (0.37) clear of the keep-clear zones, not on their edge
+    if in_gun_area(x, y, z) or in_stair_clear(x, y, z, pad=0.4) or _in_cabin(x, y, z) or _on_stair(x, y, z):
         return True
     if any(abs(sp['ship'][2] - z) < 1.2 and math.hypot(sp['ship'][0] - x, sp['ship'][1] - y) < 0.75 for sp in _LOADERS.values()):
         return True
@@ -2146,8 +2166,10 @@ for e in _sps:
         _fixed.append('%s (%.2f, %.2f) -> (%.2f, %.2f)' % (e.get('name'), p[0], p[1], best[0], best[1]))
     else:
         _lost.append(e.get('name'))
-report.append('spawn_point_holder: %d crew spots moved out of gun areas / loader places / stores%s: %s'
+report.append('spawn_point_holder: %d crew spots moved out of gun areas / loader places / stores / the cabin%s: %s'
               % (len(_fixed), (', NO CLEAR SPOT for %s' % _lost) if _lost else '', '; '.join(_fixed)))
+_inside = [tf(e)[0] for e in _sps if _in_cabin(*tf(e)[0]) or _on_stair(*tf(e)[0])]
+assert not _inside, 'crew spots inside the cabin / on a stair: %s' % _inside
 
 # forecastle crew (user 2026-10-16: the AI struggled up to the platform falconets): new outer-deck spots - outer ones
 # are always manned at the start (76 deck crew; 56 + these outer spots, the rest fills inner spots from the stern) -

@@ -180,7 +180,8 @@ STATIONS = [
     # the foremost broadside falcons walked 8-14 m to the waist stations (user 2026-10-16): a third falcon station on
     # the centre line between the two foremost pairs, serving both sides
     ('fore_waist', ['falcon'], Z_GD, (0.0, (gy[3] + gy[4]) / 2), (-2.5, 2.5, gy[3] - 0.5, gy[4] + 0.5)),
-    ('aft', ['falcon', 'falconet'], Z_GD, (2.0, G['SC_Y_FORE'] + 1.2), (-4.2, 4.2, G['SC_Y_FORE'] + 0.2, G['SC_Y_FORE'] + 4.0)),
+    # (to port of the mizzen: the cabin's door is on the starboard side, user 2026-10-27)
+    ('aft', ['falcon', 'falconet'], Z_GD, (-1.5, G['SC_Y_FORE'] + 1.2), (-4.2, 4.2, G['SC_Y_FORE'] + 0.2, G['SC_Y_FORE'] + 4.0)),
     # the poop swivels (user 2026-10-17: their loaders got stuck on the poop stairs): a swivel locker on the poop's
     # centre line between their two pairs
     ('poop', ['locker_petriera'], Z_POOP, (0.0, sum(gun_layout.swivel_poop_y(G)) / 2), (-1.6, 1.6, -22.5, -16.0)),
