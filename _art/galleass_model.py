@@ -408,19 +408,35 @@ def subtract(target, cutters):
         m.solver = 'EXACT'
 
 def lathe(name, profile, role, at=(0, 0, 0), segs=8, cap=True):
-    """Revolve [(r, z)] around the local Z axis, placed at `at`."""
+    """Revolve [(r, z)] around the local Z axis, placed at `at`. Own cylindrical UVs (kept by the merge): round the part
+    over its mean circumference, along it by the profile's length - one even grain however few the rings (2026-10-27:
+    the per-face projection made long patchy strips on the leaner balusters)."""
     bm = bmesh.new()
+    uvl = bm.loops.layers.uv.new('UVMap')
+    sc = UV_SCALE[role]
+    rs = [r for r, z in profile if r > 1e-6]
+    circ = 2 * math.pi * (sum(rs) / len(rs) if rs else 0.0) * sc
+    along = [0.0]
+    for (r0, z0), (r1, z1) in zip(profile, profile[1:]):
+        along.append(along[-1] + math.hypot(r1 - r0, z1 - z0) * sc)
     rings = []
     for r, z in profile:
         rings.append([bm.verts.new((at[0] + r * math.cos(2 * math.pi * i / segs),
                                     at[1] + r * math.sin(2 * math.pi * i / segs), at[2] + z)) for i in range(segs)])
-    for a, b in zip(rings, rings[1:]):
+    for j, (a, b) in enumerate(zip(rings, rings[1:])):
         for i in range(segs):
-            bm.faces.new((a[i], a[(i + 1) % segs], b[(i + 1) % segs], b[i]))
+            f = bm.faces.new((a[i], a[(i + 1) % segs], b[(i + 1) % segs], b[i]))
+            for loop, (col, row) in zip(f.loops, ((i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1))):
+                loop[uvl].uv = (col / segs * circ, along[row])        # (col segs = the seam's far side)
     if cap:
-        bm.faces.new(list(reversed(rings[0]))); bm.faces.new(rings[-1])
+        for ring, z in ((rings[0], profile[0][1]), (rings[-1], profile[-1][1])):
+            f = bm.faces.new(list(reversed(ring)) if ring is rings[0] else ring)
+            for loop in f.loops:
+                loop[uvl].uv = ((loop.vert.co.x - at[0]) * sc, (loop.vert.co.y - at[1]) * sc)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    return obj_from_bm(bm, name, role, smooth=True)
+    o = obj_from_bm(bm, name, role, smooth=True)
+    o['own_uvs'] = 1
+    return o
 
 def sweep(name, pts, radii, role, segs=8, square=False, cap=True, closed=False):
     """Tube along a polyline (parallel-transported frames); square=True gives a beam.
@@ -1893,7 +1909,11 @@ for o, role in PARTS:
         if not o.name.startswith(LIFT_DONE):
             v.co.z = v.co.z + Z_LIFT if rigid else lift_z(v.co.y, v.co.z)
     me.update()
-    add_uvs(me, role)
+    if o.get('own_uvs'):                                     # (lathes: cylindrical UVs of their own)
+        col = me.color_attributes.new('Col', 'BYTE_COLOR', 'CORNER')
+        for d in col.data: d.color = (1, 1, 1, 1)
+    else:
+        add_uvs(me, role)
     # the box's end walls are kept whole in the LODs (user 2026-10-17: re-merged / collapsed, their faces fanned into
     # slivers round the stern chaser ports, white in game; the clean grid round the port is made where they are built)
     keep = me.attributes.new('keep', 'INT', 'FACE')
@@ -1944,10 +1964,13 @@ coll('final').objects.link(bpy.data.objects.new('galleass_faction_paint',
 # shows at the water), UVs at vanilla's density (~3.8 m per tile along the hull, ~4.1 m up).
 PLATE_Z = 0.4
 PLATE_MATS = ('hull_plate_lead_oxidize', 'hull_plate_lead')
-def hull_plate():
+def hull_plate(sources=None, name='galleass_hull_plate', extra=0.0):
+    """Plating from the hull + painted planking surfaces (sources: their meshes, default LOD 0), both layers pushed out
+    their offset + extra. Each plating LOD is built from the hull LOD of its level (2026-10-27: decimated on its own,
+    the plating sank up to 9 cm into the hull at distance - the planking showed through)."""
     bm = bmesh.new()
-    for src in ('galleass_hull', 'galleass_paint'):
-        bm.from_mesh(bpy.data.objects[src].data)
+    for src in (sources or [bpy.data.objects[n].data for n in ('galleass_hull', 'galleass_paint')]):
+        bm.from_mesh(src)
     bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], plane_co=(0, 0, PLATE_Z),
                            plane_no=(0, 0, 1), clear_outer=True)
     # outer hull only: no upward faces (decks, tops), nothing facing inboard (the hull's outside faces away from the
@@ -1957,7 +1980,7 @@ def hull_plate():
     bmesh.ops.delete(bm, geom=kill, context='FACES')
     bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
     out = bmesh.new()
-    for layer, D in ((0, 0.009), (1, 0.006)):
+    for layer, D in ((0, 0.009 + extra), (1, 0.006 + extra)):
         cp = bm.copy()
         for v in cp.verts:
             fns = [f.normal for f in v.link_faces]
@@ -1970,7 +1993,7 @@ def hull_plate():
         me = bpy.data.meshes.new('tmp'); cp.to_mesh(me); cp.free()
         out.from_mesh(me); bpy.data.meshes.remove(me)
     bm.free()
-    me = bpy.data.meshes.new('galleass_hull_plate'); out.to_mesh(me); out.free()
+    me = bpy.data.meshes.new(name); out.to_mesh(me); out.free()
     for name in PLATE_MATS:
         m = bpy.data.materials.get(name) or bpy.data.materials.new(name)
         m.diffuse_color = (0.55, 0.5, 0.45, 1); me.materials.append(m)
@@ -1980,7 +2003,8 @@ def hull_plate():
         uv.data[li].uv = (0.26 * p.y, 0.243 * p.z)
     for poly in me.polygons: poly.use_smooth = True
     me.set_sharp_from_angle(angle=math.radians(65))
-    coll('final').objects.link(bpy.data.objects.new('galleass_hull_plate', me))
+    if sources is None:
+        coll('final').objects.link(bpy.data.objects.new('galleass_hull_plate', me))
     return me
 _pm = hull_plate()
 print('hull plate: %d faces per layer, z %.2f..%.2f' % (len(_pm.polygons) // 2, min(v.co.z for v in _pm.vertices),
@@ -1993,8 +2017,17 @@ print('hull plate: %d faces per layer, z %.2f..%.2f' % (len(_pm.polygons) // 2, 
 LOD_RATIO = {1: 0.45, 2: 0.18, 3: 0.06}
 LOD_DROP = {'galleass_gilt': 3, 'galleass_iron': 3, 'galleass_dark': 3}
 PAINT_LODS = {0: bpy.data.objects['galleass_paint'].data}
+HULL_LODS = {0: bpy.data.objects['galleass_hull'].data}
+# the hull under the plating stays exact in every LOD (2026-10-27: the game picks the hull's and the plating's LODs
+# separately; decimated, the hull bulged up to 9.5 cm out through the plating - the planking showed at distance)
+for _n in ('galleass_hull', 'galleass_paint'):
+    _me = bpy.data.objects[_n].data
+    _ka = _me.attributes.get('keep') or _me.attributes.new('keep', 'INT', 'FACE')
+    for _p in _me.polygons:
+        if max(_me.vertices[i].co.z for i in _p.vertices) <= PLATE_Z + 0.30:
+            _ka.data[_p.index].value = 1
 for o in list(coll('final').objects):
-    if o.name in ('galleass_faction_paint',) or o.type != 'MESH':
+    if o.name in ('galleass_faction_paint', 'galleass_hull_plate') or o.type != 'MESH':   # (plating: from the hull LODs)
         continue
     for lvl, ratio in LOD_RATIO.items():
         if lvl >= LOD_DROP.get(o.name, 99):
@@ -2032,6 +2065,8 @@ for o in list(coll('final').objects):
             bpy.data.meshes.remove(kept)
         if o.name == 'galleass_paint':
             PAINT_LODS[lvl] = nm
+        if o.name == 'galleass_hull':
+            HULL_LODS[lvl] = nm
 # faction overlay per paint LOD. The game picks the LOD of the hull and of the overlay separately (different bounds),
 # so a coarse overlay can be drawn over finer planking; on the round forecastle the decimated overlay cut the curves
 # and the planking showed through in triangles (user 2026-10-13). So the paint keeps its full geometry at LOD1/2
@@ -2058,6 +2093,30 @@ for lvl in sorted(PAINT_LODS):
                               faction_overlay(PAINT_LODS[lvl], f'galleass_faction_paint.lod{lvl}', D=d))
     coll('lods').objects.link(fo)
     print('faction overlay lod%d: %.1f mm out' % (lvl, d * 1000))
+# hull plating per LOD: the hull under it is exact in every LOD (above), so each plating LOD is the plating built from a
+# decimated copy of that surface, pushed out by how far the exact surface pokes through the decimated one (the chords
+# of a decimated curve lie inside it); the plating's own LOD 0 stays as built
+def _plate_src(ratio):
+    bm = bmesh.new()
+    for n in ('galleass_hull', 'galleass_paint'):
+        bm.from_mesh(bpy.data.objects[n].data)
+    bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], plane_co=(0, 0, PLATE_Z),
+                           plane_no=(0, 0, 1), clear_outer=True)
+    me = bpy.data.meshes.new('plate_src'); bm.to_mesh(me); bm.free()
+    if ratio < 1.0:
+        tmp = bpy.data.objects.new('plate_src', me); bpy.context.scene.collection.objects.link(tmp)
+        md = tmp.modifiers.new('dec', 'DECIMATE'); md.ratio = ratio; md.use_collapse_triangulate = True
+        dg3 = bpy.context.evaluated_depsgraph_get()
+        nm = bpy.data.meshes.new_from_object(tmp.evaluated_get(dg3))
+        bpy.data.objects.remove(tmp); bpy.data.meshes.remove(me); me = nm
+    return me
+_exact = _plate_src(1.0)
+for lvl, ratio in LOD_RATIO.items():
+    src = _plate_src(max(ratio, 0.10))
+    ex = _outside(_exact, src)
+    po = bpy.data.objects.new(f'galleass_hull_plate.lod{lvl}', hull_plate([src], f'galleass_hull_plate.lod{lvl}', ex))
+    coll('lods').objects.link(po)
+    print('hull plate lod%d: %d faces per layer, %.1f mm extra out' % (lvl, len(po.data.polygons) // 2, ex * 1000))
 coll('lods').hide_render = True; coll('lods').hide_viewport = True
 lod_tris = {}
 for o in coll('lods').objects:
