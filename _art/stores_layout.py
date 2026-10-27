@@ -173,7 +173,7 @@ STATIONS = [
     # name, guns served, deck z, preferred (x, y), search box (x0, x1, y0, y1)
     # (user 2026-10-17: inside the forecastle's ground floor it blocked the way in beside the fore mast - culverin
     # loaders stuck; now on the gun deck between the forecastle stairs, both sides of the mast open)
-    ('fc_lower', ['culverin'], Z_GD, (0.0, G['FC_Y_BACK'] - 1.3), (-(G['FC_STAIR_X'] - 0.75), G['FC_STAIR_X'] - 0.75, G['FC_Y_BACK'] - 2.6, G['FC_Y_BACK'] - 0.5)),
+    ('fc_lower', ['culverin'], Z_GD, (0.0, G['FC_Y_BACK'] - 1.3), (-(G['FC_STAIR_X'] - G['FC_STAIR_HW'] - 0.25), G['FC_STAIR_X'] - G['FC_STAIR_HW'] - 0.25, G['FC_Y_BACK'] - 2.6, G['FC_Y_BACK'] - 0.5)),
     ('fc_platform', ['locker_falconet'], Z_PL, (0.0, G['FC_Y_BACK'] + 0.5), (-fc_R, fc_R, G['FC_Y_BACK'] + 0.1, G['FC_CY'] + 1.0)),
     ('waist_port', ['falcon'], Z_GD, (-2.2, (gy[1] + gy[2]) / 2), (-4.2, -0.6, gy[0] - 1.0, gy[-1] + 1.0)),
     ('waist_starboard', ['falcon'], Z_GD, (2.2, (gy[1] + gy[2]) / 2), (0.6, 4.2, gy[0] - 1.0, gy[-1] + 1.0)),

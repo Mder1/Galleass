@@ -62,6 +62,8 @@ def main():
         vbase = 1
         for k, (st, off, act, sto, fmt) in enumerate(edits):
             pos, verts, faces = read_edit(segment(pkg, off, act, sto, fmt))
+            if not verts:                                       # (empty sub-mesh, e.g. lib_book_open_b)
+                continue
             lines.append('o %s.%d' % (name, k))
             for pi, nrm, uv in verts:
                 x, y, z = pos[pi]

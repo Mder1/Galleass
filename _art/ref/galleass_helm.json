@@ -1,0 +1,95 @@
+{
+ "hand": [
+  0.25,
+  0.1,
+  1.0414
+ ],
+ "desk": {
+  "y0": 0.0,
+  "y1": 0.56,
+  "half": 0.48,
+  "z0": 0.98,
+  "rise": 0.21428571428571425,
+  "top": 0.04,
+  "ledge_y": 0.37,
+  "rail": 0.02,
+  "leg": 0.06,
+  "inset": 0.05,
+  "apron": 0.09,
+  "shelf_z": 0.24,
+  "shelf_t": 0.03,
+  "lip": 0.025
+ },
+ "foot": [
+  -0.53,
+  0.53,
+  0.0,
+  0.56,
+  1.0793
+ ],
+ "slope": {
+  "origin": [
+   0.0,
+   0.0,
+   0.98
+  ],
+  "pitch": 0.21109
+ },
+ "props": [
+  {
+   "name": "logbook",
+   "mesh": "lib_book_open_b",
+   "frame": "slope",
+   "pos": [
+    -0.17,
+    0.21,
+    0.0
+   ],
+   "yaw": 0.0
+  },
+  {
+   "name": "inkwell",
+   "mesh": "lib_inkwell",
+   "frame": "desk",
+   "pos": [
+    -0.32,
+    0.455,
+    1.0593
+   ],
+   "yaw": 0.0
+  },
+  {
+   "name": "quill",
+   "mesh": "lib_quill_pen",
+   "frame": "desk",
+   "pos": [
+    -0.32,
+    0.455,
+    1.0593
+   ],
+   "yaw": 0.0
+  },
+  {
+   "name": "chart_1",
+   "mesh": "lib_scroll_c",
+   "frame": "desk",
+   "pos": [
+    0.13,
+    0.43,
+    1.0653
+   ],
+   "yaw": 1.52
+  },
+  {
+   "name": "chart_2",
+   "mesh": "lib_scroll_c",
+   "frame": "desk",
+   "pos": [
+    0.2,
+    0.495,
+    1.0653
+   ],
+   "yaw": 1.64
+  }
+ ]
+}

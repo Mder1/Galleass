@@ -331,10 +331,11 @@ FC_R_IN = FC_R - 0.35 - 0.15                           # inside the forecastle p
 DECK_X = W_IN - 0.25                                   # walkable half width between the bulwarks
 DECK_Y0, DECK_Y1 = BOX_Y0 + SIDE_T + 0.1, BOX_Y1 - SIDE_T - 0.1
 SC_STAIR_X, FC_STAIR_X = G['SC_STAIR_X'], G['FC_STAIR_X']
-SC_STAIR_Y = (round(SC_Y1 + (G['SC_Z_FLOOR'] - G['Z_GUN_DECK']) / math.tan(math.radians(40)), 4), SC_Y1)   # foot, head
-FC_STAIR_Y = (FC_YB - 3.0, FC_YB)
-STAIRS = [(s * SC_STAIR_X - 0.5, s * SC_STAIR_X + 0.5, SC_STAIR_Y[0], SC_STAIR_Y[1], 'poop') for s in (-1, 1)] + \
-         [(s * FC_STAIR_X - 0.5, s * FC_STAIR_X + 0.5, FC_STAIR_Y[0], FC_STAIR_Y[1], 'fc') for s in (-1, 1)]
+SC_STAIR_HW, FC_STAIR_HW = G['SC_STAIR_HW'], G['FC_STAIR_HW']
+SC_STAIR_Y = (round(SC_Y1 + G['SC_STAIR_RUN'], 4), SC_Y1)   # foot, head
+FC_STAIR_Y = (round(FC_YB - G['FC_STAIR_RUN'], 4), FC_YB)
+STAIRS = [(s * SC_STAIR_X - SC_STAIR_HW, s * SC_STAIR_X + SC_STAIR_HW, SC_STAIR_Y[0], SC_STAIR_Y[1], 'poop') for s in (-1, 1)] + \
+         [(s * FC_STAIR_X - FC_STAIR_HW, s * FC_STAIR_X + FC_STAIR_HW, FC_STAIR_Y[0], FC_STAIR_Y[1], 'fc') for s in (-1, 1)]
 LEVEL_Z = {'deck': Z_DECK, 'poop': Z_POOP_TOP, 'fc': Z_FC}
 # 1.5 m in front of every stair's foot and beyond its head stay clear (2026-10-16: crew spots parked at the foot of the
 # forecastle stairs and on the poop's stair heads kept the gun crews from climbing): no crew spots there, and the gun
@@ -346,7 +347,7 @@ for _sx0, _sx1, _ya, _yb, _up in STAIRS:
     STAIR_CLEAR.append((_sx0 - 0.2, _sx1 + 0.2, min(_yb, _yb + _d * 1.0), max(_yb, _yb + _d * 1.0), LEVEL_Z[_up]))   # head: 1 m
 # the forecastle platform's back strip (2026-10-16): the way from both stair heads round the fore mast to the guns -
 # no gun store, no parked crew there (the store row had left 0.5 m gaps by the mast and the port gun's trail)
-STAIR_CLEAR.append((-(FC_STAIR_X + 0.7), FC_STAIR_X + 0.7, FC_YB + 1.0, FC_YB + 1.7, Z_FC))   # in front of the bays by the mast
+STAIR_CLEAR.append((-(FC_STAIR_X + FC_STAIR_HW + 0.2), FC_STAIR_X + FC_STAIR_HW + 0.2, FC_YB + 1.0, FC_YB + 1.7, Z_FC))   # in front of the bays by the mast
 def in_stair_clear(x, y, z):
     return any(x0 <= x <= x1 and y0 <= y <= y1 and abs(z - zz) < 0.6 for x0, x1, y0, y1, zz in STAIR_CLEAR)
 json.dump({'stair_clear': [[round(v, 3) for v in r] for r in STAIR_CLEAR]},
@@ -720,15 +721,15 @@ for ax, y, n in POOP_BITTS:
 # braces, 3D for sheets; vanilla 7 / 16 / 18 here). Beyond it the game takes the nearest pin anywhere, ignoring the
 # side of the yard - every sheet (its sail corner 20-40 m up) and the fore braces always fell back (rig_check)
 ROPE_REACH = 60.0
-def set_script_var(e, script, name, value):
+def set_script_var(e, script, name, value, type_name='float'):
     sc = next(x for x in e.findall('scripts/script') if x.get('name') == script)
     vs = sc.find('variables')
     if vs is None:
         vs = ET.SubElement(sc, 'variables')
     v = next((x for x in vs if x.get('name') == name), None)
     if v is None:
-        v = ET.SubElement(vs, 'variable', name=name, type_name='float')
-    v.set('value', '%.3f' % value)
+        v = ET.SubElement(vs, 'variable', name=name, type_name=type_name)
+    v.set('value', '%.3f' % value if type_name == 'float' else str(value))
 
 def belay_pins(item):
     _, mesh, (x, y, z), yaw = item
@@ -1342,7 +1343,18 @@ for _name, _mesh, _pos, _yaw in BELAY:                         # bitts (belaying
         _n = int(_mesh.rsplit('_', 1)[1]); _bt = BELAY_PINS['bitts']
         STORE_FOOT.append((_pos[0], _pos[1], _pos[2], _yaw, _bt['post'] / 2 + 0.05 + NAV_PAD,
                            (_n * BELAY_PINS['pin_spacing'] + 0.10) / 2 + _bt['post'] + 0.05 + NAV_PAD))
-for sx, sy, sz, rot, hx, hy in STORE_FOOT:                     # stands, the poop's swivel locker, bitts
+# the captain's command table (helm_model.py) at the front of the poop: solid, cut out; the captain's standing point
+# (the ship's control point) stays on the navmesh aft of it
+HELM = json.load(open(os.path.join(_ART, 'ref', 'galleass_helm.json')))
+DESK_Y = -15.30                                                # desk's aft edge (its front 0.18 m short of the front rail)
+_hx0, _hx1, _hy0, _hy1, _ = HELM['foot']
+assert DESK_Y + _hy1 < SC_Y1 - G['POOP_INSET'] - 0.15, 'command desk into the poop front rail'
+# the table has NO physics body (user 2026-10-27: its box kept the player ~0.4 m off - a body capsule's radius 0.37):
+# only this cut keeps walkers out, and it lets a man's centre come DESK_PAD past the table's edge (chest at the edge)
+DESK_PAD = 0.15
+STORE_FOOT.append(((_hx0 + _hx1) / 2, DESK_Y + (_hy0 + _hy1) / 2, Z_POOP_TOP, 0.0,
+                   (_hx1 - _hx0) / 2 + DESK_PAD, (_hy1 - _hy0) / 2 + DESK_PAD))
+for sx, sy, sz, rot, hx, hy in STORE_FOOT:                     # stands, the poop's swivel locker, bitts, the desk
     if abs(sz - Z_POOP_TOP) < 0.5:
         ca, sa = math.cos(rot), math.sin(rot)
         for lx in (-hx, hx):
@@ -1650,10 +1662,65 @@ def remap(p):
     return (x2, y2, Z_DECK + h)
 
 moved = {}
-for e in kids(files['control_point_holder']):                    # the helm: front of the poop, as on the meditheavy
+# the helm = the CAPTAIN at his command table (user 2026-10-25): no tiller or whipstaff is modelled (a whipstaff is
+# anachronistic on a 16th-c. galleass, a tiller would clip); the game turns the stern rudder by itself (its
+# rudder_rotation_entity: the helm has no 'controller' child). The vanilla captain idle (meditmedium, cog, dromon) rests
+# the right wrist ~0.41 m ahead, 0.25 to the right, 1.10 up, the left hand at the hip; only the right hand is put on
+# the table (IK onto hand_position). ShipControl_nested is turned 90 deg: its local +x = forward, +y = port
+CAPTAIN_REACH = 0.41                                           # pilot -> right wrist, forward (anim_captain_idle_01)
+CAPTAIN_IDLE = 'act_ship_control_captain_idle'
+_hand = HELM['hand']                                           # (starboard, forward of the desk's aft edge, up)
+for e in kids(files['control_point_holder']):
     p, r, _ = tf(e)
-    write_tf(e, pos=(p[0], SC_Y1 - 0.9, Z_POOP_TOP), rot=r)
+    write_tf(e, pos=(0.0, DESK_Y, Z_POOP_TOP), rot=r)
+    for c in kids(e):
+        if c.get('name') == 'hand_position':
+            write_tf(c, pos=(_hand[1], -_hand[0], _hand[2]))
+        elif c.get('name') == 'pilot':
+            write_tf(c, pos=(_hand[1] - CAPTAIN_REACH, 0.0, 0.0), rot=(0.0, 0.0, -math.pi / 2))
+        elif c.get('name') == 'shoulder_camera_target':                # (meditheavy: 1.26 up, just behind the pilot)
+            write_tf(c, pos=(_hand[1] - CAPTAIN_REACH - 0.03, 0.0, 1.26))
+    for name in ('_shipControlActionRelaxed', '_shipControlActionTurnLeft', '_shipControlActionTurnRight'):
+        set_script_var(e, 'ShipControllerMachine', name, CAPTAIN_IDLE, 'string')
+    set_script_var(e, 'ShipControllerMachine', '_isRightHandOnly', '1', 'bool')
+    set_script_var(e, 'ShipControllerMachine', '_isLeftHandOnly', '0', 'bool')
+    # the base ShipControl_nested carries a SOLID bo_editor_cube at its origin (= the table's aft edge here): it kept
+    # walkers ~0.5 m off the table (user 2026-10-27). Ray-only, as vanilla's catship rudder: the use/focus ray still finds
+    # the helm (MissionMainAgentInteractionComponent), agents, missiles and the camera pass through
+    for old_ph in e.findall('physics'):
+        e.remove(old_ph)
+    e.append(el('physics', None, el('shape', {'type_name': 'string', 'value': 'bo_editor_cube'}),
+                el('body_flags', None, el('body_flag', {'name': 'moveable'}), el('body_flag', {'name': 'only_collide_with_raycast'})),
+                el('move_to_batched_kinematic', {'type_name': 'bool', 'value': '1'})))
+    e[:] = sorted(e, key=lambda c: ORDER.index(c.tag) if c.tag in ORDER else len(ORDER))
     moved['control_point_holder'] = 1
+# the table: in the ship frame under mesh_holder (kept on the campaign map); no collision (see DESK_PAD)
+desk = new_entity('galleass_command_desk', 'helm/desk')
+write_tf(desk, pos=(0.0, DESK_Y, Z_POOP_TOP), rot=(0.0, 0.0, 0.0))
+if not os.path.exists(os.path.join(_ART, '..', 'Assets', 'galleass_command_desk_geo.tpac')):
+    BELAY_MISSING.append('galleass_command_desk')
+desk.append(tags('galleass_command_desk')); desk.append(mobility())
+desk.append(mesh_component('helm/desk', 'galleass_command_desk'))
+# on the table (user 2026-10-25): vanilla props laid out by helm_model.py - an open logbook on the slope (under an
+# entity pitched to it, so every prop keeps a yaw-only frame), inkwell + quill and two rolled charts on the ledge
+slope = new_entity('slope', 'helm/desk/slope')
+write_tf(slope, pos=HELM['slope']['origin'], rot=(HELM['slope']['pitch'], 0.0, 0.0))
+slope.append(tags('galleass_desk_props')); slope.append(mobility())
+_on = {'slope': [], 'desk': []}
+for pr in HELM['props']:
+    pe = new_entity(pr['name'], 'helm/desk/' + pr['name'])
+    write_tf(pe, pos=pr['pos'], rot=(0.0, 0.0, pr['yaw']))
+    pe.append(mobility()); pe.append(mesh_component('helm/desk/' + pr['name'], pr['mesh']))
+    pe[:] = sorted(pe, key=lambda c: ORDER.index(c.tag) if c.tag in ORDER else len(ORDER))
+    _on[pr['frame']].append(pe)
+slope.append(el('children', None, *_on['slope']))
+slope[:] = sorted(slope, key=lambda c: ORDER.index(c.tag) if c.tag in ORDER else len(ORDER))
+desk.append(el('children', None, slope, *_on['desk']))
+desk[:] = sorted(desk, key=lambda c: ORDER.index(c.tag) if c.tag in ORDER else len(ORDER))
+files['mesh_holder'].find('children').append(desk)
+report.append('helm: captain (%s, right hand only) at y %.2f; command desk aft edge y %.2f, hand at (%.2f, %.2f, +%.2f)'
+              % (CAPTAIN_IDLE, DESK_Y + _hand[1] - CAPTAIN_REACH, DESK_Y, _hand[0], DESK_Y + _hand[1], _hand[2]))
+report.append('command desk props: %s' % ', '.join('%s (%s)' % (p['name'], p['mesh']) for p in HELM['props']))
 for holder in ('spawn_point_holder', 'barrier_holder'):
     for e in kids(files[holder]):
         p, r, _ = tf(e)
@@ -2021,6 +2088,28 @@ for e in list(bch):
     if hit:
         cut.append(hit); bch.remove(e)
 report.append('barrier_holder: %d AI barriers crossing gun working areas removed (%s)' % (len(cut), ', '.join('/'.join(h) for h in cut)))
+# ... and those running through a stair or its landings (user 2026-10-27: two meditheavy walls ran fore-aft through
+# the poop stair heads, x +-3.4 - relics of the narrower meditheavy poop)
+def _seg_hits_rect(a, b, x0, x1, y0, y1):
+    t0, t1, dx, dy = 0.0, 1.0, b[0] - a[0], b[1] - a[1]
+    for pp, q in ((-dx, a[0] - x0), (dx, x1 - a[0]), (-dy, a[1] - y0), (dy, y1 - a[1])):
+        if pp == 0:
+            if q < 0: return False
+        else:
+            t = q / pp
+            if pp < 0: t0 = max(t0, t)
+            else: t1 = min(t1, t)
+    return t0 <= t1
+_stair_rects = [(sx0, sx1, min(ya, yb), max(ya, yb), (Z_DECK, LEVEL_Z[up])) for sx0, sx1, ya, yb, up in STAIRS] + \
+               [(x0, x1, y0, y1, (z, z)) for x0, x1, y0, y1, z in STAIR_CLEAR]
+cut = []
+for e in list(bch):
+    m, p = local_m(e)
+    sx, sy = m[0][0] / 2, m[1][0] / 2
+    a, b = (p[0] - sx, p[1] - sy), (p[0] + sx, p[1] + sy)
+    if any(min(zz) - 2.5 < p[2] < max(zz) + 2.5 and _seg_hits_rect(a, b, x0, x1, y0, y1) for x0, x1, y0, y1, zz in _stair_rects):
+        cut.append('(%.2f, %.2f, %.2f)' % tuple(p)); bch.remove(e)
+report.append('barrier_holder: %d AI barriers through stairs / landings removed %s' % (len(cut), ' '.join(cut)))
 
 # crew standing spots (the meditheavy's sp_troop_* spawn / placement points, remapped above) in a gun's working area,
 # on a gun's loader place or at the gun stores: the men placed there stood in the recoil and blocked the loaders
