@@ -10,7 +10,7 @@
 		oars_tip_speed="6.2"
 		oarsmen_force_multiplier="16"
 		oar_friction_multiplier="38"
-		oar_count="40"
+		oar_count="50"
 		rudder_blade_length="1.7"
 		rudder_blade_height="2.5"
 		rudder_deflection_coef="16"

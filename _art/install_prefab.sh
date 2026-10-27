@@ -22,3 +22,8 @@ cp "$tmp" AssetPackages/nested_prefabs_packed.xml
 cp "$tmp" EmAssetPackages/nested_prefabs_packed.xml
 rm -f "$tmp" "$log"
 cmp AssetPackages/nested_prefabs_packed.xml EmAssetPackages/nested_prefabs_packed.xml && echo "installed: AssetPackages + EmAssetPackages ($size bytes)"
+# a fresh Kit import of galleass_hull drops the mesh tag that gives the painted planking the faction colour
+# (2026-10-27: three imports went out untagged)
+if [ "$(grep -ac faction_color Assets/galleass_hull_geo.tpac)" = "0" ]; then
+    echo "WARNING: galleass_hull has NO faction_color tag - in the Kit tag galleass_paint (LOD 0-3) 'faction_color' and save"
+fi

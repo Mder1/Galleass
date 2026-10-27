@@ -2152,7 +2152,8 @@ _sps = [e for e in kids(files['spawn_point_holder'])]
 _fixed, _lost = [], []
 for e in _sps:
     p = tf(e)[0]
-    if not _crew_spot_bad(*p):
+    # (also any spot off the navmesh at its height: the rally point stood in the main mast's cut-out, 2026-10-27)
+    if not _crew_spot_bad(*p) and _on_nav(*p):
         continue
     others = [tf(o)[0] for o in _sps if o is not e]
     best = None
