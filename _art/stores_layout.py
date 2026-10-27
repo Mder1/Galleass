@@ -169,17 +169,20 @@ def items_for(kinds):
 fc_R = G['fc_radius'](G['FC_Z_PLATFORM'])
 gy = [G['gunport_y'](i) for i in range(G['GUNPORTS_PER_SIDE'])]
 cv_trail = max(g['pos'][1] + DIMS['galleass_culverin']['rear_y'] - 1.0 for g in PLACES if g['kind'] == 'culverin')
+FORE_AFT = (math.pi / 2, -math.pi / 2)                     # a row along the ship
 STATIONS = [
-    # name, guns served, deck z, preferred (x, y), search box (x0, x1, y0, y1)
+    # name, guns served, deck z, preferred (x, y), search box (x0, x1, y0, y1)[, allowed rotations]
     # (user 2026-10-17: inside the forecastle's ground floor it blocked the way in beside the fore mast - culverin
     # loaders stuck; now on the gun deck between the forecastle stairs, both sides of the mast open)
     ('fc_lower', ['culverin'], Z_GD, (0.0, G['FC_Y_BACK'] - 1.3), (-(G['FC_STAIR_X'] - G['FC_STAIR_HW'] - 0.25), G['FC_STAIR_X'] - G['FC_STAIR_HW'] - 0.25, G['FC_Y_BACK'] - 2.6, G['FC_Y_BACK'] - 0.5)),
     ('fc_platform', ['locker_falconet'], Z_PL, (0.0, G['FC_Y_BACK'] + 0.5), (-fc_R, fc_R, G['FC_Y_BACK'] + 0.1, G['FC_CY'] + 1.0)),
-    ('waist_port', ['falcon'], Z_GD, (-2.2, (gy[1] + gy[2]) / 2), (-4.2, -0.6, gy[0] - 1.0, gy[-1] + 1.0)),
-    ('waist_starboard', ['falcon'], Z_GD, (2.2, (gy[1] + gy[2]) / 2), (0.6, 4.2, gy[0] - 1.0, gy[-1] + 1.0)),
+    # the waist pair end to end ON THE CENTRE LINE, rows fore and aft (user 2026-10-27: a cleaner look; were a row across
+    # each side at x +-2.2); the starboard one forward
+    ('waist_port', ['falcon'], Z_GD, (0.0, (gy[1] + gy[2]) / 2 - 1.4), (-0.1, 0.1, gy[0] - 1.0, gy[-1] + 1.0), FORE_AFT),
+    ('waist_starboard', ['falcon'], Z_GD, (0.0, (gy[1] + gy[2]) / 2 + 1.4), (-0.1, 0.1, gy[0] - 1.0, gy[-1] + 1.0), FORE_AFT),
     # the foremost broadside falcons walked 8-14 m to the waist stations (user 2026-10-16): a third falcon station on
-    # the centre line between the two foremost pairs, serving both sides
-    ('fore_waist', ['falcon'], Z_GD, (0.0, (gy[3] + gy[4]) / 2), (-2.5, 2.5, gy[3] - 0.5, gy[4] + 0.5)),
+    # the centre line between the two foremost pairs, serving both sides (its row fore and aft too, 2026-10-27)
+    ('fore_waist', ['falcon'], Z_GD, (0.0, (gy[3] + gy[4]) / 2), (-0.1, 0.1, G['MASTS']['main'], gy[4] + 0.5), FORE_AFT),
     # (to port of the mizzen: the cabin's door is on the starboard side, user 2026-10-27)
     ('aft', ['falcon', 'falconet'], Z_GD, (-1.5, G['SC_Y_FORE'] + 1.2), (-4.2, 4.2, G['SC_Y_FORE'] + 0.2, G['SC_Y_FORE'] + 4.0)),
     # the poop swivels (user 2026-10-17: their loaders got stuck on the poop stairs): a swivel locker on the poop's
@@ -210,9 +213,26 @@ def clear(items, cx, cy, rot, z, box, placed=None):
     b = BVHTree.FromPolygons(bv, bp)
     return not b.overlap(HULL) and not b.overlap(OBST) and not (placed and b.overlap(placed))
 
+def item_boxes(items, cx, cy, rot, z):
+    """(verts, polys) of the items' boxes (with MARGIN) placed at cx, cy, rot."""
+    ca_, sa_ = math.cos(rot), math.sin(rot)
+    bv, bp = [], []
+    for it in items:
+        lx, ly = it['local']
+        x, y = cx + ca_ * lx - sa_ * ly, cy + sa_ * lx + ca_ * ly
+        hx, hy = it['hx'] + MARGIN, it['hy'] + MARGIN
+        base = len(bv)
+        bv += [Vector((x + ca_ * px - sa_ * py, y + sa_ * px + ca_ * py, zz)) for zz in (z + 0.03, z + it['h'])
+               for px, py in ((-hx, -hy), (hx, -hy), (hx, hy), (-hx, hy))]
+        bp += [[base + i for i in f] for f in ([0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7])]
+    return bv, bp
+
 out = []
-for name, kinds, z, pref, (x0, x1, y0, y1) in STATIONS:
+PLACED_V, PLACED_P = [], []                                   # rows already laid (2026-10-27: two rows on one centre line)
+for name, kinds, z, pref, (x0, x1, y0, y1), *opt in STATIONS:
     items = items_for(kinds)
+    rots = opt[0] if opt else ((0.0,) if kinds[0].startswith('locker_') else (0.0, math.pi / 2, math.pi, -math.pi / 2))
+    placed_bvh = BVHTree.FromPolygons(PLACED_V, PLACED_P) if PLACED_P else None
     cands = []
     step = 0.1
     nx, ny = int((x1 - x0) / step) + 1, int((y1 - y0) / step) + 1
@@ -223,8 +243,8 @@ for name, kinds, z, pref, (x0, x1, y0, y1) in STATIONS:
     cands.sort()
     found = None
     for _, x, y in cands:
-        for rot in ((0.0,) if kinds[0].startswith('locker_') else (0.0, math.pi / 2, math.pi, -math.pi / 2)):
-            if clear(items, x, y, rot, z, (x0, x1, y0, y1)):     # (a locker's open front faces the bow)
+        for rot in rots:
+            if clear(items, x, y, rot, z, (x0, x1, y0, y1), placed_bvh):     # (a locker's open front faces the bow)
                 found = (x, y, rot); break
         if found: break
     single = {}
@@ -271,6 +291,9 @@ for name, kinds, z, pref, (x0, x1, y0, y1) in STATIONS:
             e['bags'] = LOCKERS[k]['bags']; e['bag_mesh'] = 'galleass_scatter_bag_' + ('falconet' if k == 'petriera' else k)
         st['items'].append(e)
     out.append(st)
+    if not single:
+        bv, bp = item_boxes(items, x, y, rot, z)
+        PLACED_P += [[len(PLACED_V) + i for i in f] for f in bp]; PLACED_V += bv
     if single:
         print('LAYOUT %-16s stores placed one by one: %s' % (name, ', '.join('%s (%.2f, %.2f, %3.0f deg)' % (k, v[0], v[1], math.degrees(v[2])) for k, v in single.items())))
     else:

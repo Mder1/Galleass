@@ -1140,7 +1140,9 @@ for c in kids(du):
     if y < SC_Y1:
         p = (x, y, Z_POOP + 0.095)                # on the poop
     elif y > 10.0:
-        p = (x, 9.0, Z_DECK + 0.095)              # was over the fore hatch (y 11.25..12.75)
+        # was over the fore hatch (y 11.25..12.75); then at y 9.0, where the fore-waist gun store now lies along the centre
+        # line (user 2026-10-27): forward of the hatch, short of the forecastle stairs' store
+        p = (x, 14.0, Z_DECK + 0.095)
     else:
         p = (x, y, Z_DECK + 0.095)
     write_tf(c, pos=p)
