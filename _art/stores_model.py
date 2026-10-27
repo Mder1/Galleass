@@ -26,6 +26,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import gun_profiles as gp, gun_uv
 import rope_geom as rg
+from lod_util import make_lods
 
 ROLE = {'wood': 'galleass_trim', 'iron': 'galleass_iron', 'dark': 'galleass_dark', 'copper': 'galleass_gun_bronze',
         'rope': 'galleass_rope', 'sack': 'galleass_sack'}
@@ -527,8 +528,9 @@ def build_locker(gun, seats):
     seats[gun] = {'balls': balls, 'bags': bags, 'size': [W, D, H], 'ball_r': r}
     return o
 
-def export(o):
+def export(o, lods=()):
     bpy.ops.object.select_all(action='DESELECT'); o.select_set(True); bpy.context.view_layer.objects.active = o
+    for lo in lods: lo.select_set(True)
     bpy.ops.export_scene.fbx(filepath=os.path.join(OUT_FBX, o.name + '.fbx'), use_selection=True, object_types={'MESH'},
                              use_mesh_modifiers=True, mesh_smooth_type='FACE', use_tspace=False, axis_forward='Y',
                              axis_up='Z', apply_unit_scale=True, global_scale=1.0, bake_anim=False, path_mode='STRIP',
@@ -552,9 +554,12 @@ lockers = {}
 objs.append(build_locker('falconet', lockers))
 objs.append(build_locker('petriera', lockers))
 os.makedirs(OUT_FBX, exist_ok=True)
+# LODs for what stands in the ship (performance pass 2026-10-27: 146 bags, the baskets, kegs, racks and lockers had none
+# - the same ~143k triangles at every distance); the carried tools (ladles, sponges, linstock) stay single
+STORE_LODS = ('galleass_powder_keg', 'galleass_shot_basket', 'galleass_scatter_bag_', 'galleass_shot_rack_', 'galleass_locker_')
 for o in objs:
     add_uvs(o); o.data.name = o.name
-    export(o)
+    export(o, make_lods(o) if o.name.startswith(STORE_LODS) else ())
 
 # collision (2026-10-16, user: the stores had none): one light convex hull per store mesh, 'bo_' + its name, physics
 # material wood (as the guns' bodies); the balls and bags lie inside their rack's / basket's hull

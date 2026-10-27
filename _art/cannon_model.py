@@ -51,6 +51,25 @@ def resample(prof, step):
             out.append((y0 + (y1 - y0) * k / n, r0 + (r1 - r0) * k / n))
     return out
 
+def resample_by(prof, step_at):
+    """As resample(), but the step depends on where along the axis we are: step_at(y) -> max segment length, the
+    finest one anywhere inside a step counts (rings only where a relief changes along the barrel; 2026-10-27)."""
+    out = [prof[0]]
+    for (y0, r0), (y1, r1) in zip(prof, prof[1:]):
+        L = math.hypot(y1 - y0, r1 - r0)
+        n = max(int(math.ceil(L / 0.004)), 1)                   # walk in 4 mm ticks
+        at = lambda k: (y0 + (y1 - y0) * k / n, r0 + (r1 - r0) * k / n)
+        cur = 0
+        while cur < n:
+            nxt, lim = cur + 1, step_at(at(cur)[0])
+            while nxt < n:
+                lim = min(lim, step_at(at(nxt + 1)[0]))
+                if (nxt + 1 - cur) * L / n > lim:
+                    break
+                nxt += 1
+            out.append(at(nxt)); cur = nxt
+    return out
+
 def lathe_y(name, prof, role, at=(0, 0, 0), segs=32, mod=None, cap_end=False, twist=None, inside=False):
     """Solid of revolution about the Y axis (prof: (y, r)); mod(y, angle, r) -> r adds flutes and reliefs;
     twist(y) -> angle turns each ring so the mesh's edges follow a spiral relief (clean shading).
@@ -201,7 +220,8 @@ PART_GROUPS = {'barrel': 1, 'bore': 1, 'trunnion': 1, 'vent_boss': 1, 'vent': 1,
                'quoin': 2, 'quoin_handle': 2, 'lashing': 3}
 
 def part_group(tag, name):
-    return PART_GROUPS.get(name.split('.')[0][len(tag) + 1:], 0)
+    groups = SWIVEL_GROUPS if tag == 'galleass_petriera' else PART_GROUPS
+    return groups.get(name.split('.')[0][len(tag) + 1:], 0)
 
 def join(tag, parts, shift_y, collection):
     """One object per gun (multi-material); parts moved by shift_y so the trunnions sit at y 0. Faces carry the
@@ -260,8 +280,20 @@ def elev_info(qn):
 def build_culverin(tag='galleass_culverin'):
     L, ty, D = CV['length'], CV['trunnion_y'], CV['bore']
     prof = culverin_profile()
-    barrel_prof = resample(prof[:-2], 0.032) + prof[-2:]
     y0s, y1s = 0.16, ty - 0.12                               # spiral zone (culverin_mod)
+    # rings only where the relief changes along the barrel (was every 3.2 cm over the whole length: 32k triangles):
+    # the spiral's rings turn with its ribs, so its body takes 10 cm (18 deg a ring: the chords miss the helix by ~2 mm
+    # at r 0.18), fine at its fading ends; the chase's flutes are straight on a straight cone - only their fading ends
+    # need rings; the acanthus leaves at the muzzle stay fine; plain mouldings keep just their profile points
+    band0, band1 = ty + 0.62, ty + 1.02                      # = culverin_mod's plain band for the arms
+    flute_ends = (ty + 0.12, band0, band1, L - 0.29)
+    def step_at(y):
+        if y0s - 0.01 < y < y0s + 0.06 or y1s - 0.06 < y < y1s + 0.01: return 0.016
+        if y0s < y < y1s: return 0.10
+        if any(abs(y - e) < 0.04 for e in flute_ends): return 0.014
+        if L - 0.20 < y < L - 0.03: return 0.02            # acanthus leaves
+        return 0.25                                         # flutes / band on the straight chase, plain mouldings
+    barrel_prof = resample_by(prof[:-2], step_at) + prof[-2:]
     def twist(y):                                            # rings follow the ribs; a whole number of segments after
         return -2 * math.pi * CV['spiral_turns'] * min(max((y - y0s) / (y1s - y0s), 0.0), 1.0)
     parts = [lathe_y(f'{tag}_barrel', barrel_prof, 'bronze', at=(0, 0, AXIS_H), segs=96, mod=culverin_mod,
@@ -560,12 +592,14 @@ def stave_seams(n, depth, width=0.10):
         return r - depth * smooth01((d - (1 - width)) / width)
     return mod
 
-# Moving parts beyond PART_GROUPS: 4 yoke (turns about the pin = traverse), 5 chamber (the removable mascolo),
-# 6 wedge (knocked out to free the chamber). The barrel group (1) carries the cradle, end plate and tail.
-PART_GROUPS.update({'cradle': 1, 'end_plate': 1, 'tail': 1, 'knob': 1, 'band': 1,
-                    'yoke': 4, 'yoke_eye': 4, 'pin': 4, 'washer': 4,
-                    'chamber': 5, 'chamber_hoop': 5, 'chamber_handle': 5, 'chamber_vent': 5, 'chamber_vent_boss': 5,
-                    'wedge': 6})
+# Moving parts of the swivel gun beyond PART_GROUPS: 4 yoke (turns about the pin = traverse), 5 chamber (the removable
+# mascolo), 6 wedge (knocked out to free the chamber). The barrel group (1) carries the cradle, end plate and tail.
+# Only for the swivel gun itself (2026-10-27: merged into PART_GROUPS, its 'band' put the culverin carriage's iron bands
+# on the barrel and dropped the bands from the swivel stand's post)
+SWIVEL_GROUPS = dict(PART_GROUPS, **{'cradle': 1, 'end_plate': 1, 'tail': 1, 'knob': 1, 'band': 1,
+                     'yoke': 4, 'yoke_eye': 4, 'pin': 4, 'washer': 4,
+                     'chamber': 5, 'chamber_hoop': 5, 'chamber_handle': 5, 'chamber_vent': 5, 'chamber_vent_boss': 5,
+                     'wedge': 6})
 
 def build_petriera(sp=PETRIERA, tag='galleass_petriera'):
     ah, L, yt = sp['axis_h'], sp['barrel_len'], sp['trunnion_y']

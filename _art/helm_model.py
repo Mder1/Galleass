@@ -23,6 +23,8 @@ from mathutils import Vector, Matrix
 argv = sys.argv[sys.argv.index('--') + 1:]
 OUT_BLEND, OUT_FBX, RENDERS = argv[0], argv[1], (argv[2] if len(argv) > 2 else None)
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from lod_util import make_lods
 
 ROLE = {'wood': 'galleass_trim', 'iron': 'galleass_iron'}
 UV_S = {'galleass_trim': 0.135, 'galleass_iron': 0.5}
@@ -170,8 +172,9 @@ def add_uvs(o):
     col = me.color_attributes.new('Col', 'BYTE_COLOR', 'CORNER')
     for d in col.data: d.color = (1, 1, 1, 1)
 
-def export(o):
+def export(o, lods=()):
     bpy.ops.object.select_all(action='DESELECT'); o.select_set(True); bpy.context.view_layer.objects.active = o
+    for lo in lods: lo.select_set(True)
     bpy.ops.export_scene.fbx(filepath=os.path.join(OUT_FBX, o.name + '.fbx'), use_selection=True, object_types={'MESH'},
                              use_mesh_modifiers=True, mesh_smooth_type='FACE', use_tspace=False, axis_forward='Y',
                              axis_up='Z', apply_unit_scale=True, global_scale=1.0, bake_anim=False, path_mode='STRIP',
@@ -199,7 +202,7 @@ build_desk(bm)
 helm = finish(bm, 'galleass_command_desk')
 add_uvs(helm); helm.data.name = helm.name
 os.makedirs(OUT_FBX, exist_ok=True)
-export(helm)
+export(helm, make_lods(helm))                                  # (LODs: performance pass 2026-10-27)
 bo, foot = body(helm)
 export(bo)
 hand = (HAND[0], HAND[1], round(top_z(HAND[1]) + WRIST_DZ, 4))

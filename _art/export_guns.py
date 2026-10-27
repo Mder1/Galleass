@@ -10,7 +10,7 @@ forward Y, up Z, '<name>_lodN' objects in the same FBX, no dots in names, import
 Per gun (moving parts for the gunnery add-on, 2026-10-15; split by cannon_model.py's face attribute 'part'):
 galleass_<gun>.fbx = carriage, galleass_<gun>_barrel.fbx (barrel, trunnions, vent, breeching collar; ORIGIN ON THE
 TRUNNION AXIS, so the prefab entity turns it for elevation), galleass_<gun>_quoin.fbx (slides along y),
-galleass_<gun>_lashing.fbx (cascabel lashing, hidden in action), each with _lod1.._lod3; galleass_<gun>_fuse.fbx
+galleass_<gun>_lashing.fbx (cascabel lashing, hidden in action), each with _lod1.._lod3 (lod_util.py); galleass_<gun>_fuse.fbx
 (origin on the trunnion axis too: a child of the barrel, hidden after a shot), bo_galleass_<gun>.fbx (2 convex
 pieces: carriage, barrel; physics material 'wood'). galleass_shot.fbx: the add-on's round shot.
 """
@@ -18,6 +18,7 @@ import bpy, bmesh, math, os, sys
 from mathutils import Matrix, Vector
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gun_uv
+from lod_util import make_lods                           # (shared since 2026-10-27)
 
 out = sys.argv[sys.argv.index('--') + 1]
 os.makedirs(out, exist_ok=True)
@@ -25,7 +26,6 @@ os.makedirs(out, exist_ok=True)
 KIT_MAT = {'galleass_gun_bronze': 'galleass_gun_bronze', 'galleass_gun_bronze_trim': 'galleass_gun_bronze', 'galleass_gun_wood': 'galleass_trim',
            'galleass_gun_fuse': 'galleass_trim', 'galleass_gun_iron': 'galleass_iron', 'galleass_gun_rope': 'galleass_rope', 'galleass_gun_dark': 'galleass_dark'}
 UV_S = {'galleass_iron': 0.5, 'galleass_trim': 0.135, 'galleass_dark': 0.135}   # as the hull
-LOD_RATIO = {1: 0.40, 2: 0.15, 3: 0.05}
 GUNS = ['galleass_culverin', 'galleass_falcon', 'galleass_falconet']
 
 def kit_mat(name):
@@ -98,28 +98,6 @@ def add_uvs(o):
             uv.data[li].uv = (p.dot(u) * s, p.dot(v) * s)
     col = me.color_attributes.new('Col', 'BYTE_COLOR', 'CORNER') if 'Col' not in me.color_attributes else me.color_attributes['Col']
     for d in col.data: d.color = (1, 1, 1, 1)                  # vanilla materials use vertex colours
-
-def make_lods(o):
-    lods = []
-    n0 = sum(len(p.vertices) - 2 for p in o.data.polygons)
-    for lvl, ratio in LOD_RATIO.items():
-        me = o.data.copy(); me.name = f'{o.name}_lod{lvl}'
-        lo = bpy.data.objects.new(me.name, me); bpy.context.scene.collection.objects.link(lo)
-        if n0 < 100:                                           # tiny parts (the quoin) stay whole
-            lods.append(lo); continue
-        d1 = lo.modifiers.new('flat', 'DECIMATE'); d1.decimate_type = 'DISSOLVE'
-        d1.angle_limit = math.radians(2 + 3 * lvl); d1.delimit = {'MATERIAL', 'UV'}
-        dg = bpy.context.evaluated_depsgraph_get()
-        tmp = bpy.data.meshes.new_from_object(lo.evaluated_get(dg))
-        n1 = sum(len(p.vertices) - 2 for p in tmp.polygons); bpy.data.meshes.remove(tmp)
-        md = lo.modifiers.new('dec', 'DECIMATE')
-        md.ratio = min(1.0, ratio * n0 / max(n1, 1))
-        md.use_collapse_triangulate = True; md.delimit = {'MATERIAL'} if hasattr(md, 'delimit') else set()
-        dg = bpy.context.evaluated_depsgraph_get()
-        nm = bpy.data.meshes.new_from_object(lo.evaluated_get(dg))
-        lo.modifiers.clear(); old = lo.data; lo.data = nm; nm.name = me.name; bpy.data.meshes.remove(old)
-        lods.append(lo)
-    return lods
 
 def body(o):
     """Two convex pieces: the carriage (wood + iron) and the barrel (bronze), as one 'bo_' mesh."""
@@ -209,9 +187,10 @@ for g in GUNS:
     f.hide_set(False); f.location = (0, 0, 0)
     f.data.transform(Matrix.Translation((0, 0, -pz)))          # rides the barrel: same origin
     add_uvs(f); remap_materials(f.data)
-    export(g + '_fuse', [f])
+    flods = make_lods(f)                                       # (LODs since the performance pass, 2026-10-27)
+    export(g + '_fuse', [f] + flods)
     export(bo.name, [bo])
-    for x in done + [f]:
+    for x in done + [f] + flods:
         x.data.name = x.name                                   # FBX geometry names = datablock names, no dots
 # swivel gun (petriera da mascolo, 2026-10-17): galleass_petriera (mount block + socket, fixed on the rail; origin on
 # the rail top under the pin), _yoke (turns about the pin: origin unchanged), _barrel (barrel, cradle, tail; origin on
@@ -236,7 +215,8 @@ f = bpy.data.objects[PE + '_fuse']
 f.hide_set(False); f.location = (0, 0, 0)
 f.data.transform(Matrix.Translation(Vector(ch) * -1))
 add_uvs(f); remap_materials(f.data)
-export(PE + '_fuse', [f]); done.append(f)
+flods = make_lods(f)
+export(PE + '_fuse', [f] + flods); done += [f] + flods
 def box_body(name, boxes):
     bm = bmesh.new()
     for (x0, x1, y0, y1, z0, z1) in boxes:
@@ -292,5 +272,7 @@ for name, r, segs in (('galleass_shot', 0.06, (16, 10)), ('galleass_shot_falcon'
     for d in col.data: d.color = (1, 1, 1, 1)
     for poly in me.polygons: poly.use_smooth = True
     shot = bpy.data.objects.new(name, me); bpy.context.scene.collection.objects.link(shot)
-    export(name, [shot])
+    slods = make_lods(shot)                                    # (balls lie by the hundred in racks and lockers)
+    export(name, [shot] + slods)
+    for x in slods: x.data.name = x.name
 print('guns exported to', out)

@@ -22,6 +22,7 @@ OUT_BLEND, OUT_FBX, RENDERS = argv[0], argv[1], (argv[2] if len(argv) > 2 else N
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import rope_geom as rg
+from lod_util import make_lods
 
 ROLE = {'wood': 'galleass_trim', 'iron': 'galleass_iron', 'rope': 'galleass_rope'}
 UV_S = {'galleass_trim': 0.135, 'galleass_iron': 0.5}
@@ -182,8 +183,9 @@ def add_uvs(o):
     for m in mats: me.materials.append(m)
     for p, i in zip(me.polygons, idx): p.material_index = i
 
-def export(o):
+def export(o, lods=()):
     bpy.ops.object.select_all(action='DESELECT'); o.select_set(True); bpy.context.view_layer.objects.active = o
+    for lo in lods: lo.select_set(True)
     bpy.ops.export_scene.fbx(filepath=os.path.join(OUT_FBX, o.name + '.fbx'), use_selection=True, object_types={'MESH'},
                              use_mesh_modifiers=True, mesh_smooth_type='FACE', use_tspace=False, axis_forward='Y',
                              axis_up='Z', apply_unit_scale=True, global_scale=1.0, bake_anim=False, path_mode='STRIP',
@@ -207,7 +209,8 @@ objs = [build_pinrail(3, pins), build_pinrail(4, pins), build_bitts(3, pins)]
 os.makedirs(OUT_FBX, exist_ok=True)
 for o in objs:
     add_uvs(o); o.data.name = o.name
-    export(o)
+    # LODs (performance pass 2026-10-27: 16 fittings, 82k triangles at every distance); the rope turns go from LOD 2
+    export(o, make_lods(o, drop={'galleass_rope': 2}))
 for o in [x for x in objs if x.name.startswith('galleass_bitts_')]:
     export(body(o))
 json.dump({'pins': pins, 'board': BOARD, 'bitts': BITTS, 'pin_spacing': PIN_SPACING},

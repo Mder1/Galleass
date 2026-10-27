@@ -1481,7 +1481,7 @@ def build_stern_balcony():
     baluster = BALUSTER
     zb = SC_Z_FLOOR + 0.12
     hb = SC_Z_RAIL - zb - 0.1
-    prof = smooth_profile([(r, z * hb / 0.9) for r, z in baluster])
+    prof = lean_profile([(r, z * hb / 0.9) for r, z in baluster])
     for side in (-1, 1):
         n = int((SC_Y_FORE - SC_Y_AFT) / 0.32)
         for i in range(n + 1):
@@ -1490,16 +1490,16 @@ def build_stern_balcony():
             if i % 6 == 0:                              # big posts with gilded finials
                 box('sc_post', x - 0.09, x + 0.09, y - 0.09, y + 0.09, zb, SC_Z_RAIL + 0.1, 'trim')
                 box('sc_post_cap', x - 0.105, x + 0.105, y - 0.105, y + 0.105, SC_Z_RAIL + 0.1, SC_Z_RAIL + 0.13, 'trim')
-                lathe('sc_finial', FINIAL, 'gilt', at=(x, y, SC_Z_RAIL + 0.13), segs=16)
+                lathe('sc_finial', FINIAL, 'gilt', at=(x, y, SC_Z_RAIL + 0.13), segs=12)
             elif not any(i in (g, g + 1) for g in POOP_SWIVEL_GAPS):     # (the swivel stands take these places)
-                lathe('sc_baluster', prof, 'trim', at=(x, y, zb), segs=10)
+                lathe('sc_baluster', prof, 'trim', at=(x, y, zb), segs=8)
         rail = [(side * (sc_hw(SC_Y_AFT + (SC_Y_FORE - SC_Y_AFT) * k / 16) - POOP_INSET),
                  SC_Y_AFT + (SC_Y_FORE - SC_Y_AFT) * k / 16, SC_Z_RAIL - 0.05) for k in range(17)]
         sweep('sc_rail', rail, 0.07, 'trim', square=True)
     w = sc_hw(SC_Y_AFT) - POOP_INSET
     for i in range(int(2 * w / 0.32) + 1):
         x = -w + i * 0.32
-        lathe('sc_baluster', prof, 'trim', at=(x, SC_Y_AFT, zb), segs=10)
+        lathe('sc_baluster', prof, 'trim', at=(x, SC_Y_AFT, zb), segs=8)
     sweep('sc_rail_aft', [(-w, SC_Y_AFT, SC_Z_RAIL - 0.05), (w, SC_Y_AFT, SC_Z_RAIL - 0.05)], 0.07, 'trim', square=True)
     # forward rail of the poop with a gap for the stairs
     wf = sc_hw(SC_Y_FORE) - POOP_INSET
@@ -1508,7 +1508,7 @@ def build_stern_balcony():
         sweep('sc_rail_fore', [(x0, yf, SC_Z_RAIL - 0.05), (x1, yf, SC_Z_RAIL - 0.05)], 0.07, 'trim', square=True)
         n = max(int((x1 - x0) / 0.32), 1)
         for k in range(1, n):
-            lathe('sc_baluster', prof, 'trim', at=(x0 + (x1 - x0) * k / n, yf, zb), segs=10)
+            lathe('sc_baluster', prof, 'trim', at=(x0 + (x1 - x0) * k / n, yf, zb), segs=8)
         for x in (x0, x1):
             if abs(wf - abs(x)) > 1e-6:                   # at a stair opening: beside it, not half in it (user 2026-10-27:
                 x += 0.09 if x == x0 else -0.09           # men climbing walked into them and fell)
@@ -1632,10 +1632,25 @@ def smooth_profile(prof, n=22):
     """Turned profile (r, z) through a smooth curve: rounder silhouettes for lathe parts."""
     return [(v.x, v.y) for v in catmull([(r, z, 0) for r, z in prof], n)]
 
+def lean_profile(prof, tol=0.002):
+    """The smooth curve sampled finely, then only the points it needs to stay within tol of itself (Douglas-Peucker):
+    rings where the turning bends, few on the straight runs (performance pass 2026-10-27: the 66 balusters were 30k
+    triangles with evenly spaced rings and a larger outline error)."""
+    pts = smooth_profile(prof, 240)
+    def dist(p, a, b):
+        dx, dy = b[0] - a[0], b[1] - a[1]; L = dx * dx + dy * dy
+        t = 0.0 if L == 0 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L))
+        return math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy)
+    def dp(q):
+        if len(q) < 3: return list(q)
+        i, m = max(((i, dist(q[i], q[0], q[-1])) for i in range(1, len(q) - 1)), key=lambda x: x[1])
+        return [q[0], q[-1]] if m <= tol else dp(q[:i + 1])[:-1] + dp(q[i:])
+    return dp(pts)
+
 def _finial():
-    return smooth_profile([(0.075, 0.0), (0.078, 0.02), (0.05, 0.045), (0.045, 0.06), (0.062, 0.075), (0.045, 0.095),
-                           (0.05, 0.12), (0.078, 0.16), (0.092, 0.21), (0.088, 0.26), (0.068, 0.31), (0.038, 0.35),
-                           (0.016, 0.38), (0.0, 0.395)], 26)
+    return lean_profile([(0.075, 0.0), (0.078, 0.02), (0.05, 0.045), (0.045, 0.06), (0.062, 0.075), (0.045, 0.095),
+                         (0.05, 0.12), (0.078, 0.16), (0.092, 0.21), (0.088, 0.26), (0.068, 0.31), (0.038, 0.35),
+                         (0.016, 0.38), (0.0, 0.395)], tol=0.001)   # (gilt, seen up close on the poop: finer)
 
 def catmull(pts, n=40):
     """Smooth curve through points (Catmull-Rom, ends clamped), returned as n+1 evenly parametrised points."""
