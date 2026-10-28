@@ -1192,10 +1192,13 @@ BANNER_W, BANNER_H = 0.7, 1.16
 BANNER_SWIVEL_SHIFT = 0.6                                 # aft side banners moved forward for the waist swivels
 BANNER_ARM = 0.5                                          # wall holders: crossbar this far out from the wall
 AWNING_BANNER_SCALE = 1.4                                 # stern castle banners (their loops set the awning rail's size)
-# mast holders: crossbar this far ahead of the mast face. Cloth has no collision with the mast, so a fore wind swings
-# the banner back into it once sin(swing) > arm / height (user 2026-10-13: 0.6 m with 1.62 m banners clipped at ~22
-# deg); 1.0 m with 1.16 m banners clears ~60 deg
-MAST_ARM, MAST_BANNER_SCALE = 1.0, 1.0
+# mast holders: crossbar this far out from the mast face. Cloth has no collision with the mast, so wind swings the
+# banner back into it once sin(swing) > arm / height (user 2026-10-13: 0.6 m with 1.62 m banners clipped at ~22
+# deg); 1.0 m with 1.16 m banners clears ~60 deg. One banner each side (user 2026-10-28): ahead of the mast the
+# furling line from the peg ~2.4 m up to the yard ran through the cloth (0.3-0.8 m off it, whatever the yaw). On the
+# sides, 1.3 m out and at deck + 5.0 (those ropes splay out with height), every yard-borne rope stays >= 1.0 m off the
+# still cloth (mizzen starboard 0.89 with the yard at -5; the flag halyard comes down on the starboard quarter).
+MAST_ARM, MAST_BANNER_SCALE, MAST_BANNER_H = 1.3, 1.0, 5.0
 def banner_mounts():
     m = []
     zc = Z_BULWARK_TOP + 0.1 + 0.03                       # on the cap rail
@@ -1220,11 +1223,12 @@ def banner_mounts():
             # they hung below it)
             m.append(dict(name='banner_awning_%+.1f_%+d' % (ly, sd), pin=(sd * x, y, SC_Z_AWNING),
                           normal=(n[0] / nl, n[1] / nl), scale=AWNING_BANNER_SCALE, kind='rail'))
-    for mast in ('main', 'mizzen', 'fore'):               # masts: forward face, high above the lanterns
+    for mast in ('main', 'mizzen', 'fore'):               # masts: both sides, high above the lanterns
         deck = FC_Z_PLATFORM if mast == 'fore' else Z_GUN_DECK
-        z = deck + 6.3
-        m.append(dict(name='banner_mast_' + mast, pin=(0.0, mast_axis_y(mast, z) + MAST_R[mast] + MAST_ARM, z),
-                      normal=(0.0, 1.0), scale=MAST_BANNER_SCALE, kind='mast', mast=mast))
+        z = deck + MAST_BANNER_H
+        for sd in (-1, 1):
+            m.append(dict(name='banner_mast_%s_%+d' % (mast, sd), pin=(sd * (MAST_R[mast] + MAST_ARM), mast_axis_y(mast, z), z),
+                          normal=(float(sd), 0.0), scale=MAST_BANNER_SCALE, kind='mast', mast=mast))
     return m
 
 def banner_loop_r(scale):
@@ -1233,6 +1237,7 @@ def banner_loop_r(scale):
 
 def build_banner_holders():
     """Iron holders: two arms off the wall top with a crossbar (walls); collar, arm, brace and crossbar (masts)."""
+    collared = set()                                      # one pair of collars per mast carries both its arms
     for b in banner_mounts():
         px, py, pz = b['pin']; nx, ny = b['normal']; tx, ty = -ny, nx          # tangent along the crossbar
         half = BANNER_W * b['scale'] / 2 + 0.05
@@ -1251,14 +1256,16 @@ def build_banner_holders():
             mast = b['mast']; r = MAST_R[mast] + 0.03; rk = MAST_RAKE[mast]
             ax = Vector((0, math.sin(rk), math.cos(rk)))                     # mast axis (leans forward)
             e1 = Vector((1, 0, 0)); e2 = ax.cross(e1).normalized()
-            for zz in (pz, pz - 0.5):                                          # collars for the arm and the brace
+            for zz in (pz, pz - 0.5) if mast not in collared else ():           # collars for the arms and braces
                 c = Vector((0, mast_axis_y(mast, zz), zz))
                 sweep('banner_collar', [tuple(c + r * (math.cos(2 * math.pi * k / 24) * e1 + math.sin(2 * math.pi * k / 24) * e2))
                                         for k in range(24)], 0.03, 'iron', segs=8, closed=True)
-            yf = mast_axis_y(mast, pz) + r
-            sweep('banner_arm', [(0, yf, pz), (0, py, pz)], 0.03, 'iron', square=True)
-            yb = mast_axis_y(mast, pz - 0.5) + r
-            sweep('banner_brace', [(0, yb, pz - 0.5), (0, yf + 0.6 * (py - yf), pz + 0.0)], 0.022, 'iron', square=True)
+            collared.add(mast)
+            def face(zz):                                                      # mast face towards the pin
+                return Vector((nx * r, mast_axis_y(mast, zz) + ny * r, zz))
+            f = face(pz)
+            sweep('banner_arm', [tuple(f), (px, py, pz)], 0.03, 'iron', square=True)
+            sweep('banner_brace', [tuple(face(pz - 0.5)), tuple(f + 0.6 * (Vector((px, py, pz)) - f))], 0.022, 'iron', square=True)
             sweep('banner_bar', bar, bar_r, 'iron', segs=10)
 
 def tapered_block(name, ya, yb, z0, z1, hw_fn, role, n=16, grow=0.0):

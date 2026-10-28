@@ -910,6 +910,18 @@ def rerig_ropes(rig, deck_z):
         if c.get('name') == 'rope_knot_point' and min(math.dist(W2[id(c)], q) for q in ends) > 1.0:
             smast.find('children').remove(c); n_hang += 1
     report.append('%s: %d rope hangers without a rope removed from the mast' % (rig.get('name'), n_hang))
+    # the low hangers (~6 m up, fore and aft face) take the furling ropes' ends: vanilla ties them at the mast face,
+    # the aft one in (or on) our wood (user 2026-10-28: it vanished into the mast) -> out on the peg, at its knot
+    pegs = [wp for c in kids(smast) if c.get('name') == 'rope_knot_point'
+            for e, _, wp, _, _ in walk(c, *W[id(c)][2:], own_only=False)[1:]
+            if name_of(e) == 'knot_point_g' and wp[2] < deck_z + 6.0]
+    n_peg = 0
+    for e, _, wp, pm, pp in walk(rig):
+        if re.fullmatch(r'free_rope\d+|fixed_rope\d+', e.get('name') or '') and pegs:
+            k = min(pegs, key=lambda q: math.dist(q, wp))
+            if math.dist(k, wp) < 0.35:
+                set_world_pos(e, pm, pp, k); n_peg += 1
+    report.append('%s: %d furling rope ends out on the hanger pegs' % (rig.get('name'), n_peg))
     report.append('%s ropes: %d stays + %d shrouds removed; tie from the yard (%.2f, %.2f, %.2f) to the calcese '
                   '(%.2f, %.2f, %.2f)' % (rig.get('name'), len(stays) - 1, len(shrouds), *low, *top))
 
