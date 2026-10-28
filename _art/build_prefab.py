@@ -1932,6 +1932,10 @@ if not os.environ.get('GALLEASS_TEST_BUILD'):
 # (gun root or barrel) the gunnery add-on points the rope's end at, so the rope follows recoil, traverse and elevation
 GUN_ROPES = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ref', 'galleass_gun_ropes.json')))
 ROPE_TINT, ROPE_ARG2 = '0.932, 0.851, 0.666, 1.000', ('0.232', '0.170', '0.762')
+# the light vanilla coil (2026-10-28 performance pass): 1272 triangles against sail_rope_pile's 3588, neither has LODs,
+# so 154 ropes save ~357k triangles at every distance; same 6-sided tube, ring spacing and UV strip, and material, tint
+# and radius are set per rope below. GALLEASS_GUN_ROPE_MESH=sail_rope_pile brings the old coil back
+GUN_ROPE_MESH = os.environ.get('GALLEASS_GUN_ROPE_MESH', 'sail_rope_pile_d')
 
 def euler_from_axes(s_, f_):
     """Bannerlord rotation_euler (Mat3.GetEulerAngles) for local x = s_, y = f_ (parent coordinates)."""
@@ -1958,9 +1962,9 @@ def rope_entity(gun, r):
               el('vector_argument_z', {'type_name': 'float', 'value': '1.000'}),
               el('vector_argument_w', {'type_name': 'float', 'value': '%.3f' % r['radius']}),
               *[el('vector_argument_2_' + a, {'type_name': 'float', 'value': v}) for a, v in zip('xyz', ROPE_ARG2)])
-    st.append(el('components', None, el('meta_mesh_component', {'name': 'sail_rope_pile'},
+    st.append(el('components', None, el('meta_mesh_component', {'name': GUN_ROPE_MESH},
         el('prefab_link', None, el('instance', {'guid': guid(seed + '/mmc')}), el('prefab', {'guid': ZERO})),
-        el('children', None, el('mesh', {'name': 'sail_rope_pile'}, misc)))))
+        el('children', None, el('mesh', {'name': GUN_ROPE_MESH}, misc)))))
     en = new_entity('rope_end', seed + '/end'); write_tf(en, pos=r['end'], rot=(0.0, 0.0, 0.0))
     en.append(tags('simple_rope_end', 'gun_rope_end')); en.append(mobility())
     grp.append(mobility()); grp.append(el('children', None, st, en))
