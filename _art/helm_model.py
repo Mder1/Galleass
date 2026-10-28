@@ -25,6 +25,7 @@ OUT_BLEND, OUT_FBX, RENDERS = argv[0], argv[1], (argv[2] if len(argv) > 2 else N
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from lod_util import make_lods
+import grain_uv
 
 ROLE = {'wood': 'galleass_trim', 'iron': 'galleass_iron'}
 UV_S = {'galleass_trim': 0.135, 'galleass_iron': 0.5}
@@ -161,14 +162,10 @@ def finish(bm, name):
 def add_uvs(o):
     me = o.data
     uv = me.uv_layers[0] if me.uv_layers else me.uv_layers.new(name='UVMap')
-    for poly in me.polygons:
-        n = poly.normal
-        ax = max(range(3), key=lambda i: abs(n[i]))
-        i, j = [k for k in range(3) if k != ax]
-        s = UV_S[ROLE[ROLES[poly.material_index]]]
-        for li in poly.loop_indices:
-            p = me.vertices[me.loops[li].vertex_index].co
-            uv.data[li].uv = (p[i] * s, p[j] * s)
+    # grain along each piece (grain_uv; 2026-10-28: the dominant-axis projection put it across the legs)
+    mat = lambda pi: ROLE[ROLES[me.polygons[pi].material_index]]
+    grain_uv.piece_uvs(me, uv.data, [p.index for p in me.polygons], lambda pi: UV_S[mat(pi)],
+                       lambda pi: mat(pi) == 'galleass_trim', o.name)
     col = me.color_attributes.new('Col', 'BYTE_COLOR', 'CORNER')
     for d in col.data: d.color = (1, 1, 1, 1)
 

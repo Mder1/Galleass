@@ -13,6 +13,18 @@ stays separate (it rotates in game).
 """
 import bpy, bmesh, math, os, sys
 from mathutils import Vector, Matrix
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import grain_uv
+PLANK_ROLES = ('trim', 'hull', 'dark')                # plank_a wood: narrow parts fit into one plank (grain_uv)
+_UVN = [0]
+def _plank(o, uvl_name='UVMap'):
+    """Fit an own-UV object's V into one plank (plank roles only; key: name + running number for variety)."""
+    me = o.data; _UVN[0] += 1
+    if o.get('role_') not in PLANK_ROLES or not me.uv_layers: return
+    uv = me.uv_layers[0].data
+    vs = [d.uv[1] for d in uv]
+    off, sc = grain_uv.plank_fit(min(vs), max(vs), f'{o.name}:{_UVN[0]}')
+    for d in uv: d.uv = (d.uv[0], d.uv[1] * sc + off)
 
 argv = sys.argv[sys.argv.index('--') + 1:]
 OUT_BLEND, RENDER_DIR = argv[0], argv[1]
@@ -395,12 +407,28 @@ def flat_ribbon(name, path, width, d0, d1, fn, role):
         pts = [(u - nrm.x, v - nrm.y), (u + nrm.x, v + nrm.y)]
         rings.append([bm.verts.new(fn(pu, pv, dd)) for (pu, pv), dd in
                       ((pts[0], d0), (pts[1], d0), (pts[1], d1), (pts[0], d1))])
-    for a_, b_ in zip(rings, rings[1:]):
+    # own UVs (2026-10-27, as sweep): U along the band, V round its flat section
+    uvl = bm.loops.layers.uv.new('UVMap')
+    sc = UV_SCALE[role]
+    along = [0.0]
+    for ra, rb in zip(rings, rings[1:]):
+        along.append(along[-1] + ((ra[0].co + ra[2].co) / 2 - (rb[0].co + rb[2].co) / 2).length * sc)
+    for i, (a_, b_) in enumerate(zip(rings, rings[1:])):
+        cum = [0.0]
         for j in range(4):
-            bm.faces.new((a_[j], a_[(j + 1) % 4], b_[(j + 1) % 4], b_[j]))
-    bm.faces.new(list(reversed(rings[0]))); bm.faces.new(rings[-1])
+            cum.append(cum[-1] + (a_[(j + 1) % 4].co - a_[j].co).length * sc)
+        for j in range(4):
+            f = bm.faces.new((a_[j], a_[(j + 1) % 4], b_[(j + 1) % 4], b_[j]))
+            for loop, (u_, v_) in zip(f.loops, ((along[i], cum[j]), (along[i], cum[j + 1]), (along[i + 1], cum[j + 1]), (along[i + 1], cum[j]))):
+                loop[uvl].uv = (u_, grain_uv.mirrored(v_ / cum[4]) * cum[4] / 2)
+    for ring in (rings[0], rings[-1]):
+        f = bm.faces.new(list(reversed(ring)) if ring is rings[0] else ring)
+        for loop in f.loops:
+            loop[uvl].uv = (loop.vert.co.x * sc + loop.vert.co.z * sc, loop.vert.co.y * sc)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    return obj_from_bm(bm, name, role)
+    o = obj_from_bm(bm, name, role)
+    o['own_uvs'] = 1; o['role_'] = role; _plank(o)
+    return o
 
 def subtract(target, cutters):
     for i, c in enumerate(cutters):
@@ -408,9 +436,9 @@ def subtract(target, cutters):
         m.solver = 'EXACT'
 
 def lathe(name, profile, role, at=(0, 0, 0), segs=8, cap=True):
-    """Revolve [(r, z)] around the local Z axis, placed at `at`. Own cylindrical UVs (kept by the merge): round the part
-    over its mean circumference, along it by the profile's length - one even grain however few the rings (2026-10-27:
-    the per-face projection made long patchy strips on the leaner balusters)."""
+    """Revolve [(r, z)] around the local Z axis, placed at `at`. Own cylindrical UVs (kept by the merge): U along the
+    part by the profile's length (the wood textures' grain runs along U), V round its mean circumference - one even grain
+    however few the rings (2026-10-27: the per-face projection made long patchy strips on the leaner balusters)."""
     bm = bmesh.new()
     uvl = bm.loops.layers.uv.new('UVMap')
     sc = UV_SCALE[role]
@@ -427,7 +455,7 @@ def lathe(name, profile, role, at=(0, 0, 0), segs=8, cap=True):
         for i in range(segs):
             f = bm.faces.new((a[i], a[(i + 1) % segs], b[(i + 1) % segs], b[i]))
             for loop, (col, row) in zip(f.loops, ((i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1))):
-                loop[uvl].uv = (col / segs * circ, along[row])        # (col segs = the seam's far side)
+                loop[uvl].uv = (along[row], grain_uv.mirrored(col / segs) * circ / 2)   # (mirrored: no seam)
     if cap:
         for ring, z in ((rings[0], profile[0][1]), (rings[-1], profile[-1][1])):
             f = bm.faces.new(list(reversed(ring)) if ring is rings[0] else ring)
@@ -435,7 +463,7 @@ def lathe(name, profile, role, at=(0, 0, 0), segs=8, cap=True):
                 loop[uvl].uv = ((loop.vert.co.x - at[0]) * sc, (loop.vert.co.y - at[1]) * sc)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     o = obj_from_bm(bm, name, role, smooth=True)
-    o['own_uvs'] = 1
+    o['own_uvs'] = 1; o['role_'] = role; _plank(o)
     return o
 
 def sweep(name, pts, radii, role, segs=8, square=False, cap=True, closed=False):
@@ -477,13 +505,32 @@ def sweep(name, pts, radii, role, segs=8, square=False, cap=True, closed=False):
     pairs = list(zip(rings, rings[1:]))
     if closed:
         pairs.append((rings[-1], rings[0]))
-    for a, b in pairs:
+    # own UVs, kept by the merge (2026-10-27: the per-face projection striped the curled stern post and its volute):
+    # U along the path (the wood's grain), V round the section
+    uvl = bm.loops.layers.uv.new('UVMap')
+    sc = UV_SCALE[role]
+    along = [0.0]
+    for a_, b_ in zip(pts, pts[1:] + ([pts[0]] if closed else [])):
+        along.append(along[-1] + (b_ - a_).length * sc)
+    per = [(4 * math.sqrt(2) if square else 2 * math.pi) * r * sc for r in radii]
+    for i, (a, b) in enumerate(pairs):
+        ib = i + 1                                           # (closed: the last pair's far ring is the start again)
+        ra = per[i]; rb = per[ib % len(rings)]
         for j in range(k):
-            bm.faces.new((a[j], a[(j + 1) % k], b[(j + 1) % k], b[j]))
+            f = bm.faces.new((a[j], a[(j + 1) % k], b[(j + 1) % k], b[j]))
+            for loop, (u_, vf, rr) in zip(f.loops, ((along[i], j, ra), (along[i], j + 1, ra), (along[ib], j + 1, rb), (along[ib], j, rb))):
+                loop[uvl].uv = (u_, grain_uv.mirrored(vf / k) * rr / 2)
     if cap:
-        bm.faces.new(list(reversed(rings[0]))); bm.faces.new(rings[-1])
+        for ring in (rings[0], rings[-1]):
+            f = bm.faces.new(list(reversed(ring)) if ring is rings[0] else ring)
+            c0 = sum((v.co for v in ring), Vector()) / len(ring)
+            for loop in f.loops:
+                d = loop.vert.co - c0
+                loop[uvl].uv = (d.x * sc + d.z * sc, d.y * sc)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    return obj_from_bm(bm, name, role, smooth=not square)
+    o = obj_from_bm(bm, name, role, smooth=not square)
+    o['own_uvs'] = 1; o['role_'] = role; _plank(o)
+    return o
 
 def spiral(c, r0, r1, a0, a1, n=24, plane='YZ'):
     """Points of a flat spiral (volute) around centre c in the given plane."""
@@ -942,7 +989,9 @@ def horseshoe_wall(name, z0, z1, wall, role, grow=0.0, y_back=None):
     for a, b, c, d in ((ob[0], ot[0], it[0], ib[0]), (ib[-1], it[-1], ot[-1], ob[-1])):
         bm.faces.new((a, b, c, d))
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    return obj_from_bm(bm, name, role)
+    o = obj_from_bm(bm, name, role)
+    if role not in ('hull', 'paint', 'deck'): o['strip_uv'] = 1   # bands: unrolled round the castle
+    return o
 
 def horseshoe_slab(name, r, z0, z1, role, y_back=None):
     bm = bmesh.new()
@@ -953,7 +1002,9 @@ def horseshoe_slab(name, r, z0, z1, role, y_back=None):
         j = (i + 1) % len(pts)
         bm.faces.new((bot[i], bot[j], top[j], top[i]))
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    return obj_from_bm(bm, name, role)
+    o = obj_from_bm(bm, name, role)
+    if role not in ('hull', 'paint', 'deck'): o['strip_uv'] = 1   # bands: unrolled round the castle
+    return o
 
 def fc_point(deg, r, back=0.0):
     """Point on the forecastle outline at bearing deg (0 = ahead, +90 = starboard)."""
@@ -1237,7 +1288,7 @@ def side_strip(name, ya, yb, z0, z1, out, thick, role, n=48):
                 bm.faces.new((a[i], a[(i + 1) % 4], b[(i + 1) % 4], b[i]))
         bm.faces.new(list(reversed(rings[0]))); bm.faces.new(rings[-1])
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-        obj_from_bm(bm, f'{name}_{side}', role)
+        obj_from_bm(bm, f'{name}_{side}', role)['strip_uv'] = 1
 
 def build_sterncastle():
     """Captain's cabin (walk-in: floor = gun deck level, poop deck as ceiling) with doors fore and aft,
@@ -1283,7 +1334,7 @@ def build_sterncastle():
             f = (r[0], r[2], r[3], r[1])
             bm.faces.new(tuple(reversed(f)) if flip else f)
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-        obj_from_bm(bm, 'sc_window_hood', 'trim')
+        obj_from_bm(bm, 'sc_window_hood', 'trim')['strip_uv'] = 1
     zw = (SCW_Z0 + SCW_Z1) / 2
     # cabin door, and two pairs of the small arched windows on the wide side of it in the front bulkhead
     cuts.append(cutter_box(SC_DOOR_X, SC_Y_FORE, Z_GUN_DECK + 1.0, SC_DOOR_W, 0.6, 2.0))
@@ -1707,7 +1758,9 @@ def spur_loft(name, stations, role, segs=16, rnd=3.0):
             bm.faces.new((r0[i], r0[(i + 1) % segs], r1[(i + 1) % segs], r1[i]))
     bm.faces.new(list(reversed(rings[0]))); bm.faces.new(rings[-1])
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    return obj_from_bm(bm, name, role, smooth=True)
+    o = obj_from_bm(bm, name, role, smooth=True)
+    o['strip_uv'] = 1                                       # (spur: unrolled along, grain_uv.follow_quads)
+    return o
 
 def build_spur():
     """The galleass's spur: timber beak out of the bow, iron hoops, bronze point (drawing; user 2026-10-08)."""
@@ -1914,6 +1967,10 @@ for o, role in PARTS:
         for d in col.data: d.color = (1, 1, 1, 1)
     else:
         add_uvs(me, role)
+        if o.get('strip_uv'):                                  # bands, hoods, spur: unrolled along the strip
+            bs = bmesh.new(); bs.from_mesh(me)
+            grain_uv.follow_quads(bs, bs.loops.layers.uv.active, UV_SCALE[role], o.name if role in PLANK_ROLES else None)
+            bs.to_mesh(me); bs.free()
     # the box's end walls are kept whole in the LODs (user 2026-10-17: re-merged / collapsed, their faces fanned into
     # slivers round the stern chaser ports, white in game; the clean grid round the port is made where they are built)
     keep = me.attributes.new('keep', 'INT', 'FACE')

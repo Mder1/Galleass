@@ -17,7 +17,7 @@ pieces: carriage, barrel; physics material 'wood'). galleass_shot.fbx: the add-o
 import bpy, bmesh, math, os, sys
 from mathutils import Matrix, Vector
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import gun_uv
+import gun_uv, grain_uv
 from lod_util import make_lods                           # (shared since 2026-10-27)
 
 out = sys.argv[sys.argv.index('--') + 1]
@@ -53,6 +53,7 @@ def add_uvs(o):
     me = o.data; ah = o.get('axis_h', 0.8)
     uv = me.uv_layers.new(name='UVMap') if not me.uv_layers else me.uv_layers[0]
     part = me.attributes.get('part')
+    rest = []                                                # wood / iron: grain_uv, piece by piece (below)
     cyl = o.name.startswith('galleass_petriera')                 # iron swivel: barrel / cradle / tail and chamber
     for poly in me.polygons:
         mat = me.materials[poly.material_index].name
@@ -86,16 +87,11 @@ def add_uvs(o):
             for li, p in zip(poly.loop_indices, pts):
                 uv.data[li].uv = gun_uv.misc_uv(p[i], p[j] - (ah if j == 2 else 0.0))
             continue
-        s = UV_S.get(KIT_MAT.get(mat, mat), 0.5)
-        a = Vector((0, 1, 0))                                # grain along the gun, else across
-        u = a - n * a.dot(n)
-        if u.length < 0.3:
-            for alt in (Vector((1, 0, 0)), Vector((0, 0, 1))):
-                u = alt - n * alt.dot(n)
-                if u.length >= 0.3: break
-        u.normalize(); v = n.cross(u).normalized()
-        for li, p in zip(poly.loop_indices, pts):
-            uv.data[li].uv = (p.dot(u) * s, p.dot(v) * s)
+        rest.append(poly.index)
+    # grain along each piece (axles, cheeks, transoms, staffs), narrow wood inside one plank (grain_uv; 2026-10-28: the
+    # gun-axis projection put the grain across everything not lying along the gun, and patched the round iron)
+    km = lambda pi: KIT_MAT.get(me.materials[me.polygons[pi].material_index].name, me.materials[me.polygons[pi].material_index].name)
+    grain_uv.piece_uvs(me, uv.data, rest, lambda pi: UV_S.get(km(pi), 0.5), lambda pi: km(pi) in ('galleass_trim', 'galleass_dark'), o.name)
     col = me.color_attributes.new('Col', 'BYTE_COLOR', 'CORNER') if 'Col' not in me.color_attributes else me.color_attributes['Col']
     for d in col.data: d.color = (1, 1, 1, 1)                  # vanilla materials use vertex colours
 

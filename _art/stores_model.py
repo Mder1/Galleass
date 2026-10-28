@@ -27,6 +27,7 @@ sys.path.insert(0, HERE)
 import gun_profiles as gp, gun_uv
 import rope_geom as rg
 from lod_util import make_lods
+import grain_uv
 
 ROLE = {'wood': 'galleass_trim', 'iron': 'galleass_iron', 'dark': 'galleass_dark', 'copper': 'galleass_gun_bronze',
         'rope': 'galleass_rope', 'sack': 'galleass_sack'}
@@ -119,19 +120,23 @@ def add_uvs(o):
     everything else planar per face."""
     me = o.data
     uv = me.uv_layers[0] if me.uv_layers else me.uv_layers.new(name='UVMap')
+    rest = []
     for poly in me.polygons:
         role = ROLES[poly.material_index]; n = poly.normal
         if role in ('rope', 'sack'):
             continue
+        if role != 'copper':
+            rest.append(poly.index); continue
         pts = [me.vertices[me.loops[li].vertex_index].co for li in poly.loop_indices]
         ax = max(range(3), key=lambda i: abs(n[i]))
         i, j = [k for k in range(3) if k != ax]
         for li, p in zip(poly.loop_indices, pts):
-            if role == 'copper':
-                uv.data[li].uv = gun_uv.misc_uv(p[i] * 0.5, p[j] * 0.5)
-            else:
-                s = UV_S.get(ROLE[role], 0.5)
-                uv.data[li].uv = (p[i] * s, p[j] * s)
+            uv.data[li].uv = gun_uv.misc_uv(p[i] * 0.5, p[j] * 0.5)
+    # wood and iron: grain along each piece, narrow wood inside one plank (grain_uv; 2026-10-28: the dominant-axis
+    # projection put the grain across the staffs, lockers and racks)
+    mat = lambda pi: ROLE[ROLES[me.polygons[pi].material_index]]
+    grain_uv.piece_uvs(me, uv.data, rest, lambda pi: UV_S.get(mat(pi), 0.5),
+                       lambda pi: mat(pi) in ('galleass_trim', 'galleass_dark'), o.name)
     col = me.color_attributes.new('Col', 'BYTE_COLOR', 'CORNER')
     for d in col.data: d.color = (1, 1, 1, 1)
     # drop unused material slots (the Kit warns about them)
