@@ -58,6 +58,16 @@ def _axis(cos):
     return Vector(c), Vector(vec[:, -1]).normalized(), float(w[-1] / max(w[-2], 1e-9)), Vector(vec[:, 0]).normalized(), \
         float(w[-2] / max(w[0], 1e-9))
 
+def _sides(me, piece, ax, thr):
+    """How many directions the faces round axis ax point in (a turned part: one per segment; a box: 4)."""
+    dirs = set()
+    for pi in piece:
+        n = me.polygons[pi].normal
+        q = n - ax * n.dot(ax)
+        if abs(n.dot(ax)) < thr and q.length > 1e-6:
+            q.normalize(); dirs.add((round(q.x, 1), round(q.y, 1), round(q.z, 1)))
+    return len(dirs)
+
 def piece_uvs(me, uv, polys, scale, plank, key, round_min=2.0):
     """UVs for the polygons `polys` of mesh me (uv: its uv layer data), piece by piece. scale(pi): UV units per metre;
     plank(pi): True for the plank wood (fit into one plank)."""
@@ -65,8 +75,18 @@ def piece_uvs(me, uv, polys, scale, plank, key, round_min=2.0):
         vids = {v for pi in piece for v in me.polygons[pi].vertices}
         c, a, elong, a3, flat = _axis([me.vertices[v].co for v in vids])
         # long piece: round its long axis (U along, V round); flat round piece (hoop, band, ring): round its short axis
-        # (U round, along the band; V across); else planar per face
-        mode = 'long' if elong >= round_min else 'ring' if flat >= round_min else None
+        # (U round, along the band; V across); else planar per face. Round only if it IS round: a near-round section
+        # with 6+ side directions (user 2026-10-28: the carriage cheeks and bed, flat boards, and the square swivel
+        # post were wrapped like turned parts - their top faces stretched)
+        mode = 'long' if elong >= round_min and flat < 1.5 and _sides(me, piece, a, 0.85) >= 6 else \
+            'ring' if flat >= round_min and elong < 1.3 and _sides(me, piece, a3, 0.6) >= 6 else None
+        # planar grain along the model axis nearest the piece's (within 25 deg: the cheeks' raised rear tilted it, the
+        # grain and plank lines ran diagonally); faces end-on to it take the piece's second axis (a square block's
+        # axis is arbitrary: one side had its grain upright)
+        def snap(x):
+            e = max((Vector(t) for t in ((1, 0, 0), (0, 1, 0), (0, 0, 1))), key=lambda t: abs(t.dot(x)))
+            return e * math.copysign(1, e.dot(x)) if abs(e.dot(x)) > math.cos(math.radians(25)) else x
+        ga = snap(a); ga2 = snap(a.cross(a3).normalized())
         ax = a if mode == 'long' else a3
         w = (Vector((0, 0, 1)) if abs(ax.z) < 0.9 else Vector((1, 0, 0)))
         w = (w - ax * w.dot(ax)).normalized(); w2 = ax.cross(w)
@@ -81,9 +101,9 @@ def piece_uvs(me, uv, polys, scale, plank, key, round_min=2.0):
                     uv[li].uv = (d.dot(ax) * s, th) if mode == 'long' else (th, d.dot(ax) * s)
                 groups['round'].append(pi)
                 continue
-            u = a - n * a.dot(n)                            # planar, U along the piece's axis (end faces: across)
+            u = ga - n * ga.dot(n)                          # planar, U along the piece's axis (end faces: across)
             if u.length < 0.3:
-                for alt in (Vector((0, 0, 1)), Vector((0, 1, 0)), Vector((1, 0, 0))):
+                for alt in (ga2, Vector((0, 0, 1)), Vector((0, 1, 0)), Vector((1, 0, 0))):
                     u = alt - n * alt.dot(n)
                     if u.length >= 0.3: break
             u.normalize(); v = n.cross(u).normalized()
@@ -175,11 +195,15 @@ def follow_quads(bm, uvl, scale, plank_key=None, faces=None):
             x, y = l[uvl].uv
             l[uvl].uv = ((y, x) if swap else (x, y))
             l[uvl].uv = (l[uvl].uv[0] * s, l[uvl].uv[1] * s)
-        if closed and around_v != swap:                      # closed section round V: mirrored, no seam where it meets
+        if closed and around_v != swap:                      # closed section round V: mirrored, no seam where it meets.
+            # Folded at the ring vertex nearest half way round (a fold inside a face gave both its sides the same V:
+            # 780 faces with no UV height on the hull, 2026-10-28), the far side squeezed to fit
             vs = [l[uvl].uv[1] for l in ls]; v0, P = min(vs), max(vs) - min(vs)
-            if P > 1e-9:
+            F = min(vs, key=lambda v: abs(v - v0 - P / 2)) - v0
+            if 1e-9 < F < P - 1e-9:
                 for l in ls:
-                    l[uvl].uv = (l[uvl].uv[0], v0 + mirrored((l[uvl].uv[1] - v0) / P) * P / 2)
+                    t = l[uvl].uv[1] - v0
+                    l[uvl].uv = (l[uvl].uv[0], v0 + (t if t <= F + 1e-9 else (P - t) * F / (P - F)))
         if plank_key is not None:
             vs = [l[uvl].uv[1] for l in ls]
             off, sc = plank_fit(min(vs), max(vs), f'{plank_key}:{k}')

@@ -1972,9 +1972,11 @@ for o, role in PARTS:
             grain_uv.follow_quads(bs, bs.loops.layers.uv.active, UV_SCALE[role], o.name if role in PLANK_ROLES else None)
             bs.to_mesh(me); bs.free()
     # the box's end walls are kept whole in the LODs (user 2026-10-17: re-merged / collapsed, their faces fanned into
-    # slivers round the stern chaser ports, white in game; the clean grid round the port is made where they are built)
+    # slivers round the stern chaser ports, white in game; the clean grid round the port is made where they are built).
+    # So is the spur (user 2026-10-28: collapsed with the rest of the trim it went 430 -> 68 -> 3 -> 0 triangles, a
+    # shredded beak at distance); ~800 triangles per LOD
     keep = me.attributes.new('keep', 'INT', 'FACE')
-    if o.name.startswith('end_wall'):
+    if o.name.startswith(('end_wall', 'spur_')):
         for d in keep.data: d.value = 1
     by_role.setdefault(role, []).append(me)
 for role, meshes in by_role.items():
