@@ -380,13 +380,17 @@ def build_bowsprit(level):
         # and straight down both sides of the chock to an iron ring on the platform each side (user 2026-10-19: the
         # first turns, flat ellipses, ran into the spar's top and through the chock)
         z_ring = z_cap + 0.10                                # ring centre (radius 0.08) above the platform
+        # (user 2026-11-08: the arch was the bed's width, ~11 cm clear of the spar's sides): each turn now lies ON the
+        # spar over its upper half, runs from the spar's sides down to the bed's top edges, then down the bed's sides
         for i in range(3):
             y = SPRIT_HEEL[1] + 0.20 + i * 0.07
             zc = sprit_point(y)[2]
-            hx = cx + WOOL_ROPE * 1.6
-            hz = sprit_r(sprit_t(y)) / math.cos(SPRIT_RISE) + WOOL_ROPE * 1.3
-            top = [(hx * math.cos(a), y, zc + hz * math.sin(a)) for a in [math.pi * k / 14 for k in range(15)]]
-            pts = [(hx, y, z_ring)] + top + [(-hx, y, z_ring)]
+            hx = cx + WOOL_ROPE * 1.6                        # down the bed's sides, outside its faces
+            rx = sprit_r(sprit_t(y)) + WOOL_ROPE * 0.9       # over the spar: its section in a y plane, plus the rope
+            rz = sprit_r(sprit_t(y)) / math.cos(SPRIT_RISE) + WOOL_ROPE * 0.9
+            zb = under(y) + WOOL_ROPE * 0.9                  # the bed's top edge
+            top = [(rx * math.cos(a), y, zc + rz * math.sin(a)) for a in [math.pi * k / 16 for k in range(17)]]
+            pts = [(hx, y, z_ring), (hx, y, zb)] + top + [(-hx, y, zb), (-hx, y, z_ring)]
             rg.rope(B.bms['plank_stake_a'], pts, WOOL_ROPE, segs=5, caps=True, u_range=WOOL_U, vpm=WOOL_VPM)
         ym = SPRIT_HEEL[1] + 0.27
         for sx in (-1, 1):                                   # the rings the turns are made fast to

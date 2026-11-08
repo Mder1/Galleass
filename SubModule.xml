@@ -2,7 +2,7 @@
 <Module>
 	<Name value="Galleass"/>
 	<Id value="Galleass"/>
-	<Version value="v0.1.0"/>
+	<Version value="v1.0.0"/>
 	<DefaultModule value="false"/>
 	<ModuleCategory value="Singleplayer"/>
 	<SingleplayerModule value="true"/>

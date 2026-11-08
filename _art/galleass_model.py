@@ -2060,7 +2060,10 @@ for o, role in PARTS:
         for d in ld.data: d.value = o['lod_drop']
     # the poop balustrade's posts and rails stay whole (boxes and square rails: few triangles; collapsed they broke up)
     keep = me.attributes.new('keep', 'INT', 'FACE')
-    if o.name.startswith(('end_wall', 'spur_', 'stern_volute', 'sc_post', 'sc_rail')):
+    # the banner holders and the mast lanterns' brackets too (user 2026-11-08: with iron dropped at LOD3 the vanilla
+    # banners and lanterns hung in the air at distance; a few thousand triangles)
+    if o.name.startswith(('end_wall', 'spur_', 'stern_volute', 'sc_post', 'sc_rail', 'banner_', 'lantern_band',
+                          'lantern_arm', 'lantern_brace')):
         for d in keep.data: d.value = 1
     elif o.name.startswith('backbone'):
         for p_ in me.polygons:

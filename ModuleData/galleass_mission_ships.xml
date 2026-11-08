@@ -3,23 +3,23 @@
 	<MissionShip
 		id="ship_galleass"
 		prefab="galleass_ship_nested"
-		mass="200000"
+		mass="240000"
 		maximum_submerged_volume_ratio="0.7"
 		lateral_drag_shift_max="0.1"
 		lateral_drag_shift_critical_angle="40"
-		oars_tip_speed="6.2"
-		oarsmen_force_multiplier="16"
+		oars_tip_speed="5.0"
+		oarsmen_force_multiplier="10"
 		oar_friction_multiplier="38"
 		oar_count="50"
 		rudder_blade_length="1.7"
 		rudder_blade_height="2.5"
 		rudder_deflection_coef="16"
 		rudder_rotation_max="17"
-		rudder_rotation_rate="4"
-		rudder_force_max="500000"
+		rudder_rotation_rate="3"
+		rudder_force_max="420000"
 		max_linear_speed="8.77"
-		max_linear_acceleration="3.62"
-		max_angular_speed="8.43"
+		max_linear_acceleration="2.6"
+		max_angular_speed="6.0"
 		max_angular_acceleration="17.97"
 		bow_angle_limit_from_centerline="5"
 		landing_depth="0.3"
@@ -37,28 +37,31 @@
 		     NO comments inside <sails>: MissionShipObject reads every child node as a sail - a comment there made the
 		     whole ship invalid ('Null object reference found with ID: ship_galleass', campaign map crash 2026-10-19).
 		     Mizzen left limit 150 (not 170): pointing aft its lower yard end ran through the stern lantern (user 2026-10-13) -->
+		<!-- handling (user 2026-11-08, after the historical galleasses: heavy and cumbersome, weak under oars, but good
+		     sailers): mass 240 t, oarsmen force 10 / tip speed 5.0 (was 16 / 6.2), rudder 420k / rate 3, sails 11/8/5/3
+		     (was 7/5/3/2); max_linear_* / max_angular_* only feed the AI's path planning -->
 		<sails>
 			<sail
 				type="lateen"
-				force_multiplier="7"
+				force_multiplier="11"
 				left_rotation_limit="170"
 				right_rotation_limit="5"
 				rotation_rate="10" />
 			<sail
 				type="lateen"
-				force_multiplier="5"
+				force_multiplier="8"
 				left_rotation_limit="170"
 				right_rotation_limit="5"
 				rotation_rate="12" />
 			<sail
 				type="lateen"
-				force_multiplier="3"
+				force_multiplier="5"
 				left_rotation_limit="150"
 				right_rotation_limit="5"
 				rotation_rate="16" />
 			<sail
 				type="square"
-				force_multiplier="2"
+				force_multiplier="3"
 				left_rotation_limit="50"
 				right_rotation_limit="50"
 				rotation_rate="18" />
