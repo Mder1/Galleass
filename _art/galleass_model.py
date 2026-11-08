@@ -252,6 +252,15 @@ def obj_from_bm(bm, name, role, collection='parts', smooth=False):
         PARTS.append((o, role))
     return o
 
+def lod_versions(build, levels):
+    """build(None) = the full part(s), shown at LOD0 only; build(spec) for each {lod: spec} = that LOD's own coarser
+    version, merged into that LOD after the decimation (which shreds thin turned parts; user 2026-11-08)."""
+    n0 = len(PARTS); build(None)
+    for o, _ in PARTS[n0:]: o['lod_drop'] = 1
+    for lvl, spec in levels.items():
+        n0 = len(PARTS); build(spec)
+        for o, _ in PARTS[n0:]: o['lod_only'] = lvl
+
 def box(name, x0, x1, y0, y1, z0, z1, role, collection='parts'):
     bm = bmesh.new()
     bmesh.ops.create_cube(bm, size=1)
@@ -570,6 +579,8 @@ STERN_HEEL, STERN_POST_TOP = (23.6, -2.4), (25.35, 1.6)
 def _sp(t):
     return (STERN_HEEL[0] + (STERN_POST_TOP[0] - STERN_HEEL[0]) * t, STERN_HEEL[1] + (STERN_POST_TOP[1] - STERN_HEEL[1]) * t)
 STERN_PROFILE = [(14.0, Z_KEEL), (21.1, -2.45), STERN_HEEL, _sp(0.26), _sp(0.51), _sp(0.76), STERN_POST_TOP, (25.4, 3.3)]
+STERN_KEEP_Y = -23.5                       # backbone faces aft of this (the heel, under water): the whole sternpost and
+                                           # its scroll stay whole in every LOD (a seam higher up kinked at LOD3)
 STERN_RAKE = math.atan2(STERN_POST_TOP[0] - STERN_HEEL[0], STERN_POST_TOP[1] - STERN_HEEL[1])
 
 def z_bottom(y):
@@ -938,7 +949,7 @@ def build_deck_fittings():
     for name, y in MASTS.items():
         z = Z_GUN_DECK if name != 'fore' else FC_Z_PLATFORM
         partner = lathe(f'mast_partner_{name}', [(0.62, 0), (0.62, 0.12), (0.5, 0.3), (0.5, 0.32)], 'trim', at=(0, y, z),
-                        segs=10)
+                        segs=32)                    # (user 2026-11-08: 10 sides read as an octagon up close)
         if name == 'fore':
             # the fore mast stands at the platform's rear edge (2026-10-13): cut the partner off flush in front of
             # the back rail's posts so it doesn't overhang the edge (user)
@@ -1268,6 +1279,47 @@ def build_banner_holders():
             sweep('banner_brace', [tuple(face(pz - 0.5)), tuple(f + 0.6 * (Vector((px, py, pz)) - f))], 0.022, 'iron', square=True)
             sweep('banner_bar', bar, bar_r, 'iron', segs=10)
 
+# ================================================================= mast lanterns (lantern_model.py: horn lanterns)
+# Our lanterns (user 2026-10-28, instead of vanilla's nord lantern on its chains) hang by their ring on the hook of an
+# iron bracket: a band round the mast in the gap between two woolding bands (deck + 1.6 / 3.15), an arm out to the
+# hook with its tip turned up, and a brace from the band's foot (one band: a 2nd collar lower down would meet the low
+# rope hangers, 1.8-2.4 m up). Main and mizzen: one each side; fore: aft over the forecastle platform. The hook sits
+# where the candle burns at about the vanilla lights' height (deck + ~2.4). The prefab hangs the lanterns (+ Z_LIFT).
+LANTERN_HOOK_H, LANTERN_ARM = 2.66, 0.75    # hook above the mast's deck; from the mast's axis (vanilla 0.75)
+LANTERN_BAND_H, LANTERN_ROD = 0.12, 0.009   # band height; arm rod radius (hook = the rod's underside; the ring
+                                            # hangs OVER the rod: the prefab pivots at hook + 2 * LANTERN_ROD)
+def lantern_mounts():
+    m = []
+    for mast, outs in (('main', ((1, 0), (-1, 0))), ('mizzen', ((1, 0), (-1, 0))), ('fore', ((0, -1),))):
+        deck = FC_Z_PLATFORM if mast == 'fore' else Z_GUN_DECK
+        z = deck + LANTERN_HOOK_H
+        for dx, dy in outs:
+            m.append(dict(name='lantern_%s_%s' % (mast, 'aft' if dy else '%+d' % dx), mast=mast, out=(float(dx), float(dy)),
+                          hook=(dx * LANTERN_ARM, mast_axis_y(mast, z) + dy * LANTERN_ARM, z)))
+    return m
+
+def build_lantern_brackets():
+    banded = set()
+    for L in lantern_mounts():
+        mast = L['mast']; hx, hy, hz = L['hook']; dx, dy = L['out']; rk = MAST_RAKE[mast]
+        r0 = MAST_R[mast] + 0.005; r1 = r0 + 0.008                      # band inner / outer radius
+        za = hz + LANTERN_ROD                                            # the arm's centre line
+        zt = za + LANTERN_ROD + 0.012; z0 = zt - LANTERN_BAND_H
+        if mast not in banded:                                           # one band carries both arms
+            banded.add(mast)
+            zc = (z0 + zt) / 2; hh = LANTERN_BAND_H / 2
+            o = lathe('lantern_band', [(r0, -hh), (r1, -hh), (r1, hh), (r0, hh), (r0, -hh)], 'iron', segs=24, cap=False)
+            o.location = (0, mast_axis_y(mast, zc), zc); o.rotation_euler = (-rk, 0, 0)
+        def face(z):                                                     # band's outer face towards the hook
+            return Vector((dx * r1, mast_axis_y(mast, z) + dy * r1, z))
+        f = face(za)
+        reach = Vector((hx, hy, za)) - f; reach.z = 0; u = reach.normalized()
+        tip = Vector((hx, hy, za)) + u * 0.015
+        sweep('lantern_arm', [tuple(f - u * 0.004), tuple(tip), tuple(tip + u * 0.016 + Vector((0, 0, 0.040)))],
+              LANTERN_ROD, 'iron', segs=8)
+        fb = face(z0 + 0.012)
+        sweep('lantern_brace', [tuple(fb - u * 0.004), tuple(f + 0.45 * (Vector((hx, hy, za)) - f))], 0.007, 'iron', segs=6)
+
 def tapered_block(name, ya, yb, z0, z1, hw_fn, role, n=16, grow=0.0):
     """Block whose half width follows hw_fn(y); z0 may be a function of y (bottom following the hull)."""
     bm = bmesh.new(); rings = []
@@ -1377,12 +1429,14 @@ def build_sterncastle():
     # no furniture: the cabin is a gun room (user 2026-10-08 removed table, benches and chest)
     build_stern_balcony()
 
-def build_stern_lantern():
+def build_stern_lantern(spec=None):
     """Venetian stern lantern on a turned post: bowl with drop knob, an open octagonal cage of gilded corner ribs
-    and bands (no glass), moulded cornice, ogee dome, ball finial and cross."""
+    and bands (no glass), moulded cornice, ogee dome, ball finial and cross. spec = (sides of the round gilt parts,
+    sides of the post) for a LOD version; None = full."""
+    rs, ps = spec or (48, 12)
     x0, y0 = 0.0, LANTERN_Y
     lathe('lantern_post', [(0.11, 0), (0.13, 0.08), (0.1, 0.3), (0.1, 3.2), (0.13, 3.3), (0.1, 3.42), (0.1, 3.55)],
-          'trim', at=(x0, y0, SC_Z_FLOOR + 0.12), segs=12)
+          'trim', at=(x0, y0, SC_Z_FLOOR + 0.12), segs=ps)
     zl = SC_Z_FLOOR + 0.12 + 3.5                        # bottom of the lantern
     R, H = 0.42, 0.95                                     # pane circumradius, pane height
     zg0 = zl + 0.42; zg1 = zg0 + H
@@ -1399,7 +1453,7 @@ def build_stern_lantern():
         return o
     # bowl and drop knob (round), collar on the post
     lathe('lantern_bowl', [(0.0, zl - 0.18), (0.07, zl - 0.14), (0.05, zl - 0.06), (0.14, zl), (0.32, zl + 0.16),
-                           (0.46, zl + 0.34), (0.48, zl + 0.42)], 'gilt', at=(x0, y0, 0), segs=48)
+                           (0.46, zl + 0.34), (0.48, zl + 0.42)], 'gilt', at=(x0, y0, 0), segs=rs)
     # open frame, no glass (user 2026-10-08: the panes kept the light in; open like vanilla torches)
     # corner ribs: flat boards squared to each octagon corner, running between the bands (ends hidden in them)
     for k in range(8):
@@ -1421,11 +1475,11 @@ def build_stern_lantern():
     # cornice and ogee dome
     # cornice: its underside covers the top band's corners
     lathe('lantern_cornice', [(RB + 0.02, zg1 + 0.02), (R + 0.12, zg1 + 0.07), (R + 0.12, zg1 + 0.12),
-                              (R + 0.03, zg1 + 0.15)], 'gilt', at=(x0, y0, 0), segs=48)
+                              (R + 0.03, zg1 + 0.15)], 'gilt', at=(x0, y0, 0), segs=rs)
     zd = zg1 + 0.15
     lathe('lantern_dome', [(R + 0.03, zd), (R - 0.02, zd + 0.1), (0.3, zd + 0.24), (0.17, zd + 0.34), (0.09, zd + 0.44),
                            (0.06, zd + 0.52), (0.1, zd + 0.58), (0.11, zd + 0.64), (0.07, zd + 0.7), (0.035, zd + 0.74)],
-          'gilt', at=(x0, y0, 0), segs=48)
+          'gilt', at=(x0, y0, 0), segs=rs)
     zc = zd + 0.72
     sweep('lantern_cross_v', [(x0, y0, zc), (x0, y0, zc + 0.6)], 0.03, 'gilt', square=True)
     sweep('lantern_cross_h', [(x0 - 0.16, y0, zc + 0.4), (x0 + 0.16, y0, zc + 0.4)], 0.03, 'gilt', square=True)
@@ -1556,6 +1610,13 @@ def build_stern_balcony():
     zb = SC_Z_FLOOR + 0.12
     hb = SC_Z_RAIL - zb - 0.1
     prof = lean_profile([(r, z * hb / 0.9) for r, z in baluster])
+    lod_profs = {lvl: lean_profile([(r, z * hb / 0.9) for r, z in baluster], tol=tol) for lvl, (_, tol) in BALUSTER_LODS.items()}
+    def sc_baluster(at):
+        # full turning at LOD0 only; each LOD gets its own coarser turning instead of a collapse (user 2026-11-08: the
+        # collapsed balusters were spikes at distance)
+        lathe('sc_baluster', prof, 'trim', at=at, segs=8)['lod_drop'] = 1
+        for lvl, (segs, _) in BALUSTER_LODS.items():
+            lathe('sc_baluster_lod%d' % lvl, lod_profs[lvl], 'trim', at=at, segs=segs)['lod_only'] = lvl
     for side in (-1, 1):
         n = int((SC_Y_FORE - SC_Y_AFT) / 0.32)
         for i in range(n + 1):
@@ -1566,14 +1627,14 @@ def build_stern_balcony():
                 box('sc_post_cap', x - 0.105, x + 0.105, y - 0.105, y + 0.105, SC_Z_RAIL + 0.1, SC_Z_RAIL + 0.13, 'trim')
                 lathe('sc_finial', FINIAL, 'gilt', at=(x, y, SC_Z_RAIL + 0.13), segs=12)
             elif not any(i in (g, g + 1) for g in POOP_SWIVEL_GAPS):     # (the swivel stands take these places)
-                lathe('sc_baluster', prof, 'trim', at=(x, y, zb), segs=8)
+                sc_baluster((x, y, zb))
         rail = [(side * (sc_hw(SC_Y_AFT + (SC_Y_FORE - SC_Y_AFT) * k / 16) - POOP_INSET),
                  SC_Y_AFT + (SC_Y_FORE - SC_Y_AFT) * k / 16, SC_Z_RAIL - 0.05) for k in range(17)]
         sweep('sc_rail', rail, 0.07, 'trim', square=True)
     w = sc_hw(SC_Y_AFT) - POOP_INSET
     for i in range(int(2 * w / 0.32) + 1):
         x = -w + i * 0.32
-        lathe('sc_baluster', prof, 'trim', at=(x, SC_Y_AFT, zb), segs=8)
+        sc_baluster((x, SC_Y_AFT, zb))
     sweep('sc_rail_aft', [(-w, SC_Y_AFT, SC_Z_RAIL - 0.05), (w, SC_Y_AFT, SC_Z_RAIL - 0.05)], 0.07, 'trim', square=True)
     # forward rail of the poop with a gap for the stairs
     wf = sc_hw(SC_Y_FORE) - POOP_INSET
@@ -1582,7 +1643,7 @@ def build_stern_balcony():
         sweep('sc_rail_fore', [(x0, yf, SC_Z_RAIL - 0.05), (x1, yf, SC_Z_RAIL - 0.05)], 0.07, 'trim', square=True)
         n = max(int((x1 - x0) / 0.32), 1)
         for k in range(1, n):
-            lathe('sc_baluster', prof, 'trim', at=(x0 + (x1 - x0) * k / n, yf, zb), segs=8)
+            sc_baluster((x0 + (x1 - x0) * k / n, yf, zb))
         for x in (x0, x1):
             if abs(wf - abs(x)) > 1e-6:                   # at a stair opening: beside it, not half in it (user 2026-10-27:
                 x += 0.09 if x == x0 else -0.09           # men climbing walked into them and fell)
@@ -1600,16 +1661,19 @@ def build_stern_balcony():
     # the rail is as thin as the stern banners' loops allow (user 2026-10-08: the loops should wrap it): loop radius
     # 0.023 at scale 1 (generic_flag_vertical_a) x the banners' scale, minus a little play
     rail_r = banner_loop_r(AWNING_BANNER_SCALE)
-    sweep('awning_rail', [(x, y, SC_Z_AWNING) for x, y in catmull(path, 4 * len(path))], rail_r, 'trim', segs=12)
-    for ly in (-7.0, -3.5, -0.3):
-        y = roof_y(ly); w = roof_edge(y)
-        for side in (-1, 1):
-            x = side * w
-            sweep('awning_post', [(x, y, SC_Z_FLOOR + 0.1), (x, y, SC_Z_AWNING + 0.05)], 0.06, 'trim', segs=12)
-            box('awning_post_cap', x - 0.08, x + 0.08, y - 0.08, y + 0.08, SC_Z_AWNING - 0.06, SC_Z_AWNING + 0.06, 'trim')
-        sweep('awning_beam', [(-w, y, SC_Z_AWNING), (w, y, SC_Z_AWNING)], 0.05, 'trim', segs=12)
-    sweep('awning_ridge', [(0, roof_y(-7.0), SC_Z_AWNING), (0, roof_y(-0.3), SC_Z_AWNING)], 0.05, 'trim', segs=12)
-    build_stern_lantern()
+    def awning(spec):                                     # spec: (sides, rail points per path point); None = full
+        segs, dens = spec or (12, 4)
+        sweep('awning_rail', [(x, y, SC_Z_AWNING) for x, y in catmull(path, dens * len(path))], rail_r, 'trim', segs=segs)
+        for ly in (-7.0, -3.5, -0.3):
+            y = roof_y(ly); w = roof_edge(y)
+            for side in (-1, 1):
+                x = side * w
+                sweep('awning_post', [(x, y, SC_Z_FLOOR + 0.1), (x, y, SC_Z_AWNING + 0.05)], 0.06, 'trim', segs=segs)
+                box('awning_post_cap', x - 0.08, x + 0.08, y - 0.08, y + 0.08, SC_Z_AWNING - 0.06, SC_Z_AWNING + 0.06, 'trim')
+            sweep('awning_beam', [(-w, y, SC_Z_AWNING), (w, y, SC_Z_AWNING)], 0.05, 'trim', segs=segs)
+        sweep('awning_ridge', [(0, roof_y(-7.0), SC_Z_AWNING), (0, roof_y(-0.3), SC_Z_AWNING)], 0.05, 'trim', segs=segs)
+    lod_versions(awning, {1: (8, 2), 2: (6, 1), 3: (4, 1)})
+    lod_versions(build_stern_lantern, {1: (24, 8), 2: (16, 6), 3: (8, 6)})
     # stairs from the gun deck up to the poop, running aft along both sides of the cabin front
     for side in (-1, 1):
         x = side * SC_STAIR_X
@@ -1701,6 +1765,9 @@ FINIAL = None   # set after smooth_profile is defined
 BALUSTER = [(0.058, 0.0), (0.07, 0.03), (0.07, 0.07), (0.05, 0.11), (0.055, 0.17), (0.072, 0.27), (0.083, 0.38),
             (0.082, 0.47), (0.068, 0.57), (0.05, 0.66), (0.042, 0.73), (0.05, 0.78), (0.066, 0.82), (0.066, 0.86),
             (0.052, 0.9)]
+
+# the balusters' LOD turnings: level -> (sides, outline tolerance of lean_profile)
+BALUSTER_LODS = {1: (8, 0.006), 2: (6, 0.015), 3: (4, 0.04)}
 
 def smooth_profile(prof, n=22):
     """Turned profile (r, z) through a smooth curve: rounder silhouettes for lathe parts."""
@@ -1954,13 +2021,14 @@ build_sides(); build_deck_fittings()
 build_forecastle(); build_sterncastle(); build_ends(); build_markers()
 rudder = build_rudder()
 build_spur()
-build_banner_holders()
+build_banner_holders(); build_lantern_brackets()
 coll('cutters').hide_render = True; coll('cutters').hide_viewport = True
 
 # apply booleans and merge parts into one object per material role (the cabin floor is plain deck now: with the
 # furniture gone there is no separate interior mesh any more; 2026-10-08)
 dg = bpy.context.evaluated_depsgraph_get()
 by_role = {}
+LOD_ALT = {}                                                 # (role, lod) -> meshes of parts' own LOD versions
 for o, role in PARTS:
     me = bpy.data.meshes.new_from_object(o.evaluated_get(dg))
     me.transform(o.matrix_world)
@@ -1982,9 +2050,22 @@ for o, role in PARTS:
     # slivers round the stern chaser ports, white in game; the clean grid round the port is made where they are built).
     # So is the spur (user 2026-10-28: collapsed with the rest of the trim it went 430 -> 68 -> 3 -> 0 triangles, a
     # shredded beak at distance); ~800 triangles per LOD
+    # The stern post's carved scroll and the sternpost under it too (user 2026-11-08: at distance the collapse made a
+    # flat disc on a thin spike; gilt had no LOD3 at all)
+    if o.get('lod_only'):                                    # a part's own LOD version (balusters): into that LOD only
+        LOD_ALT.setdefault((role, o['lod_only']), []).append(me)
+        continue
+    ld = me.attributes.new('lod_drop', 'INT', 'FACE')        # > 0: gone from this LOD on (its LOD versions take over)
+    if o.get('lod_drop'):
+        for d in ld.data: d.value = o['lod_drop']
+    # the poop balustrade's posts and rails stay whole (boxes and square rails: few triangles; collapsed they broke up)
     keep = me.attributes.new('keep', 'INT', 'FACE')
-    if o.name.startswith(('end_wall', 'spur_')):
+    if o.name.startswith(('end_wall', 'spur_', 'stern_volute', 'sc_post', 'sc_rail')):
         for d in keep.data: d.value = 1
+    elif o.name.startswith('backbone'):
+        for p_ in me.polygons:
+            if p_.center.y < STERN_KEEP_Y:
+                keep.data[p_.index].value = 1
     by_role.setdefault(role, []).append(me)
 for role, meshes in by_role.items():
     bm = bmesh.new()
@@ -2097,8 +2178,25 @@ for o in list(coll('final').objects):
         continue
     for lvl, ratio in LOD_RATIO.items():
         if lvl >= LOD_DROP.get(o.name, 99):
+            # a dropped material still shows its kept faces (the stern scroll): a LOD of those alone
+            # ... and the parts' own LOD versions (the stern lantern)
+            ka = o.data.attributes.get('keep')
+            alts = LOD_ALT.get((o.name[len('galleass_'):], lvl), [])
+            if (ka and any(d.value for d in ka.data)) or alts:
+                me = o.data.copy(); me.name = f'{o.name}.lod{lvl}'
+                bk = bmesh.new(); bk.from_mesh(me); lay = bk.faces.layers.int.get('keep')
+                bmesh.ops.delete(bk, geom=[f for f in bk.faces if lay is None or not f[lay]], context='FACES')
+                for am in alts: bk.from_mesh(am)
+                bk.to_mesh(me); bk.free()
+                lo = bpy.data.objects.new(me.name, me); coll('lods').objects.link(lo)
+                lo.matrix_world = o.matrix_world
             continue
         me = o.data.copy(); me.name = f'{o.name}.lod{lvl}'
+        la = me.attributes.get('lod_drop')
+        if la and any(0 < d.value <= lvl for d in la.data):   # parts with their own LOD versions (added after)
+            bk = bmesh.new(); bk.from_mesh(me); lay = bk.faces.layers.int.get('lod_drop')
+            bmesh.ops.delete(bk, geom=[f for f in bk.faces if 0 < f[lay] <= lvl], context='FACES')
+            bk.to_mesh(me); bk.free()
         kept = None                                         # lining faces: out of the decimation, added back after
         ka = me.attributes.get('keep')
         if ka and any(d.value for d in ka.data):
@@ -2129,6 +2227,13 @@ for o in list(coll('final').objects):
         if kept is not None:
             bk = bmesh.new(); bk.from_mesh(nm); bk.from_mesh(kept); bk.to_mesh(nm); bk.free()
             bpy.data.meshes.remove(kept)
+        alts = LOD_ALT.get((o.name[len('galleass_'):], lvl), [])
+        if alts:
+            bk = bmesh.new(); bk.from_mesh(nm)
+            for am in alts: bk.from_mesh(am)
+            bk.to_mesh(nm); bk.free()
+            nm.materials.clear()
+            for m in o.data.materials: nm.materials.append(m)
         if o.name == 'galleass_paint':
             PAINT_LODS[lvl] = nm
         if o.name == 'galleass_hull':

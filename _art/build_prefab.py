@@ -1829,29 +1829,118 @@ for e in kids(files['hull_group']):
     n += 1
 report.append('hull plating: %d upgrades -> galleass_hull_plate with %s' % (n, {k: v[1] for k, v in PLATE.items()}))
 
-# --- lanterns hang on the masts on vanilla's iron arms (nord_lantern_nested: hook 0.75 m from the mast's centre,
-# arm pointing out along the entity's +y): pairs either side of the main and mizzen masts, one on the fore mast
-# looking aft over the forecastle platform; LANTERN_H above each mast's deck (vanilla: 2.7 .. 3.5 m)
-LANTERN_H, LANTERN_ARM = 3.2, 0.75       # 2.8 hung too low (user 2026-10-13)
-RAKES = {m: rk for _, m, _, rk, _ in RIGS}
-def mast_y(mast, z):
-    deck = Z_FC if mast == 'fore' else Z_DECK
-    return MASTS[mast] + (z - deck) * math.tan(-RAKES[mast])
-lan = kids(files['torch_holder'])
-side = [e for e in lan if abs(tf(e)[1][2]) > 1.0 and abs(abs(tf(e)[1][2]) - math.pi) > 0.5]
-single = [e for e in lan if e not in side]
-assert len(side) == 4 and len(single) == 1, (len(side), len(single))
-spots = []
-for mast, pair in (('main', side[:2]), ('mizzen', side[2:])):
-    z = Z_DECK + LANTERN_H
-    for e in pair:
-        sgn = 1 if tf(e)[0][0] > 0 else -1
-        write_tf(e, pos=(sgn * LANTERN_ARM, mast_y(mast, z), z), rot=(0.0, 0.0, sgn * -math.pi / 2))
-        spots.append((mast, round(sgn * LANTERN_ARM, 2), round(mast_y(mast, z), 2), round(z, 2)))
-z = Z_FC + LANTERN_H
-write_tf(single[0], pos=(0.0, mast_y('fore', z) - LANTERN_ARM, z), rot=(0.0, 0.0, math.pi))     # arm points aft
-spots.append(('fore', 0.0, round(mast_y('fore', z) - LANTERN_ARM, 2), round(z, 2)))
-report.append('lanterns on the masts: %s' % spots)
+# --- mast lanterns (user 2026-10-28): our horn lanterns (lantern_model.py) hang by their ring on the hooks of the
+# model's iron brackets (lantern_mounts(): main and mizzen one each side, fore aft over the forecastle platform). The 5
+# vanilla nord_lantern_nested entities keep their SwingingObject (it swings the child tagged swinging_entity about the
+# entity's origin = our hook; the limit towards the mast is the direction of the child 'collision_sphere') and lose
+# what they show: hook (part_02), chains (part_01) and the fire cage (lantern_holder) are hidden; our lantern goes into
+# the swinging entity. Their light stays LINKED (the stern lantern copies its base) with overrides: the wood and the
+# fire particle hidden, the lamp moved to the candle, dimmer and steadier, its flame Native's candle sprite (as the
+# torch_candle_*_fire lights). The horn panes are see-through (Kit: modulate + alpha test), so at night the candle's
+# light on the inside shows through them (user 2026-10-28: a lit shell inside the panes hid the candle - dropped).
+# GALLEASS_LANTERN_FLAME=particle keeps vanilla's lantern fire instead.
+import json
+LJ = json.load(open(os.path.join(_ART, 'ref', 'galleass_lantern.json')))
+FLAME_Z = LJ['flame'][2]
+LANTERN_SWING_LIMIT = math.radians(30)          # towards the mast: the roof's inner edge meets the bracket's brace ~35
+LANTERN_LIGHT = dict(color='1.000, 0.700, 0.320', intensity=70.0, radius=4.0, flicker_interval=0.5, flicker_magnitude=0.4)
+CANDLE_SPRITE = dict(mesh='billboard_mesh', material='billboard_candle_flame', scale=0.07, color_scale=1.1)
+if not os.path.exists(os.path.join(_ART, '..', 'Assets', 'galleass_horn_lantern_geo.tpac')):
+    BELAY_MISSING.append('galleass_horn_lantern')
+
+def override(parent, c, seed):
+    """Own override of child c of parent, still linked to it (c itself if it is already an own child)."""
+    if any(x is c for x in kids(parent)):
+        return c
+    g = c.find('prefab_link/instance').get('guid')
+    o = el('entity', {'name': name_of(c)}, el('prefab_link', None, el('instance', {'guid': guid(seed + g)}),
+                                               el('prefab', {'guid': g})))
+    ch = parent.find('children')
+    if ch is None:
+        ch = ET.SubElement(parent, 'children')
+    ch.append(o)
+    return o
+
+def ordered(e):
+    e[:] = sorted(e, key=lambda x: ORDER.index(x.tag) if x.tag in ORDER else len(ORDER))
+
+def kid(e, name):
+    return next(c for c in eff_kids(e) if name_of(c) == name)
+
+lan = [e for e in kids(files['torch_holder']) if name_of(e) == 'nord_lantern_nested']
+assert len(lan) == 5, len(lan)
+mounts = G['lantern_mounts']()
+assert len(mounts) == 5
+VANILLA_LANTERN_LIGHT = base(kid(kid(lan[0], 'swinging_object'), 'light'))   # (the stern lantern copies it)
+free, spots = list(lan), []
+for M in mounts:
+    hx, hy, hz = M['hook']; dx, dy = M['out']
+    e = min(free, key=lambda x: (tf(x)[0][0] - hx) ** 2 + (tf(x)[0][1] - hy) ** 2); free.remove(e)
+    s = M['name']
+    # entity +y points out from the mast (as vanilla's arm): yaw so that +y -> out. The pivot (= the lantern's origin,
+    # the top of the ring's inside) is the arm's TOP: the arm runs through the ring, which hangs over it (user
+    # 2026-11-08: at the hook = the arm's underside the ring hung below the arm)
+    write_tf(e, pos=(hx, hy, hz + 2 * G['LANTERN_ROD'] + LIFT), rot=(0.0, 0.0, math.atan2(-dx, dy)))
+    hide(e, kid(e, 'nord_lantern_part_02'))
+    for sph in [c for c in eff_kids(e) if name_of(c) == 'collision_sphere']:    # (vanilla carries two)
+        sph = override(e, sph, 'lantern/%s/sphere/' % s)
+        _, _, sc_ = tf(sph)
+        write_tf(sph, pos=(0.0, -0.3 * math.sin(LANTERN_SWING_LIMIT), -0.3 * math.cos(LANTERN_SWING_LIMIT)))
+        set_transform(sph, scale=tuple(sc_) if any(abs(v - 1) > 1e-6 for v in sc_) else (0.05, 0.05, 0.05))
+        ordered(sph)
+    set_script_var(e, 'SwingingObject', 'Mass', 1.5)
+    set_script_var(e, 'SwingingObject', 'Center of Mass Height', LJ['com'][2])
+    set_script_var(e, 'SwingingObject', 'Moment Of Inertia', 0.06)
+    sw = override(e, kid(e, 'swinging_object'), 'lantern/%s/swing/' % s)
+    hide(sw, kid(sw, 'nord_lantern_part_01'))
+    hide(sw, kid(sw, 'lantern_holder'))
+    body = new_entity('galleass_lantern', 'lantern/%s/body' % s)
+    write_tf(body, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, math.pi / 2))          # model +x (door) -> entity +y (out)
+    body.append(mobility()); body.append(mesh_component('lantern/%s/body' % s, 'galleass_horn_lantern'))
+    sw.find('children').append(body)
+    # the light: at the flame; its lamp re-set, wood and fire hidden
+    li = override(sw, kid(sw, 'light'), 'lantern/%s/light/' % s)
+    write_tf(li, pos=(0.0, 0.0, FLAME_Z), rot=(0.0, 0.0, 0.0))
+    hide(li, kid(li, 'burning_campfire'))
+    flame = kid(li, 'prt_torch_light')
+    particle = os.environ.get('GALLEASS_LANTERN_FLAME') == 'particle'
+    if particle:
+        flame = override(li, flame, 'lantern/%s/flame/' % s)
+        write_tf(flame, pos=(0.0, 0.0, -0.012)); ordered(flame)
+    else:
+        hide(li, flame)
+    lamp_base = kid(li, 'torch_light')
+    lamp = override(li, lamp_base, 'lantern/%s/lamp/' % s)
+    write_tf(lamp, pos=(0.0, 0.0, 0.0))
+    comp_g = (lamp_base.find('components/light_component/prefab_link/instance') if lamp_base.find('components') is not None
+              else base(lamp_base).find('components/light_component/prefab_link/instance')).get('guid')
+    drop(lamp, 'components')
+    L = LANTERN_LIGHT
+    misc = [('light_flags', 'int', '96'), ('light_color', 'vec3', L['color']),
+            ('light_intensity', 'float', '%.3f' % L['intensity']), ('light_radius', 'float', '%.3f' % L['radius']),
+            ('light_flicker_interval', 'float', '%.3f' % L['flicker_interval']),
+            ('light_flicker_magnitude', 'float', '%.3f' % L['flicker_magnitude']),
+            ('light_local_frame_rot', 'mat3', ', '.join('%.6f' % (L['radius'] if i % 4 == 0 else 0) for i in range(9))),
+            ('light_hotspot_angle', 'float', '30.000'), ('light_falloff_angle', 'float', '45.000'),
+            ('light_shadow_radius', 'float', '%.3f' % L['radius'])]
+    if not particle:
+        C = CANDLE_SPRITE
+        misc += [('light_sprite_mesh_name', 'string', C['mesh']), ('light_sprite_material_name', 'string', C['material']),
+                 ('light_relative_sprite_position', 'vec3', '0.000, 0.000, 0.000'),
+                 ('light_sprite_scale', 'float', '%.3f' % C['scale']),
+                 ('light_sprite_color_scale', 'float', '%.3f' % C['color_scale'])]
+    lamp.append(el('components', None, el('light_component', {'name': 'light'},
+        el('prefab_link', None, el('instance', {'guid': guid('lantern/%s/lampc' % s)}), el('prefab', {'guid': comp_g})),
+        el('misc', None, *[el(k, {'type_name': t, 'value': v}) for k, t, v in misc]))))
+    if lamp.find('misc') is None:
+        lamp.append(mobility())
+    ordered(lamp)
+    for x in (li, sw, e):
+        ordered(x)
+    spots.append((s, round(hx, 2), round(hy, 2), round(hz + 2 * G['LANTERN_ROD'] + LIFT, 3)))
+report.append('mast lanterns (horn, own brackets; flame %s, light i %.0f r %.0f): %s'
+              % ('particle' if os.environ.get('GALLEASS_LANTERN_FLAME') == 'particle' else 'candle sprite',
+                 LANTERN_LIGHT['intensity'], LANTERN_LIGHT['radius'], spots))
 
 # --- no fore weapon slot on the galleass (user 2026-10-07: cannons only, they come from their own project): the
 # vanilla ballistas/siphon go; the hull XML has no fore slot any more
@@ -1871,10 +1960,10 @@ LIGHT_Z0, LIGHT_R, LIGHT_I = LANTERN_Z0 + 0.95 / 2, 14.0, 220.0  # middle of the
 # at scale 1 (origin at its bottom; vanilla lantern 0.189) -> 0.44 = a 0.55 m pile on the bowl floor; the flame is
 # vanilla's ship torch fire (psys_torch_fire_moving; its torches light r 20 / i 100) instead of the small lantern fire
 EMBER_S, TORCH_FIRE = 0.44, ('psys_torch_fire_moving', '{516757BC-A1C9-44C7-84DF-9EA28E4E1055}')
-src = next(e for e in th.iter('entity') if e.get('name') == 'light')
 # not a link: its base is an entity INSIDE nord_lantern_nested, which may not resolve outside that prefab (night
-# test 2026-10-08: still dark) -> copy the full vanilla definition (all base links there are already zero)
-src = base(src)
+# test 2026-10-08: still dark) -> copy the full vanilla definition (all base links there are already zero); taken
+# before the mast lanterns' overrides (which keep the link)
+src = VANILLA_LANTERN_LIGHT
 assert src is not None and all(p.get('guid') == ZERO for p in src.iter('prefab')), 'vanilla lantern light'
 light = copy_regen(src, 'galleass-stern-lantern/')
 write_tf(light, pos=(0.0, G['LANTERN_Y'], LANTERN_Z0 + 0.12), rot=(0, 0, 0))
