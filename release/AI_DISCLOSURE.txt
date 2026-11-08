@@ -1,0 +1,71 @@
+GALLEASS - AI and asset disclosure
+===================================
+
+SHORT VERSION (for the submission form)
+---------------------------------------
+The entry's custom 3D assets are AI-generated in the following sense: I worked in
+conversation with an AI assistant (Claude by Anthropic, used through Claude Code): I described in plain language what each part should be, the assistant wrote Python scripts for Blender that build it, showed me renders or put it in the game, and I judged the result and asked for changes - over many rounds per part, until it was right. Every custom mesh, its UVs and LODs, the procedural textures and the prefab assembly were produced this way. No image or 3D generative model (text-to-image / text-to-3D) was used: every shape exists as readable, deterministic code.
+
+
+FULL VERSION
+------------
+
+1. What the entry is
+   A 16th-century Venetian galleass for War Sails: hull and superstructure, forecastle and sterncastle, 24 guns with
+   carriages, stores and gun rigging, masts, bowsprit, standing rigging, belaying fittings, lanterns, stern lantern
+   and the ship's data (hull, slots, mission ship). It ships as a module with Client and Editor packages and the FBX /
+   PNG sources. The module contains NO scripts or DLLs.
+
+2. How it was made (the AI's part)
+   I worked with an AI assistant (Claude by Anthropic, through Claude Code) from 6 October to 8 November 2026, in a
+   prompt-and-iterate loop:
+     - I gave the idea or the change in plain language, often with reference images or screenshots from the game
+       ("a square wooden ship's lantern with horn panes and a pierced tin top", "the ring must hang over the arm",
+       "the scroll looks squashed at a distance");
+     - the assistant wrote or changed the Blender Python code, built the part and showed me renders (or exported it
+       for the game);
+     - I judged it, in renders and in the game, and gave corrections; this repeated - often five to ten rounds per
+       part - until it looked right.
+   So the assistant generated the geometry, from my descriptions and feedback; I did not model the meshes by hand.
+   The generation goes through code, not through an image or 3D generative model, so every part is reproducible and
+   editable as a script. Concretely, AI-written code produced:
+   - All custom meshes, procedurally in Blender (Python): hull and superstructure (galleass_model.py), masts and
+     bowsprit (mast_model.py), guns and carriages (cannon_model.py, export_guns.py), stores, lockers and ladles
+     (stores_model.py), belaying pins and bitts (belay_model.py), the command desk (helm_model.py), the horn lanterns
+     (lantern_model.py), gun rigging and standing rigging (gun_rigging.py, standing_rig.py), collision shapes.
+   - Their UV layouts and LOD levels (grain_uv.py, lod_util.py and the LOD code in the generators).
+   - Procedural textures: galleass_horn_d (horn panes), galleass_painted_plank_d, galleass_flat_n,
+     galleass_default_specular, galleass_plain_white; and processed native textures (see 4).
+   - The nested ship prefab (build_prefab.py writes nested_prefabs_packed.xml: placement of the native rigs, sails,
+     oars, ropes, lanterns, banners, crew spots, collision and the ship's navigation mesh).
+   - The ship XMLs (hull, slots, mission ship, culture XSLT) and the ship-card GUI files, written together.
+   - Crew animation clips in AssetSources/anim (keyframed by script; used only by a separate add-on, inert here).
+   - Helper tools for checking UVs, LODs, triangle budgets and the release package.
+   The generator scripts are not part of the module; they are public on GitHub: https://github.com/Mder1/Galleass
+
+3. What I did
+   - Concept, the choice of a Lepanto-era Venetian galleass, and the historical research (overall proportions taken
+     from a published reference drawing, used for dimensions only and not included anywhere; guns after Venetian
+     bronze pieces of the Alberghetti workshop; rigging, lanterns, gammoning, the horn panes, the sailing character).
+   - Art direction and every design decision over ~210 commits: what each part should look like, what was wrong, what
+     to change - judged in renders and in the game.
+   - All Modding Kit work: importing meshes and textures, creating and tuning materials, LOD and faction-colour tags,
+     physics shapes, publishing.
+   - Testing in the game (campaign, battles, boarding, fire, night lighting, a clean playset with only this module)
+     and the screenshots.
+
+4. Native (TaleWorlds / War Sails) assets used - allowed by the competition rules
+   - In the prefab, unchanged: the lateen and square rigs with their sails, yards, pulleys and running ropes; the
+     rope meshes of the gun rigging; banners; the swinging lantern logic and lights; deck upgrade props; boarding
+     gear.
+   - Native textures copied into the module: ship_meditheavy plank and deck, ship_liburna deck and pattern, the ram
+     bronze and iron (as galleass_ram_*).
+   - Derived from native assets: the oars (native 8 m oars with a lengthened shaft); galleass_rope_* (native ship ropes,
+     tinted); galleass_sack_* (native awning canvas, tinted); galleass_painted_plank_d (native hull planking turned
+     into neutral paint); galleass_gun_bronze_* (native ram bronze resampled, with cast reliefs added).
+
+5. Third-party material
+   - Lion of St Mark relief on the guns: "Lion of St Mark.svg" by Patrick87, Wikimedia Commons, public domain.
+   - Lettering on the guns: Noto Serif (SIL Open Font License), rendered into the height map.
+   - Ship-card picture: an in-game screenshot.
+   - No other third-party assets; no reference image is included in the module or the repository.

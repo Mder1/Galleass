@@ -20,3 +20,6 @@ EmAssetPackages/
 # ship card: vanilla reference cards (TaleWorlds art), previews and the backup copy stay local
 _art/gui/ref/
 _art/gui/*.png
+
+# release build output (release/make_release.sh)
+release/out/
