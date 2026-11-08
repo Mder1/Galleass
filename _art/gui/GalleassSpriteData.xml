@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SpriteData>
+  <SpriteCategories>
+    <SpriteCategory>
+      <Name>ui_galleass</Name>
+      <AlwaysLoad />
+      <SpriteSheetCount>1</SpriteSheetCount>
+      <SpriteSheetSize ID="1" Width="512" Height="256" />
+    </SpriteCategory>
+  </SpriteCategories>
+  <SpriteParts>
+    <SpritePart>
+      <SheetID>1</SheetID>
+      <Name>ShipThumbnails\galleass</Name>
+      <Width>400</Width>
+      <Height>225</Height>
+      <SheetX>4</SheetX>
+      <SheetY>4</SheetY>
+      <CategoryName>ui_galleass</CategoryName>
+    </SpritePart>
+  </SpriteParts>
+  <Sprites>
+    <GenericSprite>
+      <Name>ShipThumbnails\galleass</Name>
+      <SpritePartName>ShipThumbnails\galleass</SpritePartName>
+    </GenericSprite>
+  </Sprites>
+</SpriteData>

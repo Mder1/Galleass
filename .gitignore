@@ -16,3 +16,7 @@ AssetSources/textures/
 AssetSources/*.fbx
 AssetSources/*.png
 EmAssetPackages/
+
+# ship card: vanilla reference cards (TaleWorlds art), previews and the backup copy stay local
+_art/gui/ref/
+_art/gui/*.png

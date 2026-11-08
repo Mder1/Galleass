@@ -1,0 +1,7 @@
+<Brushes>
+  <Brush Name="Galleass.ShipThumbnails" OverrideBrush="Naval.ShipThumbnails">
+    <Layers>
+      <BrushLayer Name="galleass_ship_nested" Sprite="ShipThumbnails\galleass"/>
+    </Layers>
+  </Brush>
+</Brushes>
