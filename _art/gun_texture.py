@@ -6,28 +6,28 @@ The layout is gun_uv.py's (culverin strip, falcon strip shared by the falconet, 
 the vanilla ram bronze (galleass_ram_bronze_d/_n/_s, the textures galleass_gilt uses), resampled at its own scale in
 surface metres, so the guns keep the look they had. On top, cast reliefs placed in surface metres (arc length from
 the top line, distance along the barrel) and turned into normals with the true pixel size of every row:
-  culverin: Lion of St Mark (andante, tex_src/lion_of_st_mark.png, public domain) on the plain band of the chase,
+  culverin: winged lion (andante, the hand drawing via relief_art.lion_relief_drawn) on the plain band of the chase,
             founder's initials M * W under it, the date on the base ring's broad fillet;
   falcon:   oval cartouche with scrolls round the lion on the chase, M * W on the reinforce behind the trunnions,
             the date on the base ring (the falconet shares the strip, scaled).
-Inscriptions read from behind the breech (letter tops toward the muzzle). Dirt and dark patina collect round the
+Inscriptions read from behind the breech (letter tops toward the muzzle). The lion is the user's own pencil drawing
+(_art/tex_src/lion_drawn.png), the Roman capitals own outlines (relief_art.py); no third-party image or font. Dirt and dark patina collect round the
 reliefs and in the culverin's spiral ribs and flutes (gun_profiles.culverin_mod).
 NORMAL_GREEN_DOWN flips the green channel (DirectX convention) should the reliefs look sunken in game.
 """
 import math, os, sys
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFilter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import gun_profiles as gp
 import gun_uv
+import relief_art
 
 OUT = sys.argv[1]
 PREVIEW = sys.argv[2] if len(sys.argv) > 2 else None
 SRC = os.path.join(HERE, '..', 'AssetSources')            # the Kit's copies of the vanilla ram bronze
-LION = os.path.join(HERE, 'tex_src', 'lion_of_st_mark.png')
-FONT = '/usr/share/fonts/google-noto/NotoSerif-Bold.ttf'
 A = gun_uv.ATLAS
 DETAIL_PX_PER_M = 1024                                   # vanilla ram bronze: 2048 px at 0.5 UV/m (old gilt UVs)
 NORMAL_GREEN_DOWN = False
@@ -91,28 +91,13 @@ def bevel(mask, height, soft):
     return height * t * t * (3 - 2 * t)
 
 def lion_patch(width, height=0.0022):
-    im = Image.open(LION).convert('RGBA')
-    w = px(width); h = int(round(w * im.height / im.width))
-    im = im.resize((w, h), Image.LANCZOS)
-    a = np.asarray(im).astype(np.float32) / 255.0
-    mask = a[..., 3]
-    lum = (0.3 * a[..., 0] + 0.59 * a[..., 1] + 0.11 * a[..., 2])
-    lum = np.where(mask > 0.01, lum, 0.0)
-    base = bevel(mask, height * 0.75, 0.0012)
-    # the drawing's shading as modelling: dark outlines become grooves, light fills stand highest
-    det = blur(np.clip((lum - 0.25) / 0.6, 0, 1), px(0.0003)) * mask
-    return base + height * 0.25 * det * (base / (height * 0.75 + 1e-9))
+    """The winged lion (relief_art.lion_relief_drawn: the hand drawing, relative 0..1) as heights in metres,
+    'width' metres wide."""
+    return relief_art.lion_relief_drawn(px(width)) * height
 
 def text_patch(text, cap_h, height=0.0012, spacing=0.25):
     """Raised capitals (cap height cap_h) with rounded shoulders; letters spaced 'spacing' x cap height."""
-    size = px(cap_h) * 1.4
-    font = ImageFont.truetype(FONT, int(size))
-    glyphs = []
-    for ch in text:
-        bb = font.getbbox(ch)
-        g = Image.new('L', (bb[2] - bb[0] + 4, bb[3] - bb[1] + 4), 0)
-        ImageDraw.Draw(g).text((2 - bb[0], 2 - bb[1]), ch, font=font, fill=255)
-        glyphs.append(np.asarray(g).astype(np.float32) / 255.0)
+    glyphs = [relief_art.glyph(ch, px(cap_h)) for ch in text]
     return hstack(glyphs, px(cap_h * spacing), height)
 
 def rosette_patch(d, height=0.0012, petals=6):

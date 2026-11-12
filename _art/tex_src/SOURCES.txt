@@ -1,7 +1,12 @@
-lion_of_st_mark.png
-  "Lion of St Mark.svg" by Patrick87, Wikimedia Commons, PUBLIC DOMAIN (released by the author;
-  extracted from "Flag of Most Serene Republic of Venice.svg").
-  https://commons.wikimedia.org/wiki/File:Lion_of_St_Mark.svg
-  Raster: the Commons 1920 px rendering of that SVG. Used as the relief of the Lion of St Mark on the guns.
+No third-party sources.
 
-Lettering (founder's initials, date): Noto Serif (SIL Open Font License), rendered into the height map.
+lion_drawn.png: the winged lion of the gun reliefs, the author's own pencil drawing (2026-11-12), scanned at
+600 dpi, turned upright, contrast raised, specks removed, cropped to the lion and scaled to 3000 px wide.
+Cleanup of the scan was script-assisted: faint erased pencil marks on the body removed, the belly line and the
+wing's front corner redrawn as smooth curves, one eyebrow moved level with the other.
+_art/relief_art.py (lion_relief_drawn) turns it into the relief height field; the founder's initials and the
+date are Roman capitals built from strokes in the same script (no font).
+
+Until 2026-11-12 the lion was a public-domain Commons drawing and the lettering Noto Serif; both were
+replaced because the 3D Art contest rules allow no derivatives of third-party assets. A lion drawn from own
+curves by script (relief_art.lion_relief) followed briefly; the hand drawing replaced it the same day.

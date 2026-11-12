@@ -9,9 +9,9 @@
 	<MultiplayerModule value="false"/>
 	<ModuleType value="Community"/>
 	<DependedModules>
-		<DependedModule Id="Native" DependentVersion="v1.5.6" Optional="false"/>
-		<DependedModule Id="SandBoxCore" DependentVersion="v1.5.6" Optional="false"/>
-		<DependedModule Id="NavalDLC" DependentVersion="v1.3.6" Optional="false"/>
+		<DependedModule Id="Native" DependentVersion="v1.5.7" Optional="false"/>
+		<DependedModule Id="SandBoxCore" DependentVersion="v1.5.7" Optional="false"/>
+		<DependedModule Id="NavalDLC" DependentVersion="v1.3.7" Optional="false"/>
 	</DependedModules>
 	<DependedModuleMetadatas>
 		<DependedModuleMetadata id="Native" order="LoadBeforeThis"/>

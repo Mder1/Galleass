@@ -47,6 +47,7 @@ FULL VERSION
    - Concept, the choice of a Lepanto-era Venetian galleass, and the historical research (overall proportions taken
      from a published reference drawing, used for dimensions only and not included anywhere; guns after Venetian
      bronze pieces of the Alberghetti workshop; rigging, lanterns, gammoning, the horn panes, the sailing character).
+   - The winged lion of St Mark cast on the guns: drawn by hand in pencil (see 5).
    - Art direction and every design decision over ~210 commits: what each part should look like, what was wrong, what
      to change - judged in renders and in the game.
    - All Modding Kit work: importing meshes and textures, creating and tuning materials, LOD and faction-colour tags,
@@ -65,7 +66,9 @@ FULL VERSION
      into neutral paint); galleass_gun_bronze_* (native ram bronze resampled, with cast reliefs added).
 
 5. Third-party material
-   - Lion of St Mark relief on the guns: "Lion of St Mark.svg" by Patrick87, Wikimedia Commons, public domain.
-   - Lettering on the guns: Noto Serif (SIL Open Font License), rendered into the height map.
+   - None in the reliefs. The winged lion on the guns is my own pencil drawing, scanned (_art/tex_src/lion_drawn.png).
+     The scan was cleaned up with script help (erased marks removed, the belly line and the wing's front corner
+     redrawn, one eyebrow moved level), and a script (_art/relief_art.py) turns it into the relief. The lettering is
+     Roman capitals built from strokes by script; no font or third-party image.
    - Ship-card picture: an in-game screenshot.
    - No other third-party assets; no reference image is included in the module or the repository.
