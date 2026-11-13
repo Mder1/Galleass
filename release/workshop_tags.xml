@@ -1,0 +1,12 @@
+<Tasks>
+	<GetItem>
+		<ItemId Value="3838811036"/>
+	</GetItem>
+	<UpdateItem>
+		<Tags>
+			<Tag Value="Native"/>
+			<Tag Value="Medieval"/>
+		</Tags>
+		<ChangeNotes Value="Workshop tags"/>
+	</UpdateItem>
+</Tasks>
