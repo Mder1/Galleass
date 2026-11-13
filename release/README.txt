@@ -6,7 +6,7 @@ castles fore and aft, 24 bronze guns, three lateen masts and a spritsail, horn l
 Entry for the War Sails Modding Competition (3D Art - Ships).
 
 REQUIREMENTS
-  Mount & Blade II: Bannerlord v1.5.6 with War Sails (NavalDLC) v1.3.6. No other mods, no code (no DLL).
+  Mount & Blade II: Bannerlord v1.5.7 with War Sails (NavalDLC) v1.3.7. No other mods, no code (no DLL).
 
 INSTALL
   Unzip so that the folder "Galleass" sits in  <Bannerlord>/Modules/ , then tick "Galleass" in the launcher

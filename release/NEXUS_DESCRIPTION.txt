@@ -1,0 +1,25 @@
+Adds the Galleass, a 16th-century Venetian war galley, as a new heavy ship to War Sails.
+
+A floating fortress with fighting castles fore and aft, 24 bronze guns along her sides, three lateen masts and a spritsail, and horn lanterns that light up at night. The planking is painted in your faction's colours.
+
+Where to get it:
+Purchasable in the ports of Empire towns.
+Empire lords can get it for their fleets as well.
+Not available in naval custom battle (only the game's own ships are listed there).
+
+The ship:
+Heavy class, crew of 112, large cargo hold (4800).
+Shallow draft, so it can take part in naval raids and sail on rivers.
+
+Balance: Slow under oars and slow to turn in battle, but strong under sail. Fast on the campaign map.
+The guns are decoration in this mod; they do not fire.
+
+Entry for the TaleWorlds War Sails Modding Competition (3D Art - Ships). Made with AI help (code-generated models, no image or 3D generative AI); details in AI_DISCLOSURE.txt. The winged lion on the guns is my own drawing.
+
+Source files (FBX/PNG) are included; the scripts are on GitHub: https://github.com/Mder1/Galleass
+
+
+Requirements:
+Mount & Blade II: Bannerlord v1.5.7 - Older versions are not compatible.
+War Sails DLC (NavalDLC) v1.3.7 - Older versions are not compatible.
+No other mods needed (no Harmony, no DLL).
