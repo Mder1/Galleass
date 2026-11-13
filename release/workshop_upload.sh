@@ -7,7 +7,7 @@
 # First upload: publishedfileid in workshop_item.vdf is 0 -> a new PRIVATE item is created with the title, the
 # description from workshop_description.txt and visibility 2; the id is written back into workshop_item.vdf, and
 # later runs only update files + change note (description, visibility and screenshots are edited on the Steam page).
-# Login: cached in /opt/steamcmd/home (user mder1); without the cache steamcmd asks for password + Steam Guard. Tags: release/workshop_tags.sh afterwards.
+# Login: cached in /opt/steamcmd/home; without the cache steamcmd asks for password + Steam Guard. Tags: release/workshop_tags.sh afterwards.
 set -e
 cd "$(dirname "$0")"
 LOGIN=${1:?usage: sh release/workshop_upload.sh <steam login> "<change note>"}
